@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/db/*.duckdb
+data/raw/*.json
+!data/db/.gitkeep
+!data/raw/.gitkeep
+.pytest_cache/
+*.egg-info/
+.DS_Store
+desktop.ini
+.claude/

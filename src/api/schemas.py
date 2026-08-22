@@ -1,0 +1,14 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, description="A plain-English question about the games catalog.")
+
+
+class AskResponse(BaseModel):
+    answer: str
+    sql: str | None = None
+    columns: list[str] | None = None
+    rows: list[list] | None = None

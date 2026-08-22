@@ -1,0 +1,111 @@
+# AI Game Analyst
+
+A tool-using AI agent that answers plain-English questions about the video
+game market by writing and running real SQL against a database it ingested
+itself — not a fixed dashboard, not a chatbot answering from memory. This
+is **Slice 1** of a larger project (see [PLAN.md](PLAN.md) for the full
+roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
+
+## What's here right now
+
+- A SteamSpy ingestion script that builds a local DuckDB catalog of ~200 games
+- A read-only, guarded DuckDB connection — SELECT-only and row-capped,
+  enforced by a real SQL parser in code, not by trusting the prompt
+- A minimal LangGraph agent with one tool (`run_sql`) and a self-correcting
+  retry loop (SQL errors get fed back to the model, up to 3 attempts)
+- A FastAPI `POST /ask` endpoint wiring it all together
+
+## Setup
+
+```bash
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+cp .env.example .env
+# then edit .env: set GROQ_API_KEY (free tier: https://console.groq.com/keys)
+```
+
+## Run it
+
+**1. Ingest data** (one-time; re-running is safe, it won't duplicate rows):
+
+```bash
+python -m src.ingestion.ingest
+```
+
+Takes a few minutes — SteamSpy asks for ~1 request/second on the per-game
+detail endpoint. Progress prints every 25 games. Raw API responses are
+cached to `data/raw/`, so re-running after a partial failure resumes fast
+instead of re-fetching everything.
+
+**2. Serve the API:**
+
+```bash
+uvicorn src.api.main:app --reload
+```
+
+**3. Ask it something:**
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the 5 most-owned free-to-play games?"}'
+```
+
+### Example questions to try
+
+- "What are the 5 highest-rated games with more than 1000 positive reviews?"
+- "What's the average price of games tagged as Action, and how does that compare to free-to-play games?"
+- "Which game has the highest peak concurrent player count?"
+
+The response includes the natural-language answer, the SQL the agent
+actually ran, and the raw rows it got back — so you can sanity-check it.
+
+## Why the repo is structured this way
+
+```
+src/
+  config.py       one typed Settings object; nothing else reads os.environ directly
+  ingestion/       SteamSpy client + the ingest script
+  db/               table schema + the read-only guarded connection (the safety boundary)
+  agent/            LangGraph graph, prompts, the model-provider seam
+  tools/            run_sql today; stats/forecast/viz tools land in Slice 4
+  api/              FastAPI — thin, only translates HTTP <-> agent
+```
+
+Each package maps to one layer of the eventual full architecture
+(ingestion → storage → reasoning → tools → transport), so later slices
+mostly *add* files to these packages instead of restructuring. A few
+choices worth being able to defend:
+
+- **`api/` depends on `agent/`, never the reverse.** The agent has to be
+  runnable and traceable standalone, with no FastAPI import anywhere in
+  its call path. That also means the eventual deployment target (Vercel
+  Python functions vs. a separate Python host) is a decision that only
+  touches `api/`, not the agent logic.
+- **The SQL safety boundary lives in `db/connection.py`, not in the
+  agent or the prompt.** `validate_select_only()` parses every query
+  with a real SQL parser (sqlglot) and rejects anything that isn't a
+  single SELECT against an allowlisted table, independent of whatever
+  the LLM was told to do. The DuckDB connection is also opened
+  `read_only=True` as a second, independent layer.
+- **The self-correction retry loop is a visible graph node
+  (`execute_tools` in `src/agent/graph.py`), not hidden inside a
+  prebuilt LangGraph agent constructor.** I wrote the loop by hand
+  specifically so every step is something I chose and can explain,
+  rather than inherited default behavior from a library.
+- **The model provider is one config value** (`MODEL_PROVIDER` in
+  `.env`). `src/agent/llm_provider.py` is the only file that branches on
+  it; the graph just calls `get_llm()` and gets back a LangChain chat
+  model, with no idea whether it's Groq, Ollama, or (later) Gemini.
+
+## Not in this slice (see PLAN.md)
+
+RAG over the schema, the supervisor-router, extra analysis tools, evals,
+caching, the frontend, and deployment are all deliberately out of scope
+for Slice 1 — see PLAN.md for the full roadmap.
