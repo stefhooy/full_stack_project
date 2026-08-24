@@ -1,6 +1,8 @@
 .venv/
 frontend/
-data/
+data/db/
+data/raw/
+!data/player_counts_raw/
 .git/
 .claude/
 __pycache__/

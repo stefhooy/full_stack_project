@@ -937,3 +937,138 @@ rather than implying these are tested when they aren't.
   URL isn't known until after the frontend is deployed). Fine for a
   single deployment; would want automating if this had a staging
   environment too.
+
+---
+
+## Slice 7 — Live player-count time series
+
+**Date:** 2026-08-24
+
+### Two tables, two different freshness contracts
+
+`player_counts` isn't just "another table" — it has the opposite data
+character from `games`. SteamSpy's catalog reflects *current* state: every
+re-fetch overwrites what we knew, and there's zero value in an old
+snapshot (that's why `games` ingestion has always been UPSERT). Steam's
+live player-count endpoint has no history API at all — every poll captures
+a moment that can never be recovered later. That difference drove every
+design decision this slice: `games` is rebuilt fresh each run;
+`player_counts` only ever accumulates, and the raw polls themselves
+(not just the derived table) have to be preserved *somewhere durable*,
+because they're the only copy of that history that will ever exist.
+
+### Why polling and table-building are two separate scripts
+
+GitHub Actions runners are ephemeral — nothing written to a local file
+during one scheduled run survives to the next. So persistence has to
+happen through something that *does* persist: git. `poll_player_counts.py`
+does exactly one thing — fetch live counts, write a timestamped JSON
+snapshot, done. A separate script, `build_player_counts_table.py`, rebuilds
+the actual DuckDB table by replaying *every* committed snapshot
+(idempotent — `ON CONFLICT (appid, polled_at) DO NOTHING`). This is the
+same collect-raw-then-build split already established for SteamSpy in
+Slice 1 (`steamspy_client.py` caches to disk, `ingest.py` builds the table
+from it), applied for a different reason: there, the cache is a
+performance/idempotency shortcut; here, the raw snapshots *are* the
+durable data — the DuckDB table is the disposable, always-regenerable
+artifact, same as `games` always was.
+
+### Verified the "no API key" assumption before building around it
+
+Steam's docs are inconsistent about whether `GetNumberOfCurrentPlayers`
+needs a key. Curled it directly first: `?appid=730` returns real data with
+no key, `?appid=999999999` returns `{"result": 42}` (no data, but still
+HTTP 200). Built the client around that — then hit a *third* response
+shape in the actual 200-game poll run that the two-appid spot check
+didn't surface: a real, currently-catalogued appid returned a bare
+**404**, not the `result != 1` pattern. `resp.raise_for_status()` crashed
+the entire batch on that one appid. Root cause, best guess: SteamSpy's
+index and Steam's live store don't perfectly agree on what still exists —
+a game can be delisted from Steam while still sitting in SteamSpy's
+catalog. Fixed by treating a 404 the same as `result != 1` (skip this game,
+keep going) while still letting real connection failures (timeouts, 5xx)
+propagate and fail the run loudly — the same "some failures should skip,
+some should stop everything" judgment call as `sql_tool.py`'s error
+handling, just for a different kind of error. 199/200 games polled
+successfully after the fix; the one skip is correct, not a bug.
+
+### The payoff: zero agent code changed
+
+Added `player_counts` to `ALLOWLISTED_TABLES`, added its RAG corpus
+chunks, and — nothing else. Asked the agent *"What is the current live
+player count for Counter-Strike: Global Offensive?"* and it correctly
+wrote the join and answered right, with no change to graph.py, no new
+tool, no new route. This is exactly the payoff `schema.py`'s very first
+comment (Slice 1) promised: "this file is named schema.py and not
+games_table.py — it's meant to grow." Three slices later, growing it
+really was this cheap.
+
+### A real regression from adding a second table — caught and quantified, not just noticed
+
+Re-ran the full eval suite after adding `player_counts` (same discipline
+as every slice: don't just eyeball a few manual tests). A previously
+*passing* question — the CCU outliers question — now failed:
+
+```
+before Slice 7:  deterministic 5/6, avg judge 4.3/5
+after Slice 7:   deterministic 4/6, avg judge 3.7/5
+```
+
+Root cause, confirmed by checking retrieval directly rather than guessing:
+`games.peak_ccu` ("peak concurrent players yesterday") and the new
+`player_counts.player_count` ("live concurrent players right now") both
+plausibly answer "concurrent players," and both got retrieved — this
+wasn't a retrieval gap, `peak_ccu` was right there in the top-8. The model
+picked `player_counts.player_count` but the first attempt wrote
+`SELECT name, player_count FROM player_counts` — forgetting `player_counts`
+has no `name` column, exactly the mistake the join note exists to prevent.
+Added one more targeted RAG chunk explicitly disambiguating the two
+columns and when to use which
+(`metric:peak_ccu_vs_player_counts`).
+
+**Partial fix, and said so honestly:** on retry, the model *did* write the
+correct join this time — proof the disambiguation note worked for what it
+targeted. But instead of emitting that corrected query as a real
+structured tool call, it leaked the corrected query as prose with an
+embedded pseudo-JSON blob ("It seems like the `name` column is actually
+located in the `games` table... {"name": "run_stats", ...}") — a
+degraded-tool-calling failure, not a schema-confusion one. Traced the full
+message history (not just the final answer) to confirm this precisely:
+message 2 was a real malformed tool call (schema confusion, the bug the
+note targeted); message 4, after seeing the DuckDB error, contained the
+*correct* query but as narrated text, not a function call. Two different
+failure modes stacked in one run.
+
+Did not chase the second one further. It reproduced deterministically
+(temperature=0, identical output both times), which rules out random
+sampling noise, but it's the same category of small-model tool-calling
+unreliability documented since Slice 3 — a local 8B model narrating what
+it would do instead of doing it, under multi-turn retry pressure. Worth
+noting what *did* hold up despite the degraded output: the graph's
+termination guarantee — no infinite loop, no crash, the retry-cap design
+from Slice 1 worked exactly as intended even when the model's behavior
+was unexpected. The failure is in answer quality, not system safety.
+
+### Open questions (new)
+
+- **`data/player_counts_raw/` now holds one real snapshot** from this
+  session's local testing (199 games, genuinely polled from the live
+  Steam API, not synthetic) — kept it rather than deleting it, since it's
+  real collected data and gives a working demo a first data point before
+  the scheduled workflow has ever run.
+- **The peak_ccu vs. player_count disambiguation is unverified at scale.**
+  Confirmed it changes behavior (the retry attempt got the join right),
+  but the eval suite's `analysis_ccu_outliers` question still fails
+  end-to-end because of the separate tool-calling issue — can't yet tell
+  from one example whether the disambiguation note reliably prevents the
+  *schema* confusion on a fresh (non-retry) first attempt. Another
+  concrete case for running the eval suite N times once that's built out.
+- **The two GitHub Actions workflows are unverified against a live
+  GitHub repo** — no way to test a scheduled workflow, git push
+  permissions, or a real deploy hook from this local environment. First
+  real test is after the user pushes and enables Actions.
+- **No cron-frequency tuning.** 6-hourly polling and weekly catalog
+  refresh are reasonable starting guesses, not measured — worth revisiting
+  once there's enough `player_counts` history to see whether 6h resolution
+  actually shows interesting patterns (daily cycles, event spikes) or is
+  needlessly frequent.

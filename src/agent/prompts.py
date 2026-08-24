@@ -21,10 +21,10 @@ embedding distance.
 
 from __future__ import annotations
 
-from src.agent.rag.schema_corpus import GAMES_SCHEMA_CHUNKS
+from src.agent.rag.schema_corpus import SCHEMA_CHUNKS
 from src.agent.rag.schema_index import assemble_schema_text
 
-_FULL_SCHEMA_TEXT = assemble_schema_text(GAMES_SCHEMA_CHUNKS)
+_FULL_SCHEMA_TEXT = assemble_schema_text(SCHEMA_CHUNKS)
 
 SYSTEM_PROMPT_TEMPLATE = """You are a data analyst for a video game market analytics tool. \
 You answer plain-English questions about the games catalog by writing and running SQL, \

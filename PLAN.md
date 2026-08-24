@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 6 complete → starting Slice 7 next session**
+**Current slice: 7 complete → starting Slice 8 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -127,9 +127,26 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [ ] Actual live deployment — user's to do manually (per their preference)
 
 ## Slice 7 — Live player-count time series
-- [ ] Steam Web API `GetNumberOfCurrentPlayers` poller
-- [ ] Scheduled via GitHub Actions cron
-- [ ] New `player_counts` time-series table
+- [x] Steam Web API `GetNumberOfCurrentPlayers` client (src/ingestion/steam_web_client.py) —
+      public, no key needed (verified directly); handles both "no data" response shapes
+      found empirically (result != 1, and a real 404 for a delisted app)
+- [x] New `player_counts` time-series table + allowlisted for the agent + RAG corpus chunks —
+      the agent could already answer player-count questions with zero changes to graph.py,
+      exactly as promised by schema.py's "meant to grow" comment since Slice 1
+- [x] Collection/materialization split (src/ingestion/poll_player_counts.py writes a
+      timestamped JSON snapshot; build_player_counts_table.py rebuilds the table from all
+      committed snapshots) — snapshots are irreplaceable history and get committed to git;
+      the table itself stays derived/regenerable, same as `games`
+- [x] Scheduled via GitHub Actions cron (`.github/workflows/poll_player_counts.yml`, every
+      6h) — commits the new snapshot back to the repo
+- [x] Resolved the "will SteamSpy ingestion be dynamic?" question from earlier: a second
+      workflow (`refresh_catalog.yml`, weekly) pings the backend host's deploy hook, which
+      rebuilds the Docker image and re-runs ingestion — no-ops cleanly until the secret is set
+- [x] Dockerfile updated to materialize player_counts at build time too
+- [x] Found and fixed a real bug (404s crashing the poll batch) and found-but-didn't-chase a
+      real regression (adding a second "concurrent players" concept confused the local model
+      about which table a column lives on) — quantified via the eval harness: 5/6 → 4/6
+      deterministic, 4.3 → 3.7 avg judge score. See DOCEXP.md.
 
 ## Slice 8 — Optional extensions
 - [ ] Expose query tools as an MCP server

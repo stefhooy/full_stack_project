@@ -1,0 +1,36 @@
+name: Refresh catalog (trigger backend redeploy)
+
+# Answers the "will the SteamSpy catalog ever refresh?" question directly:
+# yes, by periodically rebuilding and redeploying the backend, since the
+# Dockerfile runs ingestion at *build* time (see DOCEXP.md's Slice 6 and 7
+# entries). This workflow doesn't touch data itself -- it just pokes the
+# host's deploy hook, which triggers a fresh Docker build, which re-runs
+# `python -m src.ingestion.ingest` against SteamSpy's live (always-current)
+# API.
+#
+# No-ops cleanly (green checkmark, not a failure) until DEPLOY_HOOK_URL is
+# set -- add it as a repo secret once you've actually deployed (Render and
+# Fly.io both provide a deploy-hook URL in their dashboards) to turn this
+# on. Weekly by default since catalog facts (price, reviews, owners) move
+# far slower than live player counts.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  trigger-redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backend redeploy via deploy hook
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "DEPLOY_HOOK_URL secret not set yet -- nothing to do."
+            echo "Add it (Settings > Secrets and variables > Actions) once the"
+            echo "backend is deployed -- see the README's Deploying section."
+            exit 0
+          fi
+          curl -fsS -X POST "$DEPLOY_HOOK_URL"

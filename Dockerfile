@@ -33,6 +33,13 @@ ARG INGEST_GAME_COUNT=200
 ENV INGEST_GAME_COUNT=${INGEST_GAME_COUNT}
 RUN python -m src.ingestion.ingest --count ${INGEST_GAME_COUNT}
 
+# player_counts (Slice 7): materialize the table from every snapshot the
+# poll_player_counts.yml GitHub Action has committed so far. Safe even
+# before that workflow has ever run — build_player_counts_table.py no-ops
+# cleanly if data/player_counts_raw/ doesn't exist yet.
+COPY data/player_counts_raw/ ./data/player_counts_raw/
+RUN python -m src.ingestion.build_player_counts_table
+
 # fastembed's ONNX model also downloads at build time here, via the first
 # import that constructs a SchemaIndex — done as a separate layer so a
 # requirements-only change doesn't force re-downloading it.

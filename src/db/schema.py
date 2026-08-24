@@ -1,11 +1,21 @@
-"""Catalog table schema.
+"""DB table schema.
 
-This is the only slice-1 table: one row per Steam game, as reported by
-SteamSpy. Slice 7 adds a second table (player-count time series); that's why
-this file is named schema.py and not games_table.py — it's meant to grow.
+Two tables: `games` (the SteamSpy catalog, Slice 1) and `player_counts`
+(a real time series, Slice 7) — that's why this file is named schema.py
+and not games_table.py, it was always meant to grow.
+
+The two tables have fundamentally different freshness semantics, which is
+why they're ingested differently (see src/ingestion/):
+  - `games` reflects SteamSpy's *current* state. Re-fetching always
+    overwrites what we know — there's no historical value in an old
+    snapshot, so it's rebuilt fresh (UPSERT) each ingestion run.
+  - `player_counts` is genuinely historical: Steam's live API has no
+    history endpoint, so each poll captures a moment that can never be
+    recovered later. Rows accumulate; nothing is ever overwritten.
 """
 
 GAMES_TABLE = "games"
+PLAYER_COUNTS_TABLE = "player_counts"
 
 CREATE_GAMES_TABLE_SQL = f"""
 CREATE TABLE IF NOT EXISTS {GAMES_TABLE} (
@@ -30,11 +40,19 @@ CREATE TABLE IF NOT EXISTS {GAMES_TABLE} (
 );
 """
 
+CREATE_PLAYER_COUNTS_TABLE_SQL = f"""
+CREATE TABLE IF NOT EXISTS {PLAYER_COUNTS_TABLE} (
+    appid         BIGINT,
+    player_count  INTEGER,   -- live concurrent players at polled_at, per Steam Web API
+    polled_at     TIMESTAMP,
+    PRIMARY KEY (appid, polled_at)
+);
+"""
+
 # Tables the agent's read-only connection is allowed to touch. The SQL guard
 # in connection.py checks table references against this list on top of the
-# SELECT-only check, so a query can't wander into tables that don't exist yet
-# (e.g. a future player_counts table before it's ready for agent use).
-ALLOWLISTED_TABLES = {GAMES_TABLE}
+# SELECT-only check, so a query can't wander into tables that don't exist yet.
+ALLOWLISTED_TABLES = {GAMES_TABLE, PLAYER_COUNTS_TABLE}
 
 # The human-readable description of this table's columns/metrics that used
 # to live here as one hardcoded string moved to

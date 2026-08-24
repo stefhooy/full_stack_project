@@ -1,0 +1,53 @@
+name: Poll player counts
+
+# Runs on a schedule, not on push -- this is a data-collection job, not CI.
+# Every run captures a moment in time that can never be recovered later
+# (Steam's live-player-count API has no history endpoint), so the
+# resulting snapshot gets committed straight back to the repo. See
+# src/ingestion/poll_player_counts.py and DOCEXP.md's Slice 7 entry for
+# why this is split from build_player_counts_table.py.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+permissions:
+  contents: write # needed to commit the snapshot back to the repo
+
+concurrency:
+  group: poll-player-counts
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-ingestion.txt
+
+      # SteamSpy's catalog is always-current, not historical (see
+      # src/db/schema.py) -- rebuilding it here is just how this ephemeral
+      # runner learns which appids to poll, not a durable data update.
+      # As a side effect, this also means the appid list stays current
+      # even as new games get added to SteamSpy's top-owned list over
+      # time, without any separate scheduled catalog-refresh job.
+      - name: Rebuild the local catalog (needed to know which appids to poll)
+        run: python -m src.ingestion.ingest
+
+      - name: Poll live player counts
+        run: python -m src.ingestion.poll_player_counts
+
+      - name: Commit the new snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/player_counts_raw/
+          git diff --cached --quiet || git commit -m "Poll player counts $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push

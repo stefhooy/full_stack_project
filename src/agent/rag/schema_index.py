@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.agent.rag.embeddings import get_embedder
-from src.agent.rag.schema_corpus import GAMES_SCHEMA_CHUNKS, SchemaChunk
+from src.agent.rag.schema_corpus import SCHEMA_CHUNKS, SchemaChunk
 
 
 class SchemaIndex:
@@ -47,7 +47,7 @@ _index: SchemaIndex | None = None
 def get_schema_index() -> SchemaIndex:
     global _index
     if _index is None:
-        _index = SchemaIndex(GAMES_SCHEMA_CHUNKS)
+        _index = SchemaIndex(SCHEMA_CHUNKS)
     return _index
 
 

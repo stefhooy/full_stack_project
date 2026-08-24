@@ -4,12 +4,17 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 6** (see [PLAN.md](PLAN.md) for the full roadmap and
+**Slice 7** (see [PLAN.md](PLAN.md) for the full roadmap and
 [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
 ## What's here right now
 
 - A SteamSpy ingestion script that builds a local DuckDB catalog of ~200 games
+- A scheduled live player-count poller (Steam Web API, no key needed) building
+  a real time-series table — the two tables have opposite freshness
+  contracts (the catalog is always-current and gets overwritten; player
+  counts are historical and only ever accumulate) and are ingested
+  accordingly, see DOCEXP.md
 - A read-only, guarded DuckDB connection — SELECT-only and row-capped,
   enforced by a real SQL parser in code, not by trusting the prompt
 - RAG over the DB schema: table/column/metric descriptions are chunked,
@@ -75,6 +80,17 @@ detail endpoint. Progress prints every 25 games. Raw API responses are
 cached to `data/raw/`, so re-running after a partial failure resumes fast
 instead of re-fetching everything.
 
+**Optional: poll live player counts and build the time-series table:**
+
+```bash
+python -m src.ingestion.poll_player_counts          # writes a snapshot to data/player_counts_raw/
+python -m src.ingestion.build_player_counts_table    # rebuilds the table from every snapshot so far
+```
+
+In production this runs on a schedule via
+`.github/workflows/poll_player_counts.yml` (every 6h, commits the new
+snapshot back to the repo) — see "Deploying" below.
+
 **2. Serve the API:**
 
 ```bash
@@ -108,6 +124,7 @@ curl -X POST http://127.0.0.1:8000/ask \
 - "Which game has the highest peak concurrent player count?" (lookup)
 - "How many players will this game have next year?" (forecast — routed to an honest "not supported yet")
 - "Is this game good?" (needs_clarification — the agent asks which game instead of guessing)
+- "What is the current live player count for Counter-Strike: Global Offensive?" (lookup, from the `player_counts` time series — requires having run the poller at least once)
 
 The response includes the natural-language answer, the SQL the agent
 actually ran, the raw rows it got back, and `retrieved_schema_chunks` — the
@@ -167,6 +184,18 @@ backend ever scales to multiple instances. The Dockerfile is written
 carefully but **not verified against a live build** in this environment
 (no Docker available) — check it actually builds before relying on it.
 
+**Keeping data fresh** (Slice 7, once you've pushed to GitHub and enabled
+Actions):
+
+- `.github/workflows/poll_player_counts.yml` runs every 6h automatically —
+  no setup needed, it just needs Actions enabled and (default-on) permission
+  to push back to the repo.
+- `.github/workflows/refresh_catalog.yml` runs weekly but no-ops until you
+  add a `DEPLOY_HOOK_URL` repo secret — Render and Fly.io both give you a
+  deploy-hook URL in their dashboard once the backend is deployed; add it
+  to turn on periodic catalog refreshes (rebuilds the Docker image, which
+  re-runs ingestion against SteamSpy's live, always-current API).
+
 ## Why the repo is structured this way
 
 ```
@@ -183,6 +212,7 @@ src/
 frontend/          Next.js UI — see frontend/README.md
 Dockerfile          backend image for Render/Fly.io (not Vercel functions — see "Deploying")
 render.yaml         Render Blueprint (illustrative — see "Deploying")
+.github/workflows/  scheduled player-count polling + catalog-refresh triggers (Slice 7)
 ```
 
 Each package maps to one layer of the eventual full architecture
@@ -263,9 +293,27 @@ choices worth being able to defend:
   hue, not a categorical palette.** Every question produces at most one
   series, so there's no legend/CVD-pair problem to solve — the validated
   default palette's series-1 slot is enough.
+- **`games` and `player_counts` are ingested completely differently, on
+  purpose.** They have opposite freshness contracts: `games` reflects
+  SteamSpy's *current* state (re-fetching always overwrites, no historical
+  value in an old snapshot); `player_counts` is genuinely historical
+  (Steam's live API has no history endpoint, so every poll is
+  irreplaceable). That's why `games` is rebuilt fresh each ingestion run
+  while `player_counts` is built by replaying every committed snapshot —
+  matching data character to ingestion strategy rather than using one
+  pattern for both because it's simpler to write.
+- **Collection (polling) and materialization (building the table) are
+  separate scripts**, because GitHub Actions runners are ephemeral —
+  nothing written to a local DuckDB file survives to the next scheduled
+  run. `poll_player_counts.py` only writes a small JSON snapshot, which
+  gets committed to git (durable); `build_player_counts_table.py` rebuilds
+  the actual table from *every* committed snapshot, idempotently, any time
+  it's run — locally, or as a Docker build step.
 
 ## Not in this slice (see PLAN.md)
 
-A scheduled ingestion refresh (Slice 7 territory — see the "Deploying"
-section's caveat about build-time-only data) and a real forecasting tool
-(needs Slice 7's time-series data) remain out of scope.
+A real forecasting tool remains out of scope — `player_counts` now
+provides the time-series data forecasting would need, but a forecasting
+*method* (even a simple trend line) is a distinct, real piece of engineering
+that hasn't been built yet. The router still routes forecast questions to
+an honest "not supported yet."

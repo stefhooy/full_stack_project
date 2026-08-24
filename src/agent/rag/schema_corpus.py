@@ -12,8 +12,9 @@ question needs. Three kinds of chunk:
                     lot for getting the SQL right and are easy to miss if
                     buried in a wall of column definitions.
 
-Adding a table (Slice 7's player_counts) or a new metric note later means
-appending chunks here, not rewriting a paragraph.
+Adding a table (player_counts, added in Slice 7) or a new metric note
+means appending chunks here, not rewriting a paragraph — exactly what
+happened when player_counts landed.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from src.db.schema import GAMES_TABLE
+from src.db.schema import GAMES_TABLE, PLAYER_COUNTS_TABLE
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,7 @@ class SchemaChunk:
     why this exists (semantic search alone misses it)."""
 
 
-GAMES_SCHEMA_CHUNKS: list[SchemaChunk] = [
+SCHEMA_CHUNKS: list[SchemaChunk] = [
     SchemaChunk(
         id="table:games",
         kind="table",
@@ -210,6 +211,69 @@ GAMES_SCHEMA_CHUNKS: list[SchemaChunk] = [
             "To compare two groups (e.g. Action games vs. free-to-play games) in one "
             "query, use conditional aggregation — AVG(CASE WHEN <condition> THEN <col> END) "
             "— not UNION. UNION queries are rejected by the query guard."
+        ),
+    ),
+    # --- player_counts (Slice 7): a real time series, not a snapshot table.
+    # Every row is a historical fact that can never be re-fetched (Steam's
+    # live API has no history endpoint) — contrast with `games`, which is
+    # always current state and gets overwritten on each ingest.
+    SchemaChunk(
+        id="table:player_counts",
+        kind="table",
+        text=(
+            f"Table: {PLAYER_COUNTS_TABLE}. A time series: one row per game per poll, "
+            "recording how many people were playing it at that moment (source: Steam Web "
+            "API's live player-count endpoint). Polled periodically, not continuously — "
+            "gaps between polls are normal, not missing data."
+        ),
+        always_include=True,
+    ),
+    SchemaChunk(
+        id="column:player_counts.appid",
+        kind="column",
+        text=(
+            f"Column {PLAYER_COUNTS_TABLE}.appid: BIGINT. Steam app id — join to "
+            f"{GAMES_TABLE}.appid to get the game's name and other catalog facts."
+        ),
+    ),
+    SchemaChunk(
+        id="column:player_counts.player_count",
+        kind="column",
+        text=(
+            f"Column {PLAYER_COUNTS_TABLE}.player_count: INTEGER. Live concurrent players "
+            "at the moment of polling — how many people were playing right then, not a "
+            "daily total or a unique-player count."
+        ),
+    ),
+    SchemaChunk(
+        id="column:player_counts.polled_at",
+        kind="column",
+        text=(
+            f"Column {PLAYER_COUNTS_TABLE}.polled_at: TIMESTAMP. When this reading was "
+            "taken. Order by this column for a trend over time; group by a truncated "
+            "version of it (e.g. date_trunc('day', polled_at)) for daily aggregates."
+        ),
+    ),
+    SchemaChunk(
+        id="metric:player_counts_is_a_join",
+        kind="metric_note",
+        text=(
+            f"A question naming a specific game and asking about its player count over "
+            f"time needs a JOIN between {PLAYER_COUNTS_TABLE} and {GAMES_TABLE} on appid "
+            f"(to filter by name) — {PLAYER_COUNTS_TABLE} alone has no game name column."
+        ),
+    ),
+    SchemaChunk(
+        id="metric:peak_ccu_vs_player_counts",
+        kind="metric_note",
+        text=(
+            f"Two different columns both relate to 'concurrent players' — pick the right "
+            f"one, don't confuse them: {GAMES_TABLE}.peak_ccu is a single number (peak "
+            f"concurrent players on the day the catalog was last refreshed), part of the "
+            f"{GAMES_TABLE} table. {PLAYER_COUNTS_TABLE}.player_count is a live reading "
+            f"from a separate time-series table ({PLAYER_COUNTS_TABLE}), one row per poll — "
+            f"use this one for 'right now' or 'over time' questions, and remember it "
+            f"requires joining to {GAMES_TABLE} to filter by name (see the join note)."
         ),
     ),
 ]

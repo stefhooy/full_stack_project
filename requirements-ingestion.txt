@@ -1,0 +1,13 @@
+# Lean dependency set for the scheduled GitHub Actions ingestion jobs
+# (.github/workflows/poll_player_counts.yml and friends). These scripts
+# never import src.agent — no LLM/RAG stack needed — so they don't pay for
+# installing langchain/langgraph/fastembed/scipy on every scheduled run.
+# Keep in sync with the subset of requirements.txt that src/ingestion/,
+# src/db/, and src/config.py actually need.
+duckdb>=1.1.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+requests>=2.32.0
+python-dotenv>=1.0.1
+sqlglot>=25.0.0
+truststore>=0.10.0
