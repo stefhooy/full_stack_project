@@ -49,6 +49,9 @@ as a series of thin, working vertical slices; this snapshot is through
 - Deployment config for the resolved hosting split: a `Dockerfile` +
   `render.yaml` for the backend (a normal Python host, not serverless —
   see "Deploying" below for why), Vercel for the frontend
+- An MCP server (`src/mcp_server/`) exposing the same guarded `run_sql`/
+  `run_stats` to any MCP-compatible AI app (Claude Desktop, Claude Code,
+  Cursor) — free, local stdio, no LLM key needed
 
 ## Setup
 
@@ -148,6 +151,53 @@ npm run dev
 
 Open http://localhost:3000 — click an example question or type your own.
 
+## MCP server
+
+`src/mcp_server/server.py` exposes `run_sql` and `run_stats` — the exact
+same guarded implementations the LangGraph agent uses — to any
+MCP-compatible AI app (Claude Desktop, Claude Code, Cursor, ...), plus a
+`schema://games` resource so the client knows the schema up front. Free to
+run: local stdio transport, no hosting, no LLM API key needed (the
+calling app supplies its own model — this server only exposes tools).
+
+Smoke-test it with the official MCP Inspector:
+
+```bash
+uv run mcp dev src/mcp_server/server.py
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add ai-game-analyst -- uv run --directory "C:\path\to\full_stack_project" python -m src.mcp_server.server
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json`
+(`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "ai-game-analyst": {
+      "command": "uv",
+      "args": [
+        "run", "--directory", "C:\\path\\to\\full_stack_project",
+        "python", "-m", "src.mcp_server.server"
+      ]
+    }
+  }
+}
+```
+
+Using `uv run --directory` (rather than a bare path to `.venv`'s python)
+is deliberate — it works the same way regardless of whether the specific
+MCP client's config format supports a `cwd` field, since `uv` handles
+finding the right project and venv itself.
+
+Requires the database to already exist (`python -m src.ingestion.ingest`
+first, same as the web app) — the MCP server doesn't ingest anything
+itself, it only queries what's already there.
+
 ## Deploying
 
 Resolved in Slice 6, after being flagged as open since Slice 1: **Vercel
@@ -215,6 +265,7 @@ src/
   tools/            run_sql, run_stats (analysis-only), the chart-spec generator
   evals/            golden questions, deterministic checks, LLM-as-judge, the CLI runner
   api/              FastAPI — thin, only translates HTTP <-> agent; rate limiting
+  mcp_server/       exposes run_sql/run_stats to any MCP client (Claude Desktop, etc.)
 frontend/          Next.js UI — see frontend/README.md
 Dockerfile          backend image for Render/Fly.io (not Vercel functions — see "Deploying")
 render.yaml         Render Blueprint (illustrative — see "Deploying")
@@ -327,6 +378,13 @@ choices worth being able to defend:
   CI-lean-vs-full-app split that used to be two separate requirements*.txt
   files, now expressed as one manifest instead of two files that could
   silently drift out of sync with each other.
+- **The MCP server calls `execute_run_sql`/`execute_run_stats` directly —
+  the same functions the LangGraph agent's `execute_tools` node calls —
+  rather than reimplementing query execution.** The safety guarantees
+  (SELECT-only, table allowlist, row cap) live in exactly one place
+  (`src/db/connection.py`) regardless of which caller reaches them; verified
+  this directly by sending `DROP TABLE games` through the MCP tool and
+  confirming the same guard rejection an agent-driven query would get.
 
 ## Not in this slice (see PLAN.md)
 
@@ -334,4 +392,5 @@ A real forecasting tool remains out of scope — `player_counts` now
 provides the time-series data forecasting would need, but a forecasting
 *method* (even a simple trend line) is a distinct, real piece of engineering
 that hasn't been built yet. The router still routes forecast questions to
-an honest "not supported yet."
+an honest "not supported yet." Frontend UI/design polish (Slice 9) and the
+Expo mobile client (Slice 10) are next, not this slice.

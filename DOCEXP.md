@@ -1204,3 +1204,117 @@ which is exactly what happened.
   above, but never actually confirmed whether its built-in tool use would
   conflict with or complement this project's own `bind_tools` design —
   an assumption, not a measured result.
+
+---
+
+## Slice 8 — MCP server
+
+**Date:** 2026-08-25
+
+### Scope: dropped Gemini, sequenced the rest
+
+User explicitly ruled out Gemini as a fallback provider (free-tier keys
+expire too fast to be a reliable fallback) — removed it from the roadmap
+rather than leaving it as a silently-stale TODO; the seam in
+`llm_provider.py` stays (costs nothing to leave a branch that raises
+`NotImplementedError`). The remaining Slice 8 items (MCP server, Expo
+mobile) got split into their own slices with a proposed order: MCP first
+(cheapest — mostly reusing code that already exists), frontend visual
+polish next (highest-visibility ROI for a portfolio piece, and settling
+on a look here makes the mobile UI faster later), Expo last (most new
+surface area, and — worth flagging since cost keeps coming up — building/
+testing it is free via Expo Go, but *publishing* to app stores isn't:
+$99/yr Apple, $25 one-time Google. Recommended skipping store publishing
+by default.)
+
+### The SDK's API had moved since my training data — checked, didn't guess
+
+Went to write the server using `from mcp.server.fastmcp import FastMCP`,
+the pattern I expected from prior knowledge of the SDK. It doesn't exist
+in the installed version (`mcp==2.1.0`): `ModuleNotFoundError`. Rather
+than guess at a replacement, introspected the installed package directly
+(`pkgutil.walk_packages`, then `inspect.signature` on candidates) and
+found the successor: `MCPServer` in `mcp.server` — same decorator-based
+API (`.tool()`, `.resource()`, `.run()`), just renamed and moved during
+what looks like a significant SDK restructuring (also added
+auth/OAuth support, an `apps` module, elicitation, subscriptions — a much
+bigger surface than the version I remembered). Worth calling out as a
+general lesson, not just an MCP-specific one: for a fast-moving SDK,
+`inspect.signature()` against the actual installed version is more
+reliable than remembered API shape, and took under a minute here.
+
+### Reuse, not reimplementation — and proved it, not just claimed it
+
+`src/mcp_server/server.py`'s `run_sql`/`run_stats` tools call
+`execute_run_sql`/`execute_run_stats` directly — the identical functions
+`src/agent/graph.py`'s `execute_tools` node calls. The safety guard
+(`validate_select_only` in `src/db/connection.py`) is reached the same way
+regardless of caller; there's no second implementation to keep in sync or
+accidentally leave less-guarded. Didn't just assert this — verified it
+with a real MCP client session (`ClientSession` over `stdio_client`,
+spawning the actual server subprocess, not a mock): listed tools and
+resources, read `schema://games`, ran a real query, and specifically sent
+`DROP TABLE games` through the MCP `run_sql` tool and confirmed it comes
+back with the same rejection message (`"Only SELECT statements are
+allowed, got a Drop statement."`) an agent-driven query would get. Same
+guard, same code path, proven rather than assumed.
+
+### The schema resource reuses the RAG corpus, not a separate description
+
+`schema://games` (an MCP *resource*, not a tool — read-only reference
+data a client fetches once, not an action) calls
+`assemble_schema_text(SCHEMA_CHUNKS)` from Slice 2's RAG module directly.
+Considered writing a separate, MCP-specific schema description and
+rejected it immediately: two hand-maintained descriptions of the same
+schema is exactly the kind of drift risk this project has avoided
+everywhere else (the RAG corpus itself exists specifically so the schema
+is described in one place). The MCP resource gets the full, unfiltered
+corpus (no retrieval/ranking — there's no "question" to rank against for
+a static resource a client reads once up front), which is a fine, simple
+default at this corpus's current size (~24 chunks).
+
+### Why local stdio, not a hosted MCP server
+
+Chose stdio transport exclusively for now, not `sse`/`streamable-http`
+(both of which `MCPServer.run()` also supports). Stdio means: the client
+(Claude Desktop, Claude Code) spawns the server as a local subprocess for
+the duration of its own session — no hosting, no network exposure, no
+cost, and no separate deployment decision to make. A hosted, remotely
+reachable MCP server is a real possible future step (could piggyback on
+the already-deployed backend, per the earlier deployment discussion), but
+would need its own auth story (the SDK's new `auth`/OAuth module exists
+for exactly this) — deliberately out of scope until there's an actual
+reason to want the server reachable from somewhere other than the calling
+app's own machine.
+
+### Dependency placement: pragmatic, not maximally lean
+
+Added `mcp[cli]` to the existing `agent` extra rather than a new,
+narrower one. Considered a dedicated `mcp` extra (skip FastAPI/LangGraph/
+LangSmith, which the MCP server genuinely doesn't use) and decided
+against it: `src/mcp_server/server.py` already imports `src.tools.sql_tool`
+(which imports `langchain_core` at module level for its own `@tool`-
+decorated object, even though the MCP server never uses that object) and
+`src.agent.rag.schema_index` (which imports the embedding provider,
+pulling in `fastembed`, even though the MCP resource never calls it). A
+truly lean MCP-only extra would need refactoring those modules to make
+their heavier imports lazy — real, legitimate cleanup, but out of
+proportion to what this slice needed, and the MCP server is inherently a
+local-dev tool run on a machine that already has the full `agent` extra
+installed to run the web app anyway. Noted as a real option, not pursued.
+
+### Open questions (new)
+
+- **No remote/hosted MCP transport.** Stdio-only for now; revisit if
+  there's ever a concrete reason to want this reachable from outside the
+  calling app's own machine (the SDK already has the auth pieces for it).
+- **The lean-extra option for `src/tools/` and `src/agent/rag/` is real
+  but unpursued** — `sql_tool.py` and `schema_index.py` both have
+  heavier-than-necessary module-level imports for their MCP use case
+  specifically. Worth doing if a genuinely lean, MCP-only install ever
+  matters (e.g. distributing this as a standalone MCP server package
+  independent of the web app).
+- **Cursor untested.** Documented Claude Code and Claude Desktop config
+  (both directly verifiable from this environment); Cursor's MCP config
+  format is very likely close to Claude Desktop's (`mcpServers` JSON) but
+  wasn't checked against a real Cursor install.

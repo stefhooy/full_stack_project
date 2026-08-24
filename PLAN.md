@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 7 complete → starting Slice 8 (MCP server) next**
+**Current slice: 8 complete → starting Slice 9 (frontend UI/design polish) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -151,11 +151,20 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       deterministic, 4.3 → 3.7 avg judge score. See DOCEXP.md.
 
 ## Slice 8 — MCP server
-- [ ] Expose `run_sql`/`run_stats` as MCP tools (reuse `execute_run_sql`/`execute_run_stats`
-      directly — thin protocol adapter, not a rewrite)
-- [ ] Local stdio transport first (free: no hosting, no LLM key needed — the calling
-      AI app brings its own model, the MCP server only exposes guarded tools)
-- [ ] Document how to point Claude Desktop / Claude Code / Cursor at it
+- [x] Expose `run_sql`/`run_stats` as MCP tools (`src/mcp_server/server.py`) — reuses
+      `execute_run_sql`/`execute_run_stats` directly, thin protocol adapter not a rewrite
+- [x] `schema://games` MCP resource (reuses the RAG corpus's `assemble_schema_text`) so a
+      client reads the schema up front instead of guessing
+- [x] Local stdio transport (free: no hosting, no LLM key needed — the calling AI app
+      brings its own model, the MCP server only exposes guarded tools)
+- [x] Verified end-to-end with a real MCP client session (not just started and assumed
+      working): tool discovery, resource read, a real query, and — critically — confirmed
+      `DROP TABLE games` gets rejected through this path too, same guard as the agent uses
+- [x] Documented Claude Code / Claude Desktop config in README.md, using `uv run
+      --directory` so it doesn't depend on a client's config format supporting `cwd`
+- [x] mcp SDK added to the `agent` extra in pyproject.toml (API differs from older/cached
+      knowledge of the SDK — checked the installed version's actual API via introspection
+      rather than guessing; `FastMCP` is now `MCPServer` in `mcp.server` as of mcp 2.1.0)
 
 ## Slice 9 — Frontend UI/design polish
 - [ ] A real visual pass on the Next.js frontend built in Slice 6 (currently functional

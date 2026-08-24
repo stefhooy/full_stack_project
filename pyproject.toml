@@ -37,6 +37,12 @@ agent = [
     "fastembed>=0.4.0",
     "numpy>=1.26.0",
     "scipy>=1.11.0",
+    # Slice 8: src/mcp_server/server.py exposes run_sql/run_stats over MCP.
+    # Bundled into "agent" rather than a separate extra -- it already reuses
+    # src.tools (which imports langchain_core) and src.agent.rag (schema
+    # resource), so a standalone extra would barely be leaner in practice,
+    # not worth the extra complexity of explaining a third dependency group.
+    "mcp[cli]>=2.0.0",
 ]
 
 [tool.uv]
