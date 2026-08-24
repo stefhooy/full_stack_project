@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+import truststore
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,6 +22,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # LangSmith's tracer (which reads LANGSMITH_* straight from os.environ, not
 # from our Settings object) pick up config without any extra plumbing.
 load_dotenv(PROJECT_ROOT / ".env")
+
+# Some environments (e.g. Windows machines with AV software like Avast doing
+# TLS interception) re-sign HTTPS traffic with a locally-installed root CA
+# that the OS trusts but Python's bundled `certifi` CA list does not, causing
+# SSLCertVerificationError on every outbound request — hit this first with
+# SteamSpy (requests) and again with fastembed's model download (httpx via
+# huggingface_hub). truststore makes the stdlib ssl module use the OS trust
+# store directly, which fixes it for every HTTP client in the process at
+# once. Centralized here (config is imported by ~everything) instead of
+# duplicated per-module.
+truststore.inject_into_ssl()
 
 
 class Settings(BaseSettings):
@@ -41,6 +53,12 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
+
+    # --- embeddings / RAG (schema retrieval) ---
+    embedding_provider: Literal["local", "ollama"] = "local"
+    local_embedding_model: str = "BAAI/bge-small-en-v1.5"
+    ollama_embedding_model: str = "nomic-embed-text"
+    rag_top_k: int = 8
 
     # --- tracing ---
     langsmith_api_key: str = ""

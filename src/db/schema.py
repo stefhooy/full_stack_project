@@ -36,37 +36,9 @@ CREATE TABLE IF NOT EXISTS {GAMES_TABLE} (
 # (e.g. a future player_counts table before it's ready for agent use).
 ALLOWLISTED_TABLES = {GAMES_TABLE}
 
-# Human-readable schema description handed to the LLM in its system prompt.
-# Slice 2 replaces this hardcoded string with RAG retrieval over per-column
-# descriptions — the rest of the agent code doesn't need to change, only how
-# this text gets assembled (see src/agent/prompts.py).
-GAMES_TABLE_DESCRIPTION = f"""
-Table: {GAMES_TABLE}
-One row per Steam game (source: SteamSpy).
-
-Columns:
-  appid                          BIGINT   Steam app id (primary key)
-  name                           VARCHAR  Game title
-  developer                      VARCHAR  Developer name(s), comma-separated
-  publisher                      VARCHAR  Publisher name(s), comma-separated
-  genre                          VARCHAR  Comma-separated genres, e.g. 'Action, Indie'
-  languages                      VARCHAR  Comma-separated supported languages
-  positive_reviews               INTEGER  Count of positive Steam reviews
-  negative_reviews               INTEGER  Count of negative Steam reviews
-  review_score                   DOUBLE   positive / (positive + negative), 0..1, NULL if no reviews
-  owners_low                     BIGINT   Lower bound of estimated owners
-  owners_high                    BIGINT   Upper bound of estimated owners
-  average_playtime_forever_min   INTEGER  All-time average playtime, minutes
-  average_playtime_2weeks_min    INTEGER  Average playtime in the last 2 weeks, minutes
-  price_usd                      DOUBLE   Current price in USD (0 = free-to-play)
-  initial_price_usd              DOUBLE   Pre-discount price in USD
-  discount_pct                   DOUBLE   Current discount percentage (0-100)
-  peak_ccu                       INTEGER  Peak concurrent players yesterday
-  ingested_at                    TIMESTAMP  When this row was last refreshed
-
-Notes:
-  - Owners are a SteamSpy *estimate range*, not exact. Use (owners_low + owners_high) / 2
-    as a midpoint estimate when a single number is needed.
-  - Playtime is in minutes; divide by 60 for hours.
-  - review_score is a fraction (0..1), not a percentage.
-""".strip()
+# The human-readable description of this table's columns/metrics that used
+# to live here as one hardcoded string moved to
+# src/agent/rag/schema_corpus.py as of Slice 2 — it's now a list of small,
+# independently-embeddable chunks (RAG over the schema) instead of one blob
+# always injected whole into the prompt. See that file and
+# src/agent/rag/schema_index.py for how it's assembled per-question now.

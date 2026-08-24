@@ -11,9 +11,14 @@ roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - A SteamSpy ingestion script that builds a local DuckDB catalog of ~200 games
 - A read-only, guarded DuckDB connection — SELECT-only and row-capped,
   enforced by a real SQL parser in code, not by trusting the prompt
-- A minimal LangGraph agent with one tool (`run_sql`) and a self-correcting
-  retry loop (SQL errors get fed back to the model, up to 3 attempts)
-- A FastAPI `POST /ask` endpoint wiring it all together
+- RAG over the DB schema: table/column/metric descriptions are chunked,
+  embedded, and retrieved per-question instead of always injecting the
+  whole schema into the prompt
+- A minimal LangGraph agent — `retrieve_schema` → `agent` → `execute_tools`
+  loop — with one tool (`run_sql`) and a self-correcting retry loop (SQL
+  errors get fed back to the model, up to 3 attempts)
+- A FastAPI `POST /ask` endpoint wiring it all together, returning the
+  answer, the SQL, the raw rows, and which schema chunks were retrieved
 
 ## Setup
 
@@ -28,6 +33,8 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # then edit .env: set GROQ_API_KEY (free tier: https://console.groq.com/keys)
+# EMBEDDING_PROVIDER defaults to "local" (fastembed, ONNX, in-process — no API
+# key needed). First run downloads a small (~130MB) model, cached after that.
 ```
 
 ## Run it
@@ -64,7 +71,9 @@ curl -X POST http://127.0.0.1:8000/ask \
 - "Which game has the highest peak concurrent player count?"
 
 The response includes the natural-language answer, the SQL the agent
-actually ran, and the raw rows it got back — so you can sanity-check it.
+actually ran, the raw rows it got back, and `retrieved_schema_chunks` — the
+list of schema chunks the RAG retrieval step actually picked for this
+question, so you can see retrieval working rather than take it on faith.
 
 ## Why the repo is structured this way
 
@@ -74,6 +83,7 @@ src/
   ingestion/       SteamSpy client + the ingest script
   db/               table schema + the read-only guarded connection (the safety boundary)
   agent/            LangGraph graph, prompts, the model-provider seam
+    rag/              schema chunk corpus, embedding-provider seam, retrieval index
   tools/            run_sql today; stats/forecast/viz tools land in Slice 4
   api/              FastAPI — thin, only translates HTTP <-> agent
 ```
@@ -102,10 +112,17 @@ choices worth being able to defend:
 - **The model provider is one config value** (`MODEL_PROVIDER` in
   `.env`). `src/agent/llm_provider.py` is the only file that branches on
   it; the graph just calls `get_llm()` and gets back a LangChain chat
-  model, with no idea whether it's Groq, Ollama, or (later) Gemini.
+  model, with no idea whether it's Groq, Ollama, or (later) Gemini. The
+  embedding provider (`EMBEDDING_PROVIDER`) gets the identical treatment
+  in `src/agent/rag/embeddings.py` — a separate axis from the chat model,
+  because Groq doesn't offer embeddings at all.
+- **RAG retrieval is a visible graph node (`retrieve_schema`), not a
+  step that happens before the graph runs.** Same reasoning as the
+  self-correction loop being a real node: it shows up in LangSmith traces
+  and is something to point at and explain, not implicit setup code.
 
 ## Not in this slice (see PLAN.md)
 
-RAG over the schema, the supervisor-router, extra analysis tools, evals,
-caching, the frontend, and deployment are all deliberately out of scope
-for Slice 1 — see PLAN.md for the full roadmap.
+The supervisor-router, extra analysis tools, evals, caching, the
+frontend, and deployment are all deliberately out of scope for Slice 2 —
+see PLAN.md for the full roadmap.

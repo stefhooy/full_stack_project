@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 1 complete → starting Slice 2 next session**
+**Current slice: 2 complete → starting Slice 3 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -49,8 +49,15 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] README run instructions verified + 3 example questions
 
 ## Slice 2 — RAG over the schema
-- [ ] Embed table/column/metric descriptions
-- [ ] Retrieve only what each question needs, replace schema-in-prompt
+- [x] Break the schema description into small chunks (table/column/metric_note)
+- [x] Embed each chunk (swappable provider: local ONNX via fastembed, default; Ollama alt)
+- [x] Visible `retrieve_schema` graph node: embeds the question, retrieves top-K by
+      cosine similarity, assembles schema_text, builds the system prompt from it
+- [x] Replaced schema-in-prompt (Slice 1's static full description) with retrieval
+- [x] `always_include` tier for structurally-relevant chunks (table, name, genre) that
+      pure semantic similarity under-ranks — found empirically, see DOCEXP.md
+- [x] `/ask` returns `retrieved_schema_chunks` for transparency
+- [x] Regression-tested against all 3 Slice 1 example questions + new RAG-specific ones
 
 ## Slice 3 — Supervisor-router
 - [ ] Classify each question: lookup / analysis / forecast / needs-clarification

@@ -1,15 +1,19 @@
 """Prompt assembly.
 
-build_system_prompt() takes an optional `schema_text` override. Today the
-caller (graph.py) always passes the static GAMES_TABLE_DESCRIPTION. Slice 2
-replaces that call site with a RAG retrieval step that assembles schema_text
-from only the tables/columns relevant to the question — this function's
-signature doesn't need to change, only what graph.py passes in.
+build_system_prompt() takes a `schema_text` string built by whatever decided
+what schema context the model should see. As of Slice 2 that's
+src/agent/graph.py's `retrieve_schema` node, which retrieves only the
+chunks relevant to the current question (see src/agent/rag/). The default
+here (the full corpus, unfiltered) exists as a fallback for callers that
+don't do retrieval — e.g. quick scripts, tests — not for normal agent runs.
 """
 
 from __future__ import annotations
 
-from src.db.schema import GAMES_TABLE_DESCRIPTION
+from src.agent.rag.schema_corpus import GAMES_SCHEMA_CHUNKS
+from src.agent.rag.schema_index import assemble_schema_text
+
+_FULL_SCHEMA_TEXT = assemble_schema_text(GAMES_SCHEMA_CHUNKS)
 
 SYSTEM_PROMPT_TEMPLATE = """You are a data analyst for a video game market analytics tool. \
 You answer plain-English questions about the games catalog by writing and running SQL, \
@@ -36,4 +40,4 @@ Rules:
 
 
 def build_system_prompt(schema_text: str | None = None) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(schema_text=schema_text or GAMES_TABLE_DESCRIPTION)
+    return SYSTEM_PROMPT_TEMPLATE.format(schema_text=schema_text or _FULL_SCHEMA_TEXT)

@@ -19,15 +19,10 @@ from pathlib import Path
 from typing import Any
 
 import requests
-import truststore
 
-# Some environments (notably Windows machines with AV software like Avast
-# doing TLS interception) re-sign HTTPS traffic with a locally-installed
-# root CA that Windows trusts but Python's bundled `certifi` CA list does
-# not, causing SSLCertVerificationError on every request. truststore makes
-# the stdlib ssl module use the OS trust store directly instead of
-# certifi's, which is the correct fix (not disabling verification).
-truststore.inject_into_ssl()
+# Side-effect-only import: src/config.py calls truststore.inject_into_ssl()
+# at module load time — see the comment there for why it's needed.
+import src.config  # noqa: F401
 
 STEAMSPY_BASE_URL = "https://steamspy.com/api.php"
 REQUEST_TIMEOUT_SECONDS = 15

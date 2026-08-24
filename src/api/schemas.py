@@ -12,3 +12,4 @@ class AskResponse(BaseModel):
     sql: str | None = None
     columns: list[str] | None = None
     rows: list[list] | None = None
+    retrieved_schema_chunks: list[str] | None = None

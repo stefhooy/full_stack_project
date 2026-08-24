@@ -242,3 +242,171 @@ before ever running it against Groq.
 answers real questions end-to-end through the HTTP API, backed by real
 ingested data, with a verified self-correction loop and a verified safety
 boundary.
+
+---
+
+## Slice 2 — RAG over the schema
+
+**Date:** 2026-08-24
+
+### What changed structurally
+
+Slice 1's `GAMES_TABLE_DESCRIPTION` was one hardcoded string, always
+injected into the system prompt whole. Slice 2 replaces it with:
+
+- `src/agent/rag/schema_corpus.py` — the same facts, broken into small
+  independent `SchemaChunk`s: one per table (a one-line orientation), one
+  per column, and a handful of "metric notes" for gotchas that aren't tied
+  to a single column (unit conversions, the owners-midpoint convention, the
+  no-UNION rule).
+- `src/agent/rag/embeddings.py` — an embedding-provider seam, structurally
+  identical to `llm_provider.py`'s `get_llm()`: one config value
+  (`EMBEDDING_PROVIDER`), everything else just calls `get_embedder()`.
+- `src/agent/rag/schema_index.py` — a brute-force in-memory cosine-similarity
+  index over the ~24 chunks, plus `assemble_schema_text()` to turn a
+  retrieved chunk list back into prompt text.
+- A new graph node, `retrieve_schema`, now the entry point:
+  `retrieve_schema -> agent -> execute_tools -> agent -> ... -> END`. It
+  embeds the question, retrieves the top-K chunks, and builds the system
+  prompt from only those — same "make it a visible node" principle as
+  Slice 1's self-correction loop, so it's traced and explainable, not
+  implicit setup.
+- `/ask` now also returns `retrieved_schema_chunks` — which chunk IDs the
+  retrieval step actually picked for that question. Cheap to add, and it
+  turns "trust me, RAG is working" into something you can see per request.
+
+### Embedding provider: why fastembed, not sentence-transformers or a hosted API
+
+Groq has no embeddings endpoint, so "reuse whatever `MODEL_PROVIDER` is
+configured" was never on the table — this needed its own decision.
+Considered three options:
+
+- **sentence-transformers** (torch-based): the most common choice, but
+  pulls in torch as a dependency — heavy (hundreds of MB), and a poor fit
+  for a project that's explicitly trying to stay deployable on free-tier
+  serverless hosting (Slice 6's open question).
+- **A hosted embeddings API** (OpenAI/Cohere/etc.): adds yet another API
+  key and a per-request network dependency for something that, at this
+  corpus size (~24 chunks), doesn't need to be hosted at all.
+- **fastembed** (chosen): ONNX runtime, no torch, small model
+  (`BAAI/bge-small-en-v1.5`, ~130MB, quantized), runs in-process. No API
+  key, works identically in dev and wherever this ends up deployed. Ollama
+  embeddings (`nomic-embed-text`) are wired in as the local-dev alternative
+  via the same seam, matching the pattern already established for the chat
+  model, but fastembed is the default specifically because it has no
+  runtime dependency on a separate daemon being up.
+
+### Same TLS issue, different library — and a cleanup
+
+fastembed's first run failed with the identical
+`SSLCertVerificationError` from Slice 1 (Avast TLS interception), this
+time on `huggingface_hub`'s model download (via `httpx`, not `requests`).
+`truststore.inject_into_ssl()` fixed it the same way. Since this is now
+the second independent HTTP client hitting the same problem, moved the fix
+out of `steamspy_client.py` and into `src/config.py` (imported by nearly
+everything) so it applies once, process-wide, instead of being duplicated
+per-module that happens to make HTTP calls.
+
+### Retrieval-quality testing found two real gaps — and they taught something
+
+Tested retrieval directly (not just "does the agent still answer
+correctly") by embedding sample questions and inspecting which chunks
+ranked in the top-K, before ever wiring it into the graph. Two systematic
+misses, both the same underlying cause:
+
+- *"How many owners does Palworld have?"* did not retrieve `column:name`
+  in the top 8 (it ranked ~13th).
+- *"average playtime ... RPG games"* and *"games tagged as Action"* did
+  not retrieve `column:genre` in the top 8 on either question (independent
+  tests, same gap).
+
+Root cause: a small bi-encoder embedding model measures semantic
+similarity between the *question text* and the *chunk text*. A specific
+value — a game's actual name, a specific genre string — doesn't embed
+close to a generic column description ("Game title", "comma-separated
+genres"). The words that would make the match ("Palworld" is a name; "RPG"
+is a genre) aren't in the chunk at all. This is a known-in-the-literature
+limitation of pure dense retrieval on short, generic schema text, and I
+was glad to catch it empirically with a print statement before assuming
+retrieval was "done" just because the agent's answers looked fine.
+
+Fix: added an `always_include` flag to `SchemaChunk`, set on `table:games`,
+`column:name`, and `column:genre` — chunks that bypass ranking and are
+always present regardless of similarity score. This is deliberately
+*not* "always include everything" (that would defeat the point of doing
+RAG at all) — it's reserved for chunks that are structurally relevant to
+nearly any question (every answer is about specific game(s); genre is one
+of the most commonly filtered dimensions here), decided from two
+independent failing test questions per column, not from tuning to make
+one example pass.
+
+**What this proved, interestingly:** *before* the `column:name` /
+`column:genre` fix, the agent still answered the RPG playtime question
+correctly — Llama 3.1 8B guessed a column named `genre` existed from
+general knowledge of how game databases are usually modeled, wrote a
+working query, and it happened to be right. That's a fragile thing to rely
+on (a less conventional schema would have broken it), not evidence that
+retrieval quality doesn't matter. Worth being honest about: the fix was
+made because the *retrieval* was wrong, independent of whether the LLM
+covered for it that particular time.
+
+### Real finding: SteamSpy's playtime data is 0 across the entire dataset
+
+While testing the playtime question, the agent reported "0 hours" for
+average RPG playtime. Checked the raw data directly rather than assuming
+it was a query bug:
+
+```
+nonzero avg playtime forever: 0 / 200 games
+nonzero avg playtime 2weeks:  0 / 200 games
+```
+
+Every single ingested game has `average_playtime_forever_min = 0`. Not an
+ingestion bug — this is a documented SteamSpy limitation: since a 2018
+Steam privacy API change, SteamSpy has largely been unable to compute
+playtime statistics, and the field is 0 for the overwhelming majority of
+games in the modern API. Confirmed the raw cached `appdetails` JSON in
+`data/raw/` shows `average_forever: 0` straight from the source, not
+something introduced by `_row_from_appdetails()`.
+
+Fixed the right layer: this isn't a code bug to patch, it's a data
+limitation the agent should disclose. Added a `metric:playtime_often_zero`
+chunk to the RAG corpus describing exactly this, and re-tested — the
+agent's answer changed from a bare, misleading "0 hours" to "0 hours, due
+to a known SteamSpy data limitation..." once that chunk was retrievable.
+This is a good demonstration of what RAG-over-metrics is actually *for*:
+not just column definitions, but domain caveats a real analyst would know
+and a model wouldn't, unless told.
+
+### Reinforcing the Slice 1 finding: small local model, same failure class, different shape
+
+Re-ran all three Slice 1 example questions as a regression check.
+Highest-rated and highest-CCU both still correct. The Action-vs-F2P price
+comparison — already flagged in Slice 1 as a small-model weak spot — was
+wrong *again*, but in a different way this run: it dropped the
+`CASE WHEN` filter entirely for the free-to-play side and computed
+`AVG(price_usd)` over *all* games, mislabeling the result as
+`avg_f2p_price`. Same query pattern, non-deterministic failure mode,
+consistent with Slice 1's note that this is Llama 3.1 8B's reasoning
+reliability, not a guard or retrieval problem — retrieval correctly
+surfaced `genre`, `price_usd`, and the `metric:no_union` note for this
+question. Deliberately did not chase this with another prompt patch:
+that's exactly the kind of failure the Slice 5 eval harness exists to
+catch systematically (across many questions and repeated runs) rather than
+whack-a-mole fixing one observed instance at a time.
+
+### Open questions (new)
+
+- **Retrieval evaluation is still eyeballed**, not scored. Slice 5's eval
+  harness should include retrieval-quality checks (did the right chunks
+  get retrieved for a golden question set), not just end-to-end answer
+  correctness.
+- **`always_include` is a manual escape hatch.** Fine at ~24 chunks with 2
+  forced inclusions; if more tables/columns need this later, it's worth
+  asking whether that's a sign the embedding model or chunk phrasing needs
+  improving rather than adding more manual overrides.
+- **fastembed's model cache is process-local disk, not committed.** First
+  run on a fresh machine (or deployment) pays a ~130MB download + ~10s
+  init cost. Fine for local dev; worth remembering for Slice 6 (cold-start
+  latency on serverless would make this worse — another data point for the
+  deployment-target decision).
