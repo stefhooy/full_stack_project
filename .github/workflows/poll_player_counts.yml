@@ -25,12 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          enable-cache: true
 
+      # Base dependency set only (no --extra agent) -- these scripts never
+      # import src.agent, so the LLM/RAG stack isn't needed here. See the
+      # split explained in pyproject.toml.
       - name: Install dependencies
-        run: pip install -r requirements-ingestion.txt
+        run: uv sync
 
       # SteamSpy's catalog is always-current, not historical (see
       # src/db/schema.py) -- rebuilding it here is just how this ephemeral
@@ -39,10 +42,10 @@ jobs:
       # even as new games get added to SteamSpy's top-owned list over
       # time, without any separate scheduled catalog-refresh job.
       - name: Rebuild the local catalog (needed to know which appids to poll)
-        run: python -m src.ingestion.ingest
+        run: uv run python -m src.ingestion.ingest
 
       - name: Poll live player counts
-        run: python -m src.ingestion.poll_player_counts
+        run: uv run python -m src.ingestion.poll_player_counts
 
       - name: Commit the new snapshot
         run: |

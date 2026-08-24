@@ -1072,3 +1072,135 @@ was unexpected. The failure is in answer quality, not system safety.
   once there's enough `player_counts` history to see whether 6h resolution
   actually shows interesting patterns (daily cycles, event spikes) or is
   needlessly frequent.
+
+---
+
+## Interlude — requirements.txt → pyproject.toml + uv
+
+**Date:** 2026-08-25
+
+Not a slice, a packaging modernization requested mid-session once `uv`
+was confirmed available. Replaced `requirements.txt` +
+`requirements-ingestion.txt` with one `pyproject.toml` (+ committed
+`uv.lock`), using `[project.optional-dependencies]` to formalize a split
+that already existed informally: a lean base (everything
+`src/ingestion/`, `src/db/`, `src/config.py` need — no LLM/RAG stack) and
+an `agent` extra (FastAPI, LangGraph, LangChain, fastembed, scipy — what
+`src/agent/`, `src/tools/`, `src/api/` need on top). GitHub Actions' poller
+job now runs `uv sync` (base only); local dev and the Docker build run
+`uv sync --extra agent`. Same intent as the two-file split, expressed as
+one manifest that can't drift out of sync with itself the way two
+hand-maintained files could.
+
+`pyproject.toml` deliberately has no `[build-system]` table —
+`[tool.uv] package = false` tells uv this is an application (run via
+`python -m src.x.y`, imported as `from src.x import y`), not something
+meant to be built into a distributable wheel. Worth being explicit about,
+since the default assumption for a `pyproject.toml` is a real package.
+
+**Third occurrence of the same Avast TLS problem, different tool this
+time:** `uv lock` failed immediately with `invalid peer certificate:
+UnknownIssuer` — the identical root cause from Slices 1 and 2
+(`requests` and `fastembed`'s `httpx`/`huggingface_hub` calls), now
+hitting uv's own Rust TLS stack, which `truststore` (a Python-only fix)
+can't touch. uv has its own equivalent: `--native-tls` uses the OS trust
+store instead of uv's bundled one. Set permanently via
+`[tool.uv] native-tls = true` in `pyproject.toml` rather than requiring
+the flag on every invocation — same "fix it once, centrally" instinct as
+centralizing `truststore.inject_into_ssl()` in `src/config.py` back in
+Slice 2. Three tools, three different TLS stacks, same underlying cause
+each time, same "find the tool's own OS-trust-store escape hatch rather
+than disabling verification" response each time.
+
+**Verified, not just written:** ran `uv lock` (resolved 71 packages) and
+`uv sync --extra agent` against the existing `.venv` (already `pip`-managed
+from earlier slices) and confirmed uv reconciled it correctly — Checked 69
+packages, no reinstall needed, since the dependency set matches what was
+already there. Re-imported the app afterward to confirm nothing broke.
+Also updated the Dockerfile to install `uv` as a static binary (copied
+from its official distroless image) and use `uv sync --extra agent
+--frozen` instead of `pip install -r requirements.txt` — faster and,
+via `uv.lock`, pinned to exact resolved versions rather than whatever
+`>=` ranges happen to resolve to on build day.
+
+### Open questions (new)
+
+- **The Dockerfile's uv-based build is unverified**, same caveat as the
+  rest of the Dockerfile since Slice 6 — no Docker available in this
+  environment to actually run the build.
+- **`native-tls = true` is a machine-specific workaround being committed
+  as a permanent project setting.** Harmless on machines without TLS
+  interception (it just uses the OS store instead of uv's bundled one),
+  but worth knowing it's there if uv behavior ever seems to silently
+  trust something unexpected — it's a deliberate, documented choice, not
+  a default.
+
+---
+
+## Interlude — real Groq key, and the standing question finally answered
+
+**Date:** 2026-08-25
+
+`llama-3.3-70b-versatile` (the model picked back in Slice 1) no longer
+exists on Groq — `groq.NotFoundError: model_not_found`. Queried
+`/openai/v1/models` directly rather than guess a replacement: Groq's
+catalog now leans on OpenAI's open-weight GPT-OSS models
+(`openai/gpt-oss-120b`, `-20b`) plus Groq's own `groq/compound` system and
+a few others. Picked `openai/gpt-oss-120b` over `groq/compound`
+deliberately — `compound` is itself an agentic system with built-in tools
+(web search, code execution), and layering our own `bind_tools` orchestration
+on top of a model that already has opinions about tool use seemed like
+exactly the kind of hidden-behavior risk this project has avoided
+everywhere else (no prebuilt agent constructors, no opaque tool-choice
+logic). Verified tool-calling and `with_structured_output` both work
+correctly against `gpt-oss-120b` before adopting it as the default.
+
+**The eval harness finally got to answer the question it was built for.**
+Ran it against real Groq for the first time: route accuracy 6/6, avg judge
+score 4.5/5 — the highest of any provider tested. More importantly:
+**zero occurrences of the group-mislabeling bug**, across both the direct
+question and the eval run. `gpt-oss-120b` wrote genuinely correct
+conditional-aggregation SQL (`AVG(CASE WHEN price_usd = 0 THEN price_usd
+END)`, properly filtered) on every attempt. This confirms, with real
+evidence rather than a hunch, what Slices 1 through 7 kept concluding
+without being able to fully prove: the mislabeling bug was a Llama-3.1-8B
+reliability ceiling, not an architecture, prompt, or guard problem.
+
+The eval suite still reports 4/6 deterministic — but both "failures" are
+eval-design gaps, not model errors, confirmed by re-reading what actually
+happened: `analysis_action_vs_f2p_not_mislabeled`'s check specifically
+requires a `compare_two_groups` stats_result (i.e. "did it call
+run_stats"), and this run answered correctly via plain SQL instead — the
+judge independently scored it 5/5 as factually correct. Same for the
+outliers question: the judge marked it 2/5 for including PUBG as a second
+outlier, but PUBG *is* a legitimate outlier at the z ≥ 2.5 threshold used
+elsewhere in this project (confirmed via direct `run_stats` testing in
+Slice 4) — the golden question's `reference_facts` just didn't mention
+it, so the judge had no way to know. Left the golden questions unchanged
+rather than patch them reactively; noted as the next real refinement
+rather than declared "fixed" without re-verifying against multiple
+providers again.
+
+**A real, unrelated bug found and fixed along the way:** the eval
+report crashed with `UnicodeEncodeError` printing `gpt-oss-120b`'s output
+— it writes with proper Unicode typography (non-breaking hyphens, narrow
+no-break spaces) that Windows' default console encoding (cp1252) can't
+represent. Fixed by reconfiguring stdout to UTF-8 with replacement at the
+top of `run_evals.py`. Not cosmetic — this would crash the harness on any
+Windows machine the moment a model's output contained such characters,
+which is exactly what happened.
+
+### Open questions (new)
+
+- **Golden-question checks are calibrated toward the failure mode a
+  weaker model produced**, not the range of valid correct answers a
+  stronger model can produce. `analysis_action_vs_f2p_not_mislabeled`
+  should probably accept *either* a correctly-computed plain-SQL answer
+  *or* a correct `run_stats` result — not require the tool call
+  specifically. Worth revisiting once there's a reason to run evals across
+  multiple providers routinely (Slice 5 already flagged this general
+  shape of gap).
+- **`groq/compound` untested.** Deliberately avoided it for the reason
+  above, but never actually confirmed whether its built-in tool use would
+  conflict with or complement this project's own `bind_tools` design —
+  an assumption, not a measured result.

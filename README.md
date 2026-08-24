@@ -52,20 +52,26 @@ as a series of thin, working vertical slices; this snapshot is through
 
 ## Setup
 
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) —
+`pyproject.toml` + `uv.lock`, not requirements.txt. The base dependency set
+is deliberately lean (just what ingestion/db/config need); the `agent`
+extra adds the LLM/RAG/API stack on top — see the comments in
+`pyproject.toml` for why it's split that way.
 
-pip install -r requirements.txt
+```bash
+uv sync --extra agent   # creates .venv and installs everything needed to run the agent/API
 
 cp .env.example .env
 # then edit .env: set GROQ_API_KEY (free tier: https://console.groq.com/keys)
 # EMBEDDING_PROVIDER defaults to "local" (fastembed, ONNX, in-process — no API
 # key needed). First run downloads a small (~130MB) model, cached after that.
 ```
+
+No `uv`? [Install it](https://docs.astral.sh/uv/getting-started/installation/)
+first (one command, no admin needed) — this project has no `requirements.txt`
+fallback. `pyproject.toml` has no `[build-system]` (see its `[tool.uv]`
+comment — this is an application, not a distributable package), which
+means a plain `pip install .` won't work either.
 
 ## Run it
 
@@ -213,6 +219,8 @@ frontend/          Next.js UI — see frontend/README.md
 Dockerfile          backend image for Render/Fly.io (not Vercel functions — see "Deploying")
 render.yaml         Render Blueprint (illustrative — see "Deploying")
 .github/workflows/  scheduled player-count polling + catalog-refresh triggers (Slice 7)
+pyproject.toml       dependencies (uv) — lean base + "agent" extra, see its own comments
+uv.lock               committed, like package-lock.json — pinned versions for reproducible installs
 ```
 
 Each package maps to one layer of the eventual full architecture
@@ -309,6 +317,16 @@ choices worth being able to defend:
   gets committed to git (durable); `build_player_counts_table.py` rebuilds
   the actual table from *every* committed snapshot, idempotently, any time
   it's run — locally, or as a Docker build step.
+- **Dependencies are `pyproject.toml` + `uv.lock`, with an optional-dependencies
+  split rather than one flat list.** The base set is exactly what
+  `src/ingestion/`, `src/db/`, and `src/config.py` need — nothing imports
+  `src.agent`, so the scheduled GitHub Actions jobs install the base set
+  only (`uv sync`) and never pay for installing langchain/langgraph/fastembed
+  on every scheduled run. The `agent` extra (`uv sync --extra agent`) adds
+  the LLM/RAG/API stack for local dev and the deployed backend. Same
+  CI-lean-vs-full-app split that used to be two separate requirements*.txt
+  files, now expressed as one manifest instead of two files that could
+  silently drift out of sync with each other.
 
 ## Not in this slice (see PLAN.md)
 

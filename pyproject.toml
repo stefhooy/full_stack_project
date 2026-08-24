@@ -1,0 +1,56 @@
+[project]
+name = "ai-game-analyst"
+version = "0.1.0"
+description = "A tool-using AI agent that answers plain-English questions about the video game market."
+requires-python = ">=3.12"
+dependencies = [
+    # The lean set: everything src/ingestion/, src/db/, and src/config.py
+    # need. Nothing here imports src.agent, so this alone is enough for
+    # ingestion scripts and the scheduled GitHub Actions jobs -- they never
+    # need the LLM/RAG stack. This was requirements-ingestion.txt before
+    # the pyproject.toml migration; now it's just the base dependency set,
+    # and the "agent" extra below is what requirements.txt used to add on
+    # top of it.
+    "duckdb>=1.1.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "requests>=2.32.0",
+    "python-dotenv>=1.0.1",
+    "sqlglot>=25.0.0",
+    "truststore>=0.10.0",
+]
+
+[project.optional-dependencies]
+# Everything src/agent/, src/tools/, src/evals/, and src/api/ need on top
+# of the base set: the LLM/RAG/API stack. `uv sync --extra agent` for
+# local dev and the deployed backend; plain `uv sync` (base only) for the
+# ingestion-only GitHub Actions jobs, matching the CI-lean vs. full-app
+# split that used to be two separate requirements*.txt files.
+agent = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "langgraph>=0.2.60",
+    "langchain-core>=0.3.28",
+    "langchain-groq>=0.2.3",
+    "langchain-ollama>=0.2.2",
+    "langsmith>=0.2.0",
+    "fastembed>=0.4.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+]
+
+[tool.uv]
+# This is an application (imported via `from src.x import y`, run as
+# `python -m src.x.y` from the repo root), not a distributable library --
+# nothing under src/ is meant to be built into a wheel. Tells uv to manage
+# the venv/dependencies only, not try to build-and-install this project's
+# own code as a package.
+package = false
+
+# Some environments (e.g. Windows machines with AV software like Avast
+# doing TLS interception) re-sign HTTPS traffic with a locally-installed
+# root CA that the OS trusts but bundled certificate stores don't -- hit
+# this repeatedly on the Python side (see the truststore usage/comment in
+# src/config.py) and again here with uv's own Rust TLS stack. This is the
+# uv-side equivalent: use the OS trust store instead of uv's bundled one.
+native-tls = true

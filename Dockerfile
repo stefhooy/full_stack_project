@@ -20,8 +20,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# uv, copied as a static binary from its official distroless image --
+# faster and more reproducible (installs pinned versions from uv.lock)
+# than pip + requirements.txt. UV_LINK_MODE=copy avoids a hardlink
+# warning uv prints when the cache and target dirs are on different
+# Docker layers/filesystems.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+ENV UV_LINK_MODE=copy
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --extra agent --frozen
+ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY src/ ./src/
 

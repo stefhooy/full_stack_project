@@ -18,6 +18,14 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+
+# LLM output can contain arbitrary Unicode (smart quotes, non-breaking
+# hyphens, etc.) that Windows' default console encoding (cp1252) can't
+# represent — crashes the report mid-print otherwise. UTF-8 with
+# replacement is the right fix here (this is a report to a terminal, not
+# a place where losing an unencodable character silently matters).
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from dataclasses import dataclass
 
 from src.agent.graph import AgentResult, run_agent
