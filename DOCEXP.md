@@ -410,3 +410,108 @@ whack-a-mole fixing one observed instance at a time.
   init cost. Fine for local dev; worth remembering for Slice 6 (cold-start
   latency on serverless would make this worse — another data point for the
   deployment-target decision).
+
+---
+
+## Slice 3 — Supervisor-router
+
+**Date:** 2026-08-24
+
+### What changed structurally
+
+Added `src/agent/router.py` and a new `router` node, now the graph's entry
+point:
+
+```
+router -> [lookup/analysis]     -> retrieve_schema -> agent <-> execute_tools -> END
+        -> [forecast]           -> forecast_not_supported                     -> END
+        -> [needs_clarification]-> ask_clarification                          -> END
+```
+
+The router classifies the question into one of four categories using the
+LLM's structured-output feature (`with_structured_output(RouteDecision)`,
+a Pydantic model with a `Literal` field) rather than a free-text prompt
+parsed by hand — the result is always one of exactly four valid values,
+no guarding against the model inventing a fifth category or wrapping its
+answer in prose needed.
+
+### An honest scoping call: lookup and analysis share a backend today
+
+The four categories are real and independently tested, but only two
+distinct *behaviors* exist behind them right now:
+
+- `lookup` and `analysis` both go to the existing `retrieve_schema ->
+  agent -> execute_tools` SQL pipeline — the same one, unchanged. That's
+  because Slice 4's dedicated statistical-analysis tool (cohorts,
+  significance, anomalies) doesn't exist yet; until it does, "analysis"
+  and "lookup" are both, mechanically, "write a SELECT and answer." The
+  classification is genuine and already correctly distinguishes a
+  ranking/filter question from a cross-group comparison — giving
+  `analysis` its own handler in Slice 4 is a small additive change to
+  `route_after_router`, not a redesign.
+- `forecast` and `needs_clarification` get genuinely new, distinct
+  behavior: an honest "I can't do that yet" and a clarifying question,
+  respectively — neither existed at all before this slice. Before the
+  router, a forecast question would have gone straight into the SQL
+  agent, which has no time-series data or forecasting logic and would
+  have either produced a nonsense query or a confidently wrong answer
+  from whatever it managed to compute. Same for an ambiguous question
+  like "Is this game good?" — previously the agent would have just
+  guessed at a game and answered as if the question were unambiguous.
+
+Called this out explicitly rather than silently merging lookup/analysis
+and hoping nobody asks: it's a genuine, deliberate sequencing decision
+(build the router before the tools it'll eventually differentiate
+between), not a shortcut passed off as complete.
+
+### Testing: classification in isolation, then the full graph, then live HTTP
+
+Same three-layer discipline as Slices 1 and 2 — didn't just check "does
+the agent still answer questions."
+
+1. `classify_question()` directly against 4 hand-picked questions (one per
+   category, including an intentionally ambiguous one: "Is this game
+   good?"). All 4 classified correctly on the first try, and the
+   clarifying question generated for the ambiguous one was sensible
+   ("What is the name of the game you are referring to?").
+2. Full graph via `run_agent()` for the same 4 questions — confirmed
+   `route` is populated correctly, confirmed `sql`/`retrieved_chunk_ids`
+   are `None` for the forecast and clarification branches (they never
+   reach `retrieve_schema`, which is the intended "don't even attempt a
+   query" behavior, not a bug), and confirmed the lookup/analysis
+   questions still work through the unchanged SQL pipeline underneath.
+3. Live HTTP: `POST /ask` with the ambiguous question, confirmed
+   `route: "needs_clarification"` and `retrieved_schema_chunks: null` come
+   through the API correctly.
+
+Notably, the Action-vs-free-to-play comparison question — flagged in both
+Slice 1 and Slice 2 as an unreliable pattern for the local 8B model — came
+back *correct* this run. Consistent with the standing conclusion: this is
+non-deterministic small-model reliability, not a bug in the guard,
+retrieval, or now the router. Still a Slice 5 (eval harness) problem, not
+something to keep manually re-testing and hoping for the best on.
+
+### A real interruption, and how it was handled
+
+Mid-testing, the local Ollama runtime crashed (`CUDA error: shared object
+initialization failed`) — a transient GPU/driver issue in the Ollama
+process itself, unrelated to any code in this repo. Killed both
+`ollama.exe` processes and let Ollama's own launcher restart them; the
+next request succeeded normally. Noting this mainly as a reminder for
+Slice 6: whichever deployment target gets picked, it won't be running a
+local GPU-backed Ollama daemon — this class of failure is specific to the
+local-dev provider path and shouldn't recur against Groq's hosted API.
+
+### Open questions (new)
+
+- **The router adds one extra LLM round-trip per question**, before any
+  DB work happens. Cheap relative to the SQL agent's own calls, but worth
+  measuring once there's real latency data (Slice 5/6) — a small/fast
+  model dedicated to routing (vs. reusing whatever `MODEL_PROVIDER` is
+  configured for the main agent) could be a worthwhile split later if
+  routing latency turns out to matter.
+- **No test yet for a question that's genuinely borderline between
+  lookup and analysis.** The four hand-picked test questions were chosen
+  to be unambiguous examples of their category; real user questions won't
+  always be this clean. Another concrete case for Slice 5's golden
+  question set.

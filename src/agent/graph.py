@@ -1,10 +1,14 @@
-"""The agent graph: a minimal, fully-explicit loop — RAG retrieval up front,
-then a tool-calling loop with one tool (run_sql) and a visible
+"""The agent graph: router first, then (for routable questions) RAG
+retrieval, then a tool-calling loop with one tool (run_sql) and a visible
 self-correction path.
 
-    START -> retrieve_schema -> agent -> [has tool_calls?] -> execute_tools -> agent -> ... -> END
-                                       \\-> no tool_calls -> END
+    START -> router -> [lookup/analysis]       -> retrieve_schema -> agent <-> execute_tools -> END
+                     -> [forecast]              -> forecast_not_supported     -> END
+                     -> [needs_clarification]   -> ask_clarification          -> END
 
+- "router": classifies the question (lookup / analysis / forecast /
+  needs_clarification) before any DB work happens — see src/agent/router.py
+  for why each category exists and what it routes to today.
 - "retrieve_schema": embeds the question, retrieves the most relevant
   schema chunks (see src/agent/rag/), and builds the system prompt from
   only those — this is what "RAG over the DB schema" means in practice.
@@ -19,6 +23,10 @@ self-correction path.
   DuckDB/validation errors into a ToolMessage the model reads on its next
   turn (this is the self-correction step), and records the last
   *successful* SQL + rows so the API layer can return them.
+- "forecast_not_supported" / "ask_clarification": terminal nodes for the two
+  categories the SQL pipeline shouldn't attempt at all — an honest
+  "can't do that yet" and a clarifying question, respectively, instead of
+  the agent guessing its way to a confident wrong answer.
 
 Deliberately not using langgraph.prebuilt.create_react_agent: the loop is
 simple enough to write by hand, and doing so means every step is something
@@ -33,16 +41,23 @@ from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
 import duckdb
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.agent.llm_provider import get_llm
 from src.agent.prompts import build_system_prompt
 from src.agent.rag.schema_index import assemble_schema_text, get_schema_index
+from src.agent.router import classify_question
 from src.config import settings
 from src.db.connection import UnsafeQueryError
 from src.tools.sql_tool import execute_run_sql, run_sql
+
+FORECAST_NOT_SUPPORTED_TEXT = (
+    "I can't forecast yet — this system doesn't have a forecasting tool or "
+    "time-series data to project from (both are planned for a later slice). "
+    "I can answer questions about the current catalog instead."
+)
 
 
 class AgentState(TypedDict):
@@ -53,6 +68,34 @@ class AgentState(TypedDict):
     last_successful_columns: list[str] | None
     last_successful_rows: list[list] | None
     retrieved_chunk_ids: list[str] | None
+    route: str | None
+    clarifying_question: str | None
+
+
+def router_node(state: AgentState) -> dict:
+    decision = classify_question(state["question"])
+    return {
+        "route": decision.category,
+        "clarifying_question": decision.clarifying_question or None,
+    }
+
+
+def route_after_router(state: AgentState) -> str:
+    category = state["route"]
+    if category in ("lookup", "analysis"):
+        return "retrieve_schema"
+    if category == "forecast":
+        return "forecast_not_supported"
+    return "ask_clarification"
+
+
+def forecast_not_supported_node(state: AgentState) -> dict:
+    return {"messages": [AIMessage(content=FORECAST_NOT_SUPPORTED_TEXT)]}
+
+
+def ask_clarification_node(state: AgentState) -> dict:
+    question = state["clarifying_question"] or "Could you clarify your question?"
+    return {"messages": [AIMessage(content=question)]}
 
 
 def retrieve_schema_node(state: AgentState) -> dict:
@@ -116,15 +159,30 @@ def execute_tools_node(state: AgentState) -> dict:
 
 def build_graph():
     graph = StateGraph(AgentState)
+    graph.add_node("router", router_node)
     graph.add_node("retrieve_schema", retrieve_schema_node)
     graph.add_node("agent", agent_node)
     graph.add_node("execute_tools", execute_tools_node)
-    graph.set_entry_point("retrieve_schema")
+    graph.add_node("forecast_not_supported", forecast_not_supported_node)
+    graph.add_node("ask_clarification", ask_clarification_node)
+
+    graph.set_entry_point("router")
+    graph.add_conditional_edges(
+        "router",
+        route_after_router,
+        {
+            "retrieve_schema": "retrieve_schema",
+            "forecast_not_supported": "forecast_not_supported",
+            "ask_clarification": "ask_clarification",
+        },
+    )
     graph.add_edge("retrieve_schema", "agent")
     graph.add_conditional_edges(
         "agent", route_after_agent, {"execute_tools": "execute_tools", END: END}
     )
     graph.add_edge("execute_tools", "agent")
+    graph.add_edge("forecast_not_supported", END)
+    graph.add_edge("ask_clarification", END)
     return graph.compile()
 
 
@@ -138,6 +196,7 @@ class AgentResult:
     columns: list[str] | None
     rows: list[list] | None
     retrieved_chunk_ids: list[str] | None
+    route: str | None
 
 
 def run_agent(question: str) -> AgentResult:
@@ -149,6 +208,8 @@ def run_agent(question: str) -> AgentResult:
         "last_successful_columns": None,
         "last_successful_rows": None,
         "retrieved_chunk_ids": None,
+        "route": None,
+        "clarifying_question": None,
     }
     final_state = _compiled_graph.invoke(initial_state, config={"run_name": "ask"})
     final_message = final_state["messages"][-1]
@@ -163,4 +224,5 @@ def run_agent(question: str) -> AgentResult:
         columns=final_state.get("last_successful_columns"),
         rows=final_state.get("last_successful_rows"),
         retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
+        route=final_state.get("route"),
     )

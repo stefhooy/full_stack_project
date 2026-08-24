@@ -14,11 +14,16 @@ roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - RAG over the DB schema: table/column/metric descriptions are chunked,
   embedded, and retrieved per-question instead of always injecting the
   whole schema into the prompt
-- A minimal LangGraph agent — `retrieve_schema` → `agent` → `execute_tools`
-  loop — with one tool (`run_sql`) and a self-correcting retry loop (SQL
-  errors get fed back to the model, up to 3 attempts)
+- A supervisor-router that classifies each question (lookup / analysis /
+  forecast / needs-clarification) before any DB work happens, and routes
+  forecast/ambiguous questions away from the SQL pipeline entirely instead
+  of letting the agent guess
+- A minimal LangGraph agent — `router` → `retrieve_schema` → `agent` →
+  `execute_tools` loop — with one tool (`run_sql`) and a self-correcting
+  retry loop (SQL errors get fed back to the model, up to 3 attempts)
 - A FastAPI `POST /ask` endpoint wiring it all together, returning the
-  answer, the SQL, the raw rows, and which schema chunks were retrieved
+  answer, the SQL, the raw rows, the route classification, and which
+  schema chunks were retrieved
 
 ## Setup
 
@@ -66,9 +71,11 @@ curl -X POST http://127.0.0.1:8000/ask \
 
 ### Example questions to try
 
-- "What are the 5 highest-rated games with more than 1000 positive reviews?"
-- "What's the average price of games tagged as Action, and how does that compare to free-to-play games?"
-- "Which game has the highest peak concurrent player count?"
+- "What are the 5 highest-rated games with more than 1000 positive reviews?" (lookup)
+- "What's the average price of games tagged as Action, and how does that compare to free-to-play games?" (analysis)
+- "Which game has the highest peak concurrent player count?" (lookup)
+- "How many players will this game have next year?" (forecast — routed to an honest "not supported yet")
+- "Is this game good?" (needs_clarification — the agent asks which game instead of guessing)
 
 The response includes the natural-language answer, the SQL the agent
 actually ran, the raw rows it got back, and `retrieved_schema_chunks` — the
@@ -82,7 +89,7 @@ src/
   config.py       one typed Settings object; nothing else reads os.environ directly
   ingestion/       SteamSpy client + the ingest script
   db/               table schema + the read-only guarded connection (the safety boundary)
-  agent/            LangGraph graph, prompts, the model-provider seam
+  agent/            LangGraph graph, router, prompts, the model-provider seam
     rag/              schema chunk corpus, embedding-provider seam, retrieval index
   tools/            run_sql today; stats/forecast/viz tools land in Slice 4
   api/              FastAPI — thin, only translates HTTP <-> agent
@@ -120,9 +127,19 @@ choices worth being able to defend:
   step that happens before the graph runs.** Same reasoning as the
   self-correction loop being a real node: it shows up in LangSmith traces
   and is something to point at and explain, not implicit setup code.
+- **The router uses structured LLM output (a Pydantic schema via
+  `with_structured_output`), not a free-text prompt parsed by hand.**
+  Guarantees the result is always one of exactly four valid categories,
+  rather than guarding against the model inventing a fifth or wrapping its
+  answer in prose.
+- **`lookup` and `analysis` currently share the same backend** (the
+  `retrieve_schema` → `agent` pipeline) — deliberately, since Slice 4's
+  dedicated statistical-analysis tool doesn't exist yet. The
+  classification is real and tested; giving `analysis` its own handler
+  later is additive, not a rewrite of the router.
 
 ## Not in this slice (see PLAN.md)
 
-The supervisor-router, extra analysis tools, evals, caching, the
-frontend, and deployment are all deliberately out of scope for Slice 2 —
-see PLAN.md for the full roadmap.
+Extra analysis tools, evals, caching, the frontend, and deployment are
+all deliberately out of scope for Slice 3 — see PLAN.md for the full
+roadmap.

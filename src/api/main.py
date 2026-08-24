@@ -62,4 +62,5 @@ def ask(request: AskRequest) -> AskResponse:
         columns=result.columns,
         rows=result.rows,
         retrieved_schema_chunks=result.retrieved_chunk_ids,
+        route=result.route,
     )

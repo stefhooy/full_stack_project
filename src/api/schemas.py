@@ -13,3 +13,4 @@ class AskResponse(BaseModel):
     columns: list[str] | None = None
     rows: list[list] | None = None
     retrieved_schema_chunks: list[str] | None = None
+    route: str | None = None

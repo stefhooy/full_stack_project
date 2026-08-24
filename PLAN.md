@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 2 complete → starting Slice 3 next session**
+**Current slice: 3 complete → starting Slice 4 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -60,8 +60,16 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Regression-tested against all 3 Slice 1 example questions + new RAG-specific ones
 
 ## Slice 3 — Supervisor-router
-- [ ] Classify each question: lookup / analysis / forecast / needs-clarification
-- [ ] Route to the right handling path
+- [x] `router` node: classifies each question via structured LLM output
+      (lookup / analysis / forecast / needs-clarification), now the graph entry point
+- [x] lookup + analysis both route to the existing retrieve_schema -> agent -> execute_tools
+      pipeline (same backend for now — Slice 4 gives analysis its own stats tools)
+- [x] forecast routes to an honest "not supported yet" terminal node (no forecasting
+      tool or time-series data exists yet)
+- [x] needs_clarification routes to a node that asks a clarifying question back instead
+      of guessing
+- [x] `/ask` returns `route` for transparency
+- [x] Tested all 4 categories end-to-end (classification + full graph + live HTTP)
 
 ## Slice 4 — Specialized analysis tools
 - [ ] Statistical analysis tool (cohorts, significance, anomalies)
