@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 7 complete → starting Slice 8 next session**
+**Current slice: 7 complete → starting Slice 8 (MCP server) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -17,7 +17,9 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - Orchestration: LangGraph, hand-written nodes (no prebuilt agent chains)
 - Tracing: LangSmith
 - Model provider: single config value (`MODEL_PROVIDER`), default Groq;
-  Ollama for local dev; Gemini seam reserved for later
+  Ollama for local dev. A Gemini seam exists in `src/agent/llm_provider.py`
+  but is deliberately unfilled — decided against it as a fallback (free-tier
+  keys expire too fast to be reliable for a portfolio demo)
 - Database: DuckDB (local file to start)
 - Frontend/deploy: Next.js on Vercel — deferred, hosting approach still open
 
@@ -148,7 +150,25 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       about which table a column lives on) — quantified via the eval harness: 5/6 → 4/6
       deterministic, 4.3 → 3.7 avg judge score. See DOCEXP.md.
 
-## Slice 8 — Optional extensions
-- [ ] Expose query tools as an MCP server
-- [ ] Expo mobile client on the same API
-- [ ] Gemini as a real fallback provider (fill in the seam in src/agent/llm_provider.py)
+## Slice 8 — MCP server
+- [ ] Expose `run_sql`/`run_stats` as MCP tools (reuse `execute_run_sql`/`execute_run_stats`
+      directly — thin protocol adapter, not a rewrite)
+- [ ] Local stdio transport first (free: no hosting, no LLM key needed — the calling
+      AI app brings its own model, the MCP server only exposes guarded tools)
+- [ ] Document how to point Claude Desktop / Claude Code / Cursor at it
+
+## Slice 9 — Frontend UI/design polish
+- [ ] A real visual pass on the Next.js frontend built in Slice 6 (currently functional
+      but plain: default spacing, no branding, minimal visual hierarchy)
+- [ ] Settle on a visual language here first — makes Slice 10's mobile UI faster
+      (reuse decisions instead of designing twice)
+
+## Slice 10 — Expo mobile client
+- [ ] Same API, React Native/Expo UI — one codebase for iOS + Android
+- [ ] Build/test locally via Expo Go (free) — no app-store publishing planned
+      (Apple $99/yr, Google $25 one-time; skip unless explicitly wanted later)
+
+## Dropped
+- [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
+      fast to be a reliable fallback for a portfolio demo). The seam in
+      `src/agent/llm_provider.py` stays in place (costs nothing to leave), just not filled in.
