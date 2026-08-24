@@ -32,6 +32,9 @@ roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   answer, the SQL or stats query that was actually run, the raw rows or
   stats result, a chart spec, the route classification, and which schema
   chunks were retrieved
+- An eval harness (`python -m src.evals.run_evals`) — a golden question set
+  with ground truth computed live from the DB, deterministic checks, and
+  an LLM-as-judge pass, runnable as a regression check with a real exit code
 
 ## Setup
 
@@ -69,6 +72,17 @@ instead of re-fetching everything.
 uvicorn src.api.main:app --reload
 ```
 
+**Optional: run the eval suite** (a regression check against a golden
+question set — ground truth is computed live from your ingested data, so
+this works against whatever games you actually have):
+
+```bash
+python -m src.evals.run_evals              # deterministic checks + LLM judge
+python -m src.evals.run_evals --no-judge   # faster, skips the judge LLM calls
+```
+
+Exits non-zero if any question's route or deterministic check fails.
+
 **3. Ask it something:**
 
 ```bash
@@ -101,6 +115,7 @@ src/
   agent/            LangGraph graph, router, prompts, the model-provider seam
     rag/              schema chunk corpus, embedding-provider seam, retrieval index
   tools/            run_sql, run_stats (analysis-only), the chart-spec generator
+  evals/            golden questions, deterministic checks, LLM-as-judge, the CLI runner
   api/              FastAPI — thin, only translates HTTP <-> agent
 ```
 
@@ -152,8 +167,24 @@ choices worth being able to defend:
   call to resolve. Same reasoning as the SQL guard: use code where code
   can be correct every time.
 
+- **Golden-question ground truth is computed live from the DB at eval
+  time, not hardcoded.** `build_golden_questions()` runs independent
+  reference queries against the current `games.duckdb` every time evals
+  run, so the suite stays correct after re-ingestion instead of silently
+  drifting against stale expected numbers.
+- **The eval that would have caught Slice 4's group-mislabeling bug
+  doesn't check the agent's stated conclusion — it checks a fact the
+  label logically implies.** Free-to-play means price = 0 by definition,
+  so a group claiming that label must have a ~$0 mean; checking the
+  *number*, not whether the answer "sounds right," is what makes this
+  catch the bug reliably instead of by luck.
+- **The LLM judge doesn't gate the exit code.** It's a second, qualitative
+  signal, useful for catching things deterministic checks don't
+  anticipate — but a judge's own scoring noise shouldn't make a CI check
+  flaky. The deterministic checks are what "regression check" means here.
+
 ## Not in this slice (see PLAN.md)
 
-Forecasting (no time-series data exists yet — Slice 7), evals, caching,
-the frontend, and deployment are all deliberately out of scope for
-Slice 4 — see PLAN.md for the full roadmap.
+Forecasting (no time-series data exists yet — Slice 7), caching, the
+frontend, and deployment are all deliberately out of scope for Slice 5 —
+see PLAN.md for the full roadmap.

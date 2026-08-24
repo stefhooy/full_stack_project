@@ -672,3 +672,103 @@ doesn't need to change once Slice 6 picks a frontend charting library.
   LLM-authored SQL. The self-correction loop catches shape errors (they
   raise `ValueError`, which is caught the same way SQL errors are), but a
   golden-question eval would quantify how often that's actually needed.
+
+---
+
+## Slice 5 — Eval harness
+
+**Date:** 2026-08-24
+
+### Built specifically to answer two open questions from Slice 4
+
+Slice 4 ended with two things I couldn't answer from a single manual test:
+how *often* the group-mislabeling bug happens, and whether it's specific
+to the local 8B model. This slice exists to answer both — not as a
+generic "add an eval harness" checkbox, but pointed at a real, previously
+observed defect.
+
+### Design: live ground truth, not hardcoded numbers
+
+`src/evals/golden_questions.py::build_golden_questions()` is a function,
+not a module-level list — it queries the live DuckDB file for every
+reference fact (top peak_ccu game, count of games with review_score > 0.9,
+count of free-to-play games) at eval time. Considered hardcoding expected
+values instead (simpler, no DB dependency at eval time) and rejected it:
+ingestion is idempotent and re-runnable, prices/reviews/owners can change
+on a re-ingest, and a hardcoded "expected 47 games" would silently go
+stale the next time someone runs `python -m src.ingestion.ingest` and
+start failing the suite for the wrong reason (data drift, not a real
+regression). Computing ground truth live means the suite is always
+checking "does the agent's answer match what's actually in the database
+right now" — the only check that stays meaningful over time.
+
+### The bug-specific check, not a generic one
+
+The eval that targets Slice 4's mislabeling bug
+(`_check_action_vs_f2p_not_mislabeled` in golden_questions.py) doesn't
+compare the agent's stated conclusion to a reference conclusion — it
+checks a fact the agent's own claimed label logically implies. Free-to-play
+means price = 0 *by definition*; a group the agent calls "free-to-play"
+must have a mean price of ~$0, full stop, regardless of what p-value or
+comparison it's embedded in. This is a stronger check than "does the
+number match the expected number" — it doesn't need to know the correct
+number in advance, it just needs the agent's own label to be internally
+consistent with the data. Worth being explicit about, because it's the
+difference between an eval that would have caught this specific bug
+reliably and one that happens to catch it by luck.
+
+### Results against Ollama (llama3.1:8b) — same tool used for every prior slice
+
+```
+route accuracy:        6/6
+deterministic checks:  5/6
+avg judge score:       4.3/5
+```
+
+The one failure is exactly the Slice 4 bug, caught by both signals
+independently:
+- Deterministic check: `group 'free_to_play' claims to be free-to-play but
+  has mean price $18.93 (should be ~$0 by definition)`.
+- LLM judge (unprompted with any knowledge of the deterministic check):
+  score 1/5, rationale *"contradicts the reference facts by stating that
+  free-to-play games have an average price of $18.94, which is higher than
+  the actual mean price of $0.00."*
+
+Two independently-built signals — one a hand-written numeric assertion,
+one an LLM given only the question/answer/reference-facts — converging on
+the identical diagnosis is a good sign the check design is sound, not
+just tuned to pass on this one run.
+
+**The second open question — whether this is specific to the local 8B
+model — is still open.** No Groq key available in this environment to test
+against the 70B default. `python -m src.evals.run_evals` is exactly the
+command to run once a key is added; the harness was built so answering
+that question is "run one command," not "write new test code."
+
+### Why the judge doesn't gate the exit code
+
+Deliberately made `run_evals.py`'s exit code depend only on route
+correctness + deterministic checks, not the judge score. The judge is a
+second opinion, useful for catching wording/clarity issues the
+deterministic checks don't anticipate — but it's still an LLM call with
+its own sampling noise, and a "regression check" that can flip pass/fail
+on unrelated LLM variance defeats the purpose of having one. The
+deterministic checks are the gate; the judge is a report.
+
+### Open questions (new)
+
+- **Six golden questions is a start, not full coverage.** One per route
+  plus the two Slice 4-specific regression checks. No coverage yet for
+  malformed/adversarial input, multi-part questions, or the RAG retrieval
+  quality gaps found in Slice 2 (that's a different kind of eval — scoring
+  retrieved chunks against expected chunks — not yet built here).
+- **No repeated-run variance measurement.** Ran the suite once per
+  provider tested. Given Slice 1-4's evidence that the local model's
+  failures are non-deterministic (same question, different wrong answer
+  across runs), a single run understates the true failure rate in either
+  direction. Running N=5-10 times per question and reporting a pass rate
+  would be a more honest reliability number — noted as a natural next
+  improvement, not done here to keep this slice thin.
+- **No CI wiring yet.** The harness is runnable and has a real exit code,
+  but nothing invokes it automatically. Natural fit once there's a CI
+  pipeline (implicitly, whenever the deployment slice sets one up).

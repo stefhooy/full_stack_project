@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 4 complete → starting Slice 5 next session**
+**Current slice: 5 complete → starting Slice 6 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -89,9 +89,19 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       group-mislabeling bug — see DOCEXP.md
 
 ## Slice 5 — Eval harness
-- [ ] Golden question set with known answers
-- [ ] Scored + LLM-as-judge
-- [ ] Runnable as a regression check
+- [x] Golden question set (src/evals/golden_questions.py) — 6 questions across all 4 routes,
+      reference facts computed LIVE from the DB at eval time, not hardcoded
+- [x] Deterministic checks (src/evals/checks.py) — route correctness, numeric/text matching,
+      and a targeted regression check for the Slice 4 group-mislabeling bug (a group labeled
+      "free-to-play" must have ~$0 mean price by definition, or it's not actually filtered)
+- [x] LLM-as-judge (src/evals/judge.py) — structured-output 1-5 factual-consistency score
+      against the same reference facts, independent of the deterministic checks
+- [x] Runnable as a regression check: `python -m src.evals.run_evals`, real exit code
+      (0 only if every route + deterministic check passes; judge score is informational)
+- [x] Validated against Ollama: 5/6 deterministic, 6/6 route accuracy, 4.3/5 avg judge score —
+      the one failure is the known Slice 4 bug, caught identically by both signals
+- [ ] Re-run against Groq once a key is available — open question from Slice 4 this was
+      built to answer
 
 ## Slice 6 — Frontend + deploy
 - [ ] Next.js frontend on Vercel: streaming answers, charts, 3-4 clickable examples
