@@ -1,0 +1,33 @@
+# Render Blueprint for the backend. Illustrative, not verified end-to-end
+# against a live Render account (see DOCEXP.md) — check it actually
+# deploys before relying on it, and adjust if Render's schema has moved on.
+#
+# Fly.io is an equally valid alternative using the same Dockerfile
+# (`fly launch` picks it up automatically) if you'd rather use that
+# instead of Render — this file is specific to Render's blueprint format.
+services:
+  - type: web
+    name: ai-game-analyst-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: MODEL_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false # set manually in the Render dashboard — never commit real keys
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: EMBEDDING_PROVIDER
+        value: local
+      - key: LANGSMITH_TRACING
+        value: "false" # set true + LANGSMITH_API_KEY (sync: false) once you want tracing live
+      - key: DEBUG
+        value: "false"
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://your-app.vercel.app # update once you know your real Vercel URL
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "10"
+      - key: RATE_LIMIT_WINDOW_SECONDS
+        value: "60"

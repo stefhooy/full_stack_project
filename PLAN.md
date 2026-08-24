@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 5 complete → starting Slice 6 next session**
+**Current slice: 6 complete → starting Slice 7 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -104,11 +104,27 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       built to answer
 
 ## Slice 6 — Frontend + deploy
-- [ ] Next.js frontend on Vercel: streaming answers, charts, 3-4 clickable examples
-- [ ] Semantic cache
-- [ ] Per-IP rate limiting
-- [ ] Graceful "high demand, try again" UX instead of raw errors
-- [ ] Resolve hosting decision (Vercel Python functions vs. Vercel frontend + separate free Python host)
+- [x] Resolved the hosting decision (open since Slice 1): Vercel for the frontend,
+      a separate normal Python host (Render/Fly.io) for the backend — NOT Vercel
+      Python functions, given this stack's real footprint (fastembed model, scipy,
+      DuckDB, multi-step LLM calls). See DOCEXP.md for the reasoning.
+- [x] Next.js frontend (`frontend/`) on the App Router: streamed progress (SSE),
+      4 clickable example questions, chart rendering (Recharts, validated palette),
+      a "Show the work" panel (SQL/retrieved schema)
+- [x] `/ask/stream` SSE endpoint + `stream_agent()` — per-node progress events via
+      LangGraph's `astream(stream_mode="updates")`, not token-level streaming
+- [x] Semantic cache (`src/agent/cache.py`) — reuses the RAG embedding provider;
+      similarity threshold calibrated empirically (0.93, not guessed) — see DOCEXP.md
+- [x] Per-IP rate limiting (`src/api/rate_limit.py`) — in-memory sliding window
+- [x] Graceful "high demand, try again" responses — real exceptions logged
+      server-side, generic message to the client unless DEBUG=true
+- [x] Deployment config: `Dockerfile` (ingestion baked in at build time) + `render.yaml`
+      — written carefully but not verified against a live build (no Docker available
+      in this environment); user to verify when deploying
+- [x] Verified in a real browser (Playwright-driven, incl. dark mode) — found and
+      fixed a real streaming/SSE parsing path end-to-end; diagnosed (not a bug) a
+      subpixel-antialiasing screenshot artifact on small text, see DOCEXP.md
+- [ ] Actual live deployment — user's to do manually (per their preference)
 
 ## Slice 7 — Live player-count time series
 - [ ] Steam Web API `GetNumberOfCurrentPlayers` poller

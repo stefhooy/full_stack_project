@@ -772,3 +772,168 @@ deterministic checks are the gate; the judge is a report.
 - **No CI wiring yet.** The harness is runnable and has a real exit code,
   but nothing invokes it automatically. Natural fit once there's a CI
   pipeline (implicitly, whenever the deployment slice sets one up).
+
+---
+
+## Slice 6 — Frontend + deploy
+
+**Date:** 2026-08-24
+
+### Resolving the hosting decision, finally
+
+Flagged as open since Slice 1's very first DOCEXP entry: Vercel Python
+functions vs. Vercel frontend + a separate Python host. Resolved this
+slice by actually looking at what this stack needs, not just picking one:
+fastembed's ONNX model (~130MB), scipy, a DuckDB file, and an agent that
+can make 2+ sequential LLM calls with retries (10-30s+ isn't unusual, as
+directly observed throughout Slices 1-5). Vercel Hobby's Python functions
+cap around 250MB unzipped and ~10s execution — this stack would be fighting
+both limits from day one. Chose **Vercel for the frontend, Render or
+Fly.io (a normal long-running Python process) for the backend** instead.
+This is exactly why `src/agent` and `src/db` never import FastAPI (a
+decision made explicit as far back as Slice 1's README) — the entire
+hosting decision only ever touched `src/api/main.py` and new files
+(`Dockerfile`, `render.yaml`), never the agent logic itself.
+
+### Streaming: per-node progress, not token-level
+
+`stream_agent()` (src/agent/graph.py) uses LangGraph's
+`astream(stream_mode="updates")` to yield after each node completes,
+mapped to a human-readable message ("Classifying your question...",
+"Running query..."). Considered token-level streaming of the final answer
+instead (more common for chat UIs) and deliberately didn't: this agent's
+useful latency isn't in generating the final sentence character-by-character,
+it's in the multi-step pipeline before that (routing, retrieval, tool
+calls, retries) — a token-level stream would sit silent through most of
+that and then dump the whole answer at once anyway. Node-level progress
+events match what's actually slow, and match the project's standing
+design principle that every step should be a visible, nameable thing
+(same reasoning as making the self-correction loop and RAG retrieval real
+graph nodes back in Slices 1 and 2) rather than an opaque wait.
+
+Implementation note: `stream_agent` manually accumulates node updates into
+a plain dict rather than replicating LangGraph's internal state-merging
+logic — works correctly here specifically because every node in this graph
+returns only *new* values (the messages list) or the *current* full value
+(everything else), never something needing a custom merge beyond
+last-write-wins. Verified directly (not just assumed) before relying on it:
+ran `stream_agent()` standalone and confirmed the final answer text matched
+`run_agent()`'s answer for the same question.
+
+### Semantic cache: calibrated, not guessed
+
+`src/agent/cache.py` reuses the Slice 2 embedding provider seam — cosine
+similarity between question embeddings, in-memory. Picked an initial
+similarity threshold of 0.96 without measuring anything, then actually
+measured before shipping it: a clear paraphrase of a cached question
+("most owners" vs. "highest number of owners") scored 0.957 — just under
+0.96, meaning the "obvious" threshold would have missed the single most
+common real-world cache scenario (someone rephrasing the same question).
+A related-but-different question ("most players" vs. "most owners") scored
+0.834, and an unrelated question scored 0.481. Lowered the threshold to
+0.93 — clears the paraphrase, stays well clear of the related-but-different
+case. Same discipline as Slice 2's RAG retrieval-quality testing: don't
+ship a similarity threshold without checking what it actually does on a
+real example.
+
+### Rate limiting and graceful errors: both tested, not just written
+
+Per-IP rate limiting (`src/api/rate_limit.py`, in-memory sliding window)
+was verified with FastAPI's `TestClient` and the agent call mocked out
+(so the test runs in under a second instead of waiting on 10+ real LLM
+calls) — confirmed exactly 10 requests succeed, the 11th onward get 429.
+Graceful error handling was verified the same way: patched `run_agent` to
+raise, confirmed `DEBUG=false` (the default) returns the generic "high
+demand" message while `DEBUG=true` returns the real exception — both
+paths still log the full traceback server-side either way, so nothing is
+lost for debugging, only what reaches the client changes.
+
+### The frontend, and a live bug this testing actually caught
+
+Built with Next.js 16 / React 19 (App Router, TypeScript, Tailwind v4).
+`lib/api.ts` hand-parses the `/ask/stream` SSE wire format from a plain
+`fetch()` `ReadableStream` rather than using the browser's `EventSource` —
+`EventSource` only supports GET, and the question has to go in a POST
+body. `components/Chart.tsx` follows the project's dataviz skill: single
+hue (every question produces at most one series, so no legend needed —
+the heading names it), colors from the validated default palette's
+series-1 slot as CSS custom properties (light/dark both defined), thin
+bars with rounded top corners, recessive gridlines.
+
+Tested by actually launching the app and driving it with Playwright
+(`chromium.launch()`, no `chromium-cli` available in this environment) —
+not just `npm run build` succeeding. This caught a real bug: the first
+click through the UI returned the graceful "high demand" message instead
+of a real answer. Traced it to the backend log rather than assuming the
+frontend was broken: another **Ollama CUDA crash**, the same transient
+GPU/driver issue from Slice 3, this time hitting the `router` node.
+Restarted Ollama (same fix as before) and re-tested successfully — and
+this incidentally validated the graceful-error feature working exactly as
+designed under a real failure, not a synthetic one: friendly message to
+the browser, full traceback in the server log.
+
+### A rendering mystery, chased properly instead of guessed at
+
+The rendered example-question buttons showed what looked like rainbow/
+chromatic-fringed text in every screenshot. Didn't assume and didn't
+guess-fix:
+1. First hypothesis: missing an explicit text-color class (the buttons
+   had no `text-*` utility). Added one. **No change** — which is itself
+   informative, not a wasted step.
+2. Checked `getComputedStyle` directly rather than trust the screenshot:
+   `color: lab(27.036 0 0)` — a single, flat, uniform gray. Proves the
+   CSS was already correct; whatever's happening isn't the `color`
+   property.
+3. Suspected Playwright's default headless-only "Chrome Headless Shell"
+   browser (a stripped-down variant, not full Chromium) might not fully
+   support the modern `lab()`/`oklch()` color functions Tailwind v4
+   generates by default. Tested against the system's real installed
+   Chrome via `channel: 'chrome'` — **same artifact**, ruling that out.
+4. Tested fully non-headless (a real, visible browser window, not
+   headless emulation) — **still the same artifact**, ruling out
+   anything headless-specific at all.
+
+Conclusion: this is subpixel/ClearType antialiasing on small text — a
+real, well-known phenomenon where a screenshot captured and viewed
+pixel-for-pixel shows the individual R/G/B subpixel fringes that a
+physical LCD panel and the human eye's optical blending are designed to
+merge into smooth gray. It's not something a real user looking at a real
+screen would perceive as "rainbow text" — it only shows up because a
+screenshot is a literal pixel capture, not an optically-blended view.
+Confirmed this is a screenshot-viewing artifact, not a product bug, only
+after four independent checks each ruling out a different cause — worth
+recording the process, not just the conclusion, since "it looked like a
+CSS bug and turned out not to be one" is exactly the kind of thing worth
+being able to explain rather than silently having fixed (or worse,
+silently having ignored a real bug because it "probably wasn't important").
+
+### Deployment config: written carefully, not verified live
+
+`Dockerfile` runs ingestion **at build time** — a deliberate trade-off for
+a mostly-static demo dataset (bakes a SteamSpy snapshot into the image;
+re-deploy to refresh) rather than needing a persistent volume or an
+external data store for what's currently ~200 rows. `render.yaml` mirrors
+`.env.example`'s settings as a Render Blueprint. Neither is verified
+against a live build or a live Render/Fly account — no Docker available in
+this environment, and per the earlier scoping conversation, the user is
+deploying manually. Said so plainly in the README's Deploying section
+rather than implying these are tested when they aren't.
+
+### Open questions (new)
+
+- **The Dockerfile is unverified.** First real test is the user's actual
+  deploy. If `libgomp1` isn't actually what onnxruntime needs on the
+  platform's base image, or if build-time network access to steamspy.com
+  is restricted on some platform, the ingestion `RUN` step would need
+  adjusting — flagged as the most likely failure point, not silently
+  assumed to be fine.
+- **No scheduled data refresh.** The deployed backend's catalog is frozen
+  at whatever the image build saw. Revisit once Slice 7 builds real
+  scheduling infrastructure (GitHub Actions cron) for the player-count
+  poller — reusing that mechanism for a periodic SteamSpy re-ingest is a
+  natural, cheap extension at that point, not before.
+- **CORS is a manual two-way env var handoff** (backend needs the
+  frontend's URL, frontend needs the backend's URL, and the frontend's
+  URL isn't known until after the frontend is deployed). Fine for a
+  single deployment; would want automating if this had a staging
+  environment too.

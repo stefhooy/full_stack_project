@@ -76,6 +76,29 @@ class Settings(BaseSettings):
     steamspy_user_agent: str = "ai-game-analyst-ingest/0.1"
     ingest_game_count: int = 200
 
+    # --- serving (Slice 6) ---
+    debug: bool = False
+    """When True, /ask error responses include the real exception message.
+    False (the default, and what production should run with) returns a
+    generic "high demand" message instead — see src/api/main.py."""
+
+    semantic_cache_enabled: bool = True
+    semantic_cache_similarity_threshold: float = 0.93
+    """Calibrated empirically (see DOCEXP.md), not guessed: with the default
+    local embedding model, a clear paraphrase of a cached question ("most
+    owners" vs "highest number of owners") scored 0.957 similarity, while a
+    related-but-different question ("most players" vs "most owners") scored
+    0.834. 0.93 sits between them — catches genuine rephrasings without
+    conflating two different questions into the same cached answer."""
+    semantic_cache_max_entries: int = 200
+
+    rate_limit_max_requests: int = 10
+    rate_limit_window_seconds: float = 60.0
+
+    cors_allowed_origins: str = "http://localhost:3000"
+    """Comma-separated list of origins allowed to call the API — the
+    Next.js frontend's dev/deployed URL(s)."""
+
     @property
     def duckdb_abs_path(self) -> str:
         p = Path(self.duckdb_path)

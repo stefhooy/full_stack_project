@@ -232,6 +232,18 @@ def build_graph():
 
 _compiled_graph = build_graph()
 
+# Human-readable progress labels for streaming — see stream_agent() below.
+# Purely cosmetic (frontend display), never affects control flow.
+NODE_PROGRESS_MESSAGES = {
+    "router": "Classifying your question...",
+    "retrieve_schema": "Retrieving relevant schema...",
+    "agent": "Thinking...",
+    "execute_tools": "Running query...",
+    "build_chart_spec": "Preparing visualization...",
+    "forecast_not_supported": "Checking capabilities...",
+    "ask_clarification": "Checking your question...",
+}
+
 
 @dataclass
 class AgentResult:
@@ -246,8 +258,8 @@ class AgentResult:
     chart_spec: dict | None
 
 
-def run_agent(question: str) -> AgentResult:
-    initial_state: AgentState = {
+def _initial_state(question: str) -> AgentState:
+    return {
         "question": question,
         "messages": [],
         "attempts": 0,
@@ -261,6 +273,57 @@ def run_agent(question: str) -> AgentResult:
         "clarifying_question": None,
         "chart_spec": None,
     }
+
+
+def _result_from_state(final_state: dict) -> AgentResult:
+    final_message = final_state["messages"][-1]
+    answer = (
+        final_message.content
+        if isinstance(final_message.content, str)
+        else str(final_message.content)
+    )
+    return AgentResult(
+        answer=answer,
+        sql=final_state.get("last_successful_sql"),
+        columns=final_state.get("last_successful_columns"),
+        rows=final_state.get("last_successful_rows"),
+        stats_query=final_state.get("last_stats_query"),
+        stats_result=final_state.get("last_stats_result"),
+        retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
+        route=final_state.get("route"),
+        chart_spec=final_state.get("chart_spec"),
+    )
+
+
+async def stream_agent(question: str):
+    """Async generator yielding progress events, then exactly one final
+    AgentResult. Used by the /ask/stream SSE endpoint so the frontend can
+    show what the agent is doing (which node is running) instead of a bare
+    spinner for however long the full graph takes.
+
+    stream_mode="updates" yields {node_name: state_update} after each node
+    finishes — every node function here is a plain sync function (agent_node,
+    execute_tools_node, etc.), and LangGraph runs them in a worker thread
+    under astream() without needing them rewritten as `async def`.
+    """
+    initial_state = _initial_state(question)
+    final_state: dict = dict(initial_state)
+    async for update in _compiled_graph.astream(
+        initial_state, stream_mode="updates", config={"run_name": "ask"}
+    ):
+        for node_name, node_update in update.items():
+            final_state.update(node_update)
+            if node_name in ("messages",):
+                continue
+            message = NODE_PROGRESS_MESSAGES.get(node_name, node_name)
+            yield {"type": "progress", "node": node_name, "message": message}
+
+    result = _result_from_state(final_state)
+    yield {"type": "final", "result": result}
+
+
+def run_agent(question: str) -> AgentResult:
+    initial_state = _initial_state(question)
     final_state = _compiled_graph.invoke(initial_state, config={"run_name": "ask"})
     final_message = final_state["messages"][-1]
     answer = (

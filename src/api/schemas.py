@@ -16,3 +16,4 @@ class AskResponse(BaseModel):
     chart_spec: dict | None = None
     retrieved_schema_chunks: list[str] | None = None
     route: str | None = None
+    cached: bool = False

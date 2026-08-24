@@ -2,9 +2,10 @@
 
 A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
-itself — not a fixed dashboard, not a chatbot answering from memory. This
-is **Slice 1** of a larger project (see [PLAN.md](PLAN.md) for the full
-roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
+itself — not a fixed dashboard, not a chatbot answering from memory. Built
+as a series of thin, working vertical slices; this snapshot is through
+**Slice 6** (see [PLAN.md](PLAN.md) for the full roadmap and
+[DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
 ## What's here right now
 
@@ -35,6 +36,14 @@ roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
+- A Next.js frontend (`frontend/`) — streamed progress (SSE, not a bare
+  spinner), example questions, charts, and a "Show the work" panel
+- A semantic cache (reuses the RAG embedding provider), per-IP rate
+  limiting, and graceful "high demand, try again" error responses instead
+  of raw stack traces
+- Deployment config for the resolved hosting split: a `Dockerfile` +
+  `render.yaml` for the backend (a normal Python host, not serverless —
+  see "Deploying" below for why), Vercel for the frontend
 
 ## Setup
 
@@ -105,6 +114,59 @@ actually ran, the raw rows it got back, and `retrieved_schema_chunks` — the
 list of schema chunks the RAG retrieval step actually picked for this
 question, so you can see retrieval working rather than take it on faith.
 
+**4. Run the frontend** (separate terminal, backend must already be running):
+
+```bash
+cd frontend
+cp .env.local.example .env.local
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 — click an example question or type your own.
+
+## Deploying
+
+Resolved in Slice 6, after being flagged as open since Slice 1: **Vercel
+for the frontend, a separate normal Python host (Render or Fly.io free
+tier) for the backend** — not Vercel Python functions. This stack's actual
+footprint (fastembed's ~130MB ONNX model, scipy, a DuckDB file, multi-step
+LLM calls with retries that can run 10-30s+) doesn't comfortably fit
+serverless payload-size and execution-time limits. See DOCEXP.md for the
+full reasoning.
+
+**Backend** (`Dockerfile` + `render.yaml` at the repo root):
+
+1. Push this repo to GitHub.
+2. On Render (or Fly.io, using the same Dockerfile via `fly launch`):
+   create a new Web Service from the repo, Docker runtime, root directory
+   `.`. Render can pick up `render.yaml` directly as a Blueprint.
+3. Set the real env vars in the platform's dashboard (not in `render.yaml`,
+   which only has placeholders): `GROQ_API_KEY` at minimum. Defaults for
+   everything else match `.env.example`.
+4. Ingestion runs **at Docker build time** (see the Dockerfile) — the image
+   bakes in a snapshot of the SteamSpy catalog. Re-deploy (rebuild) to
+   refresh the data; there's no scheduled re-ingestion yet (see PLAN.md's
+   Slice 7 note).
+5. Note the deployed backend URL — you need it for the frontend.
+
+**Frontend** (Vercel):
+
+1. Import the repo into Vercel, set **Root Directory** to `frontend`.
+2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL from step 5 above.
+3. Deploy. Note the resulting `*.vercel.app` URL.
+
+**Close the loop:** go back to the backend host's dashboard and set
+`CORS_ALLOWED_ORIGINS` to the Vercel URL from the frontend step — the
+backend only accepts browser requests from origins in that list.
+
+**Caveats, honestly:** the semantic cache and rate limiter are in-memory
+and process-local (see `src/agent/cache.py` and `src/api/rate_limit.py`) —
+correct for a single instance, would need a shared store (Redis) if the
+backend ever scales to multiple instances. The Dockerfile is written
+carefully but **not verified against a live build** in this environment
+(no Docker available) — check it actually builds before relying on it.
+
 ## Why the repo is structured this way
 
 ```
@@ -114,9 +176,13 @@ src/
   db/               table schema + the read-only guarded connection (the safety boundary)
   agent/            LangGraph graph, router, prompts, the model-provider seam
     rag/              schema chunk corpus, embedding-provider seam, retrieval index
+    cache.py          semantic cache (reuses the RAG embedding provider)
   tools/            run_sql, run_stats (analysis-only), the chart-spec generator
   evals/            golden questions, deterministic checks, LLM-as-judge, the CLI runner
-  api/              FastAPI — thin, only translates HTTP <-> agent
+  api/              FastAPI — thin, only translates HTTP <-> agent; rate limiting
+frontend/          Next.js UI — see frontend/README.md
+Dockerfile          backend image for Render/Fly.io (not Vercel functions — see "Deploying")
+render.yaml         Render Blueprint (illustrative — see "Deploying")
 ```
 
 Each package maps to one layer of the eventual full architecture
@@ -182,9 +248,24 @@ choices worth being able to defend:
   signal, useful for catching things deterministic checks don't
   anticipate — but a judge's own scoring noise shouldn't make a CI check
   flaky. The deterministic checks are what "regression check" means here.
+- **Streaming is per-node progress events (SSE), not token-level
+  streaming of the final answer.** `stream_agent()` in `src/agent/graph.py`
+  uses LangGraph's `astream(..., stream_mode="updates")` to yield after
+  each node completes — matches the project's node-based, explainable
+  design (same reason the self-correction loop and RAG retrieval are
+  visible nodes) better than streaming raw tokens would, and works the
+  same regardless of which node is currently running an LLM call.
+- **The semantic cache and rate limiter are in-memory, not Redis.**
+  Coherent for the single-process deployment this slice's hosting
+  decision produces; would need a shared store if the backend ever scales
+  to multiple instances. Not solved speculatively before it's needed.
+- **The chart-spec renderer is plain code with one CSS-variable-driven
+  hue, not a categorical palette.** Every question produces at most one
+  series, so there's no legend/CVD-pair problem to solve — the validated
+  default palette's series-1 slot is enough.
 
 ## Not in this slice (see PLAN.md)
 
-Forecasting (no time-series data exists yet — Slice 7), caching, the
-frontend, and deployment are all deliberately out of scope for Slice 5 —
-see PLAN.md for the full roadmap.
+A scheduled ingestion refresh (Slice 7 territory — see the "Deploying"
+section's caveat about build-time-only data) and a real forecasting tool
+(needs Slice 7's time-series data) remain out of scope.
