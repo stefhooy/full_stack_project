@@ -12,5 +12,7 @@ class AskResponse(BaseModel):
     sql: str | None = None
     columns: list[str] | None = None
     rows: list[list] | None = None
+    stats_result: dict | None = None
+    chart_spec: dict | None = None
     retrieved_schema_chunks: list[str] | None = None
     route: str | None = None

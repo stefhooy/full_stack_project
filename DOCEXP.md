@@ -515,3 +515,160 @@ local-dev provider path and shouldn't recur against Groq's hosted API.
   to be unambiguous examples of their category; real user questions won't
   always be this clean. Another concrete case for Slice 5's golden
   question set.
+
+---
+
+## Slice 4 — Specialized analysis tools (stats + viz; forecast deferred)
+
+**Date:** 2026-08-24
+
+### Scoping call: forecasting is not built this slice
+
+The original plan bundles statistical analysis, forecasting, and
+visualization into one slice. Built two of three. Forecasting needs
+something to forecast *over* — time-series data — and none exists yet;
+that's Slice 7's `player_counts` table. A "forecasting tool" today would
+have nothing real to operate on. Building one anyway (e.g. a fake linear
+extrapolation over a single current-snapshot number) would be decorative,
+not real functionality, and this project is explicitly about working
+end-to-end slices, not stubs that look like coverage. The router's honest
+"can't forecast yet" response from Slice 3 stays as-is; a real forecasting
+tool is now explicitly tied to Slice 7 in PLAN.md rather than left dangling
+under Slice 4.
+
+### run_stats: three modes chosen for what SQL genuinely can't do well
+
+DuckDB already has real statistical aggregates built in (`corr`, `stddev`,
+`quantile_cont`, etc.), so a stats tool that just re-implements `AVG`/`STDDEV`
+would be redundant. `src/tools/stats_tool.py` covers what plain SQL
+aggregates don't: a real hypothesis test with a p-value
+(`compare_two_groups`, Welch's t-test + Cohen's d via `scipy.stats`,
+chosen over the equal-variance Student's t-test as the safer default when
+group variances aren't known to be equal) and z-score outlier flagging
+(`outliers`) — DuckDB has no significance-testing primitive at all, and
+while it *could* compute z-scores via a window function, the
+interpretation/thresholding logic is cleaner in Python than SQL.
+`describe` rounds out the set for plain summary stats.
+
+Every mode runs its query through the same guarded, read-only connection
+as `run_sql` (`run_guarded_query`) — this tool is not a bypass of the
+SELECT-only/allowlist guard, it's "SQL in, statistics out."
+
+### Closing the loop from Slice 3: analysis finally gets a different toolset
+
+Slice 3's DOCEXP entry flagged this explicitly: "`lookup` and `analysis`
+both go to the same backend... giving `analysis` its own handler is a
+small additive change to `route_after_router`, not a redesign." That
+change landed here: `agent_node` now binds `[run_sql]` for `lookup` and
+`[run_sql, run_stats]` for `analysis` (`_tools_for_route()` in graph.py).
+The router isn't just a label anymore — it gates what the model is even
+capable of doing for a given question.
+
+### Testing: tools in isolation against real data, then the full graph
+
+Same discipline as every prior slice. Ran all three `run_stats` modes
+directly against the real 200-game dataset before ever wiring them to an
+LLM:
+
+- `compare_two_groups` (Action vs. everything else, price): t = -0.365,
+  p = 0.716 → correctly not significant, tiny effect size (Cohen's d =
+  -0.059). Sanity-checked by hand: means of $17.81 vs $18.94 are close, so
+  a non-significant result is the right answer.
+- `outliers` (peak_ccu, z > 2.5): flagged Counter-Strike: Global Offensive
+  (z ≈ 13) and PUBG (z ≈ 3.9) — both obviously legitimate standouts, not
+  false positives.
+- `describe` (review_score): sane bounded output (mean ≈ 0.85, correctly
+  within the 0..1 fraction range documented in the RAG corpus).
+
+Then ran real questions through the full graph and live HTTP, including
+the exact Action-vs-free-to-play question that's been unreliable since
+Slice 1.
+
+### The comparison question, revisited: better tool, more visible failure
+
+With `run_stats` available, the model correctly reached for
+`compare_two_groups` *without being asked for significance explicitly* —
+progress. The computed statistics were internally correct (t-test, p-value,
+Cohen's d all check out against the query it actually ran). But the
+query itself mislabeled a group:
+
+```sql
+SELECT CASE WHEN genre LIKE '%Action%' THEN 'action' ELSE 'free_to_play' END AS group_label,
+       price_usd AS value FROM games
+```
+
+The `ELSE` branch is labeled `'free_to_play'` but never checks
+`price_usd = 0` — it's actually "everything that isn't Action," which
+includes plenty of paid games. The tool computed a perfectly correct
+p-value for the wrong comparison, and the final answer ("free-to-play
+games average $18.94") was confidently, fluently wrong.
+
+This was only catchable because of a transparency field added *because of*
+finding this bug: `AgentResult`/`/ask` didn't originally expose the actual
+query behind a stats result the way `sql` does for `run_sql` — added
+`stats_query` specifically once this looked suspicious, and it immediately
+confirmed the mislabeling. Kept the field permanently: without it, this
+class of bug is invisible in the API response — a well-formatted, correct-
+looking p-value with no way to check what it was actually computed over.
+
+Tried the direct fix: added an explicit warning to the analysis tool
+guidance ("a catch-all ELSE must be labeled generically, not with a name
+implying a filter you didn't apply — e.g. `ELSE 'free_to_play'` is WRONG
+unless that branch checks price_usd = 0"). Re-ran the identical question:
+**same mislabeling, same wrong answer**, word-for-word identical query.
+Consistent with the standing conclusion since Slice 1 — this is Llama 3.1
+8B's reliability ceiling on this specific pattern, not something more
+prompt text fixes. Kept the guidance anyway (real, correct instruction,
+worth having for whatever model reads it — likely more effective against
+Groq's 70B), logged the negative result rather than hiding it, and did not
+keep iterating on the prompt. This is precisely the kind of thing Slice 5's
+eval harness needs to catch systematically (run N times, measure the
+mislabel rate) instead of one more manual spot-check.
+
+### A real bug, unrelated to model quality: string-typed tool args
+
+Testing the `outliers` mode through the full graph crashed:
+`numpy._core._exceptions._UFuncNoLoopError` comparing a float array against
+`z_threshold`. Root cause: Ollama's function-calling returned `z_threshold`
+as the JSON string `"2.5"` rather than a number, despite the tool schema
+declaring it a float — LangChain passes tool-call args through mostly
+as-received. This is not a reasoning failure, it's an interface contract
+the LLM's tool-calling layer didn't honor. Fixed at the tool boundary
+(`execute_run_stats` now does `z_threshold = float(z_threshold)` before use)
+rather than trusting the declared schema type — same "validate at the
+boundary, don't trust what arrives" principle as the SQL guard, just
+applied to argument *types* instead of query *safety* this time.
+
+### Chart-spec generation: deliberately not an LLM call
+
+`src/tools/viz_tool.py::infer_chart_spec()` looks only at the shape of a
+successful query result — column count, and whether each column's actual
+Python values are numeric or not — to pick bar/scatter/table. This is a
+mechanical decision with one correct answer given the shape, so there's no
+ambiguity to spend an LLM call resolving; it runs as a plain function in a
+new `build_chart_spec` graph node after a successful `run_sql` result, not
+as a bindable tool. The spec shape (`{type, x, y, data}`) is deliberately
+framework-agnostic — not tied to Vega-Lite/Chart.js/Recharts — so it
+doesn't need to change once Slice 6 picks a frontend charting library.
+
+### Open questions (new)
+
+- **The mislabeled-group failure mode is now visible but not prevented.**
+  `stats_query` makes it auditable; nothing yet stops the wrong answer
+  from reaching the user. Options for later: a lightweight sanity check
+  (does a labeled group's aggregate match what the label claims — e.g. if
+  a group is labeled `free_to_play`, assert its mean price actually is ~0
+  before trusting the label) or just leaning on Slice 5's eval harness to
+  quantify how often this happens and whether Groq's larger model avoids
+  it.
+- **Chart-spec heuristics are untested against a genuinely wide variety of
+  query shapes** — validated against the two shapes Slice 4's example
+  questions naturally produce (name+numeric, label+numeric). Three+ column
+  results and time-series-shaped results (once Slice 7 lands) aren't
+  handled yet — currently fall back to `None` (table view) rather than
+  guessing.
+- **`run_stats`'s modes require the LLM to shape its query correctly**
+  (exactly 1 or 2 columns, right order) — same class of risk as any
+  LLM-authored SQL. The self-correction loop catches shape errors (they
+  raise `ValueError`, which is caught the same way SQL errors are), but a
+  golden-question eval would quantify how often that's actually needed.

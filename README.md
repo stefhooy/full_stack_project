@@ -19,11 +19,19 @@ roadmap and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   forecast/ambiguous questions away from the SQL pipeline entirely instead
   of letting the agent guess
 - A minimal LangGraph agent — `router` → `retrieve_schema` → `agent` →
-  `execute_tools` loop — with one tool (`run_sql`) and a self-correcting
-  retry loop (SQL errors get fed back to the model, up to 3 attempts)
+  `execute_tools` → `build_chart_spec` loop — with a self-correcting retry
+  loop (tool errors get fed back to the model, up to 3 attempts)
+- Two tools: `run_sql` (bound for every routable question) and `run_stats`
+  (bound only for `analysis`-routed questions) — real statistics via scipy:
+  a Welch's t-test with a p-value for group comparisons, z-score outlier
+  detection, and summary stats, instead of the LLM eyeballing an average
+  comparison in SQL
+- A deterministic (non-LLM) chart-spec generator that infers a bar/scatter
+  spec from a successful query's shape
 - A FastAPI `POST /ask` endpoint wiring it all together, returning the
-  answer, the SQL, the raw rows, the route classification, and which
-  schema chunks were retrieved
+  answer, the SQL or stats query that was actually run, the raw rows or
+  stats result, a chart spec, the route classification, and which schema
+  chunks were retrieved
 
 ## Setup
 
@@ -72,7 +80,8 @@ curl -X POST http://127.0.0.1:8000/ask \
 ### Example questions to try
 
 - "What are the 5 highest-rated games with more than 1000 positive reviews?" (lookup)
-- "What's the average price of games tagged as Action, and how does that compare to free-to-play games?" (analysis)
+- "Is the price difference between Action games and other games statistically significant?" (analysis → run_stats compare_two_groups, a real p-value)
+- "Are there any games with an unusually high number of concurrent players compared to the rest?" (analysis → run_stats outliers)
 - "Which game has the highest peak concurrent player count?" (lookup)
 - "How many players will this game have next year?" (forecast — routed to an honest "not supported yet")
 - "Is this game good?" (needs_clarification — the agent asks which game instead of guessing)
@@ -91,7 +100,7 @@ src/
   db/               table schema + the read-only guarded connection (the safety boundary)
   agent/            LangGraph graph, router, prompts, the model-provider seam
     rag/              schema chunk corpus, embedding-provider seam, retrieval index
-  tools/            run_sql today; stats/forecast/viz tools land in Slice 4
+  tools/            run_sql, run_stats (analysis-only), the chart-spec generator
   api/              FastAPI — thin, only translates HTTP <-> agent
 ```
 
@@ -132,14 +141,19 @@ choices worth being able to defend:
   Guarantees the result is always one of exactly four valid categories,
   rather than guarding against the model inventing a fifth or wrapping its
   answer in prose.
-- **`lookup` and `analysis` currently share the same backend** (the
-  `retrieve_schema` → `agent` pipeline) — deliberately, since Slice 4's
-  dedicated statistical-analysis tool doesn't exist yet. The
-  classification is real and tested; giving `analysis` its own handler
-  later is additive, not a rewrite of the router.
+- **`lookup` and `analysis` now get different toolsets, not just different
+  labels.** `agent_node` binds `[run_sql]` for lookup and
+  `[run_sql, run_stats]` for analysis — the router from Slice 3 actually
+  gates capability now, closing the loop flagged in that slice's DOCEXP
+  entry.
+- **The chart-spec generator is plain code, not an LLM tool.** Chart type
+  only depends on the *shape* of a query result (column count, Python
+  types) — a deterministic decision, so there's no ambiguity worth an LLM
+  call to resolve. Same reasoning as the SQL guard: use code where code
+  can be correct every time.
 
 ## Not in this slice (see PLAN.md)
 
-Extra analysis tools, evals, caching, the frontend, and deployment are
-all deliberately out of scope for Slice 3 — see PLAN.md for the full
-roadmap.
+Forecasting (no time-series data exists yet — Slice 7), evals, caching,
+the frontend, and deployment are all deliberately out of scope for
+Slice 4 — see PLAN.md for the full roadmap.

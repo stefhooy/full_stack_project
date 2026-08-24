@@ -1,6 +1,6 @@
 # PLAN — AI Game Analyst
 
-**Current slice: 3 complete → starting Slice 4 next session**
+**Current slice: 4 complete → starting Slice 5 next session**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -72,9 +72,21 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Tested all 4 categories end-to-end (classification + full graph + live HTTP)
 
 ## Slice 4 — Specialized analysis tools
-- [ ] Statistical analysis tool (cohorts, significance, anomalies)
-- [ ] Forecasting tool
-- [ ] Visualization-spec generator tool
+- [x] Statistical analysis tool `run_stats` (src/tools/stats_tool.py): describe (summary
+      stats), compare_two_groups (real Welch's t-test + p-value + Cohen's d via scipy),
+      outliers (z-score anomaly detection) — bound only for `analysis`-routed questions,
+      finally differentiating analysis from lookup as flagged in Slice 3's DOCEXP entry
+- [x] Visualization-spec tool `infer_chart_spec` (src/tools/viz_tool.py) — deterministic,
+      not an LLM call; a new `build_chart_spec` graph node runs it after a successful
+      run_sql result; `/ask` returns `chart_spec`
+- [ ] Forecasting tool — deliberately NOT built this slice: no time-series data exists yet
+      (Slice 7). Router's "not supported yet" response from Slice 3 stands; revisit once
+      player_counts exists.
+- [x] `/ask` also returns `stats_query` + `stats_result` for transparency
+- [x] Tested all 3 stats modes directly against real data, then through the full graph,
+      then live over HTTP; found and fixed a real type-coercion bug (z_threshold arriving
+      as a string from Ollama's function-calling) and a real (unfixed, logged) small-model
+      group-mislabeling bug — see DOCEXP.md
 
 ## Slice 5 — Eval harness
 - [ ] Golden question set with known answers

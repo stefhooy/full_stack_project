@@ -6,6 +6,17 @@ src/agent/graph.py's `retrieve_schema` node, which retrieves only the
 chunks relevant to the current question (see src/agent/rag/). The default
 here (the full corpus, unfiltered) exists as a fallback for callers that
 don't do retrieval — e.g. quick scripts, tests — not for normal agent runs.
+
+`tool_guidance` is a second, independent seam: text conditioned on which
+*tools* are bound for this run (as of Slice 4, that means the route —
+`analysis` gets run_stats, `lookup` doesn't). This is deliberately kept
+separate from `schema_text`: schema_text is retrieved facts about the
+database, tool_guidance is instructions about how to use tools that are
+or aren't even available this run. Mixing the two would mean an
+un-retrievable, route-gated instruction living in the RAG corpus, which
+would get retrieved (or not) based on semantic similarity to the schema —
+the wrong mechanism for something that should be gated by route, not by
+embedding distance.
 """
 
 from __future__ import annotations
@@ -30,14 +41,40 @@ Rules:
   query, use conditional aggregation instead, e.g.
   AVG(CASE WHEN genre LIKE '%Action%' THEN price_usd END) AS avg_action_price.
 - Only query the table(s) described above.
-- If run_sql returns an error, read the error message carefully and fix the query — you have
-  a limited number of retries, so don't repeat the same mistake.
-- Once you have the data you need, stop calling run_sql and give a final natural-language
+- If a tool call returns an error, read the error message carefully and fix your next call —
+  you have a limited number of retries, so don't repeat the same mistake.
+- Once you have the data you need, stop calling tools and give a final natural-language
   answer: state the number/finding directly, in plain English, with the key figures included.
 - If you exhaust your retries without a working query, say so plainly and explain what went
   wrong instead of fabricating an answer.
+{tool_guidance}"""
+
+ANALYSIS_TOOL_GUIDANCE = """
+You also have the run_stats tool for this question, since it may call for real statistical
+analysis rather than just an aggregate query:
+- mode="compare_two_groups": comparing two groups and the question is (implicitly or
+  explicitly) about whether the difference is real, not just which average is numerically
+  bigger. Runs a proper significance test and reports a p-value. Query must return exactly
+  two columns: a group label and a numeric value, one row per observation, e.g.
+  SELECT CASE WHEN genre LIKE '%Action%' THEN 'action' ELSE 'other' END AS group_label,
+         price_usd AS value FROM games
+- mode="outliers": finding anomalous/standout rows via z-score. Query must return exactly
+  two columns: a label (e.g. name) and a numeric value.
+- mode="describe": summary statistics (mean, median, stddev, quartiles) for one numeric
+  column. Query must return exactly one column.
+Prefer run_stats over hand-computing a comparison yourself with SQL when significance or
+outliers are what the question is actually asking about.
+
+IMPORTANT: make sure each group_label actually matches the condition that produced it. A
+catch-all ELSE branch must be labeled generically (e.g. 'other'), NOT with a specific name
+implying a filter you didn't apply — e.g. "ELSE 'free_to_play'" is WRONG unless that branch's
+condition actually checks price_usd = 0. Mislabeling a group produces a correct-looking p-value
+for the wrong comparison.
 """
 
 
-def build_system_prompt(schema_text: str | None = None) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(schema_text=schema_text or _FULL_SCHEMA_TEXT)
+def build_system_prompt(schema_text: str | None = None, tool_guidance: str = "") -> str:
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        schema_text=schema_text or _FULL_SCHEMA_TEXT,
+        tool_guidance=tool_guidance,
+    )
