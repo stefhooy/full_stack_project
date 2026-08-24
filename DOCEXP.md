@@ -1,7 +1,8 @@
 # DOCEXP — Engineering Log
 
 A running lab notebook: decisions and why, what broke, what surprised me,
-open questions. Written as I go, not after the fact.
+open questions. Written as I go, not after the fact. For the current
+system's shape without the history, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

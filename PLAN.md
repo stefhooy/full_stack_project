@@ -1,5 +1,8 @@
 # PLAN — AI Game Analyst
 
+*(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
+built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
+
 **Current slice: 8 complete → starting Slice 9 (frontend UI/design polish) next**
 
 A tool-using analytical agent that answers plain-English questions about the
