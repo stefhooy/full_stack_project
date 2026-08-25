@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 8** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -42,8 +42,11 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — streamed progress (SSE, not a bare
-  spinner), example questions, charts, and a "Show the work" panel
+- A Next.js frontend (`frontend/`) — HUD-styled ask console, streamed
+  progress rendered as an animated node-by-node trace (Motion), an
+  illustrated per-genre question showcase (8 hand-drawn icons, real counts
+  from the catalog), charts, and a "Show the work" panel — see
+  `frontend/README.md`
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead
   of raw stack traces
@@ -393,5 +396,12 @@ A real forecasting tool remains out of scope — `player_counts` now
 provides the time-series data forecasting would need, but a forecasting
 *method* (even a simple trend line) is a distinct, real piece of engineering
 that hasn't been built yet. The router still routes forecast questions to
-an honest "not supported yet." Frontend UI/design polish (Slice 9) and the
-Expo mobile client (Slice 10) are next, not this slice.
+an honest "not supported yet." The Expo mobile client (Slice 10) is next.
+
+A real, pre-existing backend bug surfaced while verifying Slice 9's frontend
+work: `POST /ask/stream` reproducibly crashes the whole Python process (a
+native `OPENSSL_Uplink` fault, not a Python exception) on the first request
+that makes a real outbound HTTPS call. Not caused by the frontend changes —
+open, unfixed, logged in DOCEXP.md with a working hypothesis
+(`truststore`'s `ssl` patch colliding with another native extension's own
+OpenSSL, the same family of issue as the earlier `uv sync` TLS errors).

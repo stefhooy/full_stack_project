@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 8 complete → starting Slice 9 (frontend UI/design polish) next**
+**Current slice: 9 complete → starting Slice 10 (Expo mobile client) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -170,10 +170,36 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       rather than guessing; `FastMCP` is now `MCPServer` in `mcp.server` as of mcp 2.1.0)
 
 ## Slice 9 — Frontend UI/design polish
-- [ ] A real visual pass on the Next.js frontend built in Slice 6 (currently functional
-      but plain: default spacing, no branding, minimal visual hierarchy)
-- [ ] Settle on a visual language here first — makes Slice 10's mobile UI faster
-      (reuse decisions instead of designing twice)
+- [x] Real visual identity: warm near-black/off-white grounds + a single amber
+      accent, reusing the exact palette from ARCHITECTURE.md's agent-trace
+      artifact so the live app and the docs read as one brand, not two
+- [x] Typography: Archivo (display/UI) + IBM Plex Mono (data/code) — same
+      pairing as the trace artifact, via `next/font/google`
+- [x] Motion (motion.dev, the current name for Framer Motion) added as the
+      app's one animation library — deliberately not also adding
+      react-spring/Anime.js, which would just be redundant bundle weight;
+      `MotionConfig reducedMotion="user"` wired in once, app-wide
+- [x] Illustrated per-genre identity (`lib/genres.ts`, `components/GenreIcon.tsx`,
+      `components/GenreShowcase.tsx`) — 8 hand-drawn SVG glyphs + the dataviz
+      skill's already-validated 8-slot categorical palette (reused, not
+      re-derived), assigned in real prevalence order counted from the actual
+      200-game catalog (SteamSpy's `genre` field is comma-joined free text;
+      "Early Access"/"Free To Play" excluded as non-genre tags, a handful of
+      one-off non-game categories folded into "Other" per the palette's
+      8-hue cap). Each card is a real example-question trigger through the
+      existing `/ask/stream` path, not decorative.
+- [x] Streamed progress re-rendered as `components/TraceSteps.tsx`, an
+      animated node-by-node stepper matching the agent graph's real node
+      names — the same visual language as the ARCHITECTURE.md trace, now
+      appearing in the product itself, not just the docs
+- [x] Verified in a real browser (Playwright, light + dark, hover states, a
+      genre-card-triggered ask): found a real *backend* bug in the process —
+      `/ask/stream` reliably crashes the whole Python process (native
+      `OPENSSL_Uplink`/no-Applink fault, not a Python exception) on the
+      first request that does real work — see DOCEXP.md. Out of scope to
+      fix in this slice (frontend-only); the frontend's own handling of a
+      dropped connection (graceful error banner, no crash) was verified
+      correct.
 
 ## Slice 10 — Expo mobile client
 - [ ] Same API, React Native/Expo UI — one codebase for iOS + Android

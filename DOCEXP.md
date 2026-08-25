@@ -1319,3 +1319,150 @@ installed to run the web app anyway. Noted as a real option, not pursued.
   (both directly verifiable from this environment); Cursor's MCP config
   format is very likely close to Claude Desktop's (`mcpServers` JSON) but
   wasn't checked against a real Cursor install.
+
+---
+
+## Slice 9 — Frontend UI/design polish
+
+**Date:** 2026-08-25
+
+Slice 6 built the frontend's plumbing (SSE streaming, chart rendering, dark
+mode via Tailwind's `dark:` classes) but deliberately left the visual design
+plain — right call at the time, wrong call to leave standing once the rest
+of the system had real content to show off. This slice is the visual pass,
+requested explicitly with a "gaming AI" identity and real motion.
+
+### One animation library, not four
+
+The request that kicked this off named four animation libraries (Anime.js,
+motion.dev, react-spring, Framer Motion) plus a couple of UI-kit references.
+Framer Motion *is* motion.dev — Framer Motion was renamed "Motion" and now
+ships from the `motion` package, same author, same lineage — so two of the
+four names were the same library twice. Running Anime.js, react-spring, and
+Motion side by side in one app would mean three animation engines' worth of
+bundle weight and three different easing/spring feels for no real gain, so
+the app standardizes on Motion (`motion/react`) alone. Same reasoning for
+"Kokonut UI": it's a copy-paste component registry (shadcn-style — you
+`npx shadcn add` a component's source into your own tree), not an
+installable package, so there's nothing to add to `package.json` for it;
+its glow-card/gradient-border idiom is instead hand-built directly in
+`components/GenreShowcase.tsx`.
+
+### Brand continuity with ARCHITECTURE.md's trace artifact
+
+Rather than invent a new palette and type pairing from scratch, this slice
+deliberately reused the one already established for the Slice 8 interactive
+agent-trace artifact: the same amber accent (`#f0a63a` dark / `#a8650f`
+light), the same Archivo + IBM Plex Mono pairing. The alternative — a
+distinct look for the live app versus the docs' interactive artifact — would
+have made the project read as two different projects wearing one name. The
+same reasoning extended into the product itself: `components/TraceSteps.tsx`
+re-renders the streamed progress events as a node-by-node stepper using the
+graph's real node names (router → retrieve_schema → agent → execute_tools →
+build_chart_spec), the same visual grammar as the ARCHITECTURE.md diagram,
+instead of Slice 6's flat scrolling text log. The trace concept isn't just
+documentation anymore — it's now a real UI element a user watches live.
+
+### Genre identity: real counts, not invented ones, and why 8 not 12
+
+"Illustrated identity per genre" needed an actual genre list before anything
+else. SteamSpy's `genre` field turned out to be free-text and comma-joined
+(`"Action, Adventure, RPG"`, not an enum) — queried the real 200-game
+catalog directly (`data/db/games.duckdb`), split every row's genre string on
+comma, and counted tokens rather than guessing a plausible-looking list.
+Real result, most common first: Action 148, Adventure 75, Indie 67, Free To
+Play 52, RPG 50, Simulation 41, Massively Multiplayer 38, Strategy 33,
+Casual 24, Early Access 13, Sports 13, Racing 7 (plus a handful of one-off
+non-game tags like "Photo Editing" — noise from a few mislabeled catalog
+entries).
+
+Cut this to 8 for `lib/genres.ts`: "Early Access" (a release status, not a
+genre) and "Free To Play" (a pricing model) were excluded on category
+grounds, and the dataviz skill's categorical-palette rule is a hard 8-hue
+cap regardless — a 9th series never gets a generated hue, it folds into
+"Other." That cap happened to land exactly on a clean real cutoff (Casual at
+24 vs. the excluded pair's actual genre-adjacent neighbors Sports/Racing at
+13/7), so nothing had to be forced.
+
+Colors reuse the dataviz skill's already-validated default 8-slot
+categorical palette (`references/palette.md`) rather than deriving a new
+one — assigned in the genres' real prevalence order (Action → slot 1 blue,
+… Casual → slot 8 red), which preserves the CVD-safety guarantee that was
+validated for this exact hue *sequence* (re-ordering which hue means which
+genre is fine; what the validator actually checked was adjacency within
+this sequence). Re-ran `validate_palette.js` against this app's own light/
+dark chrome surfaces (`#faf8f4`/`#141310`, not the skill's reference
+surfaces) rather than assuming the original validation still holds on a
+different ground — both pass every check; light mode WARNs on raw contrast
+for 3 of the 8 hues (aqua/yellow/magenta), which the skill flags as needing
+a relief channel — satisfied here since every genre card always carries a
+matching icon and text label, so identity is never color-alone regardless.
+One caveat logged honestly: the categorical validator's "adjacent pairs"
+model is a linear sequence (bars/lines), and this palette is displayed in a
+2D grid, where a card has up to 4 visual neighbors, not 2. Didn't re-derive
+for grid-adjacency specifically — the icon+label pairing already makes
+color non-load-bearing, which covers the gap.
+
+Eight hand-authored line-art SVG glyphs (`components/GenreIcon.tsx`) — a
+crosshair, compass, pixel-heart, gem, gear-spokes, network nodes, a 3×3
+grid, a smiley — rather than pulling in an icon library for 8 shapes.
+
+Genre cards aren't decorative: clicking one calls the same `ask()` path as
+the Slice 6 example-question chips, with a genre-specific real question
+(`lib/genres.ts`'s `question` field) that the existing agent can already
+answer with zero backend changes — same reasoning Slice 7 leaned on for
+player-count questions ("meant to grow" schema, no new code needed).
+
+### Accessibility: `MotionConfig reducedMotion="user"`, once
+
+Rather than checking `prefers-reduced-motion` in every animated component,
+`components/MotionProvider.tsx` wraps the whole app in a single
+`<MotionConfig reducedMotion="user">`. Motion's own reduced-motion mode
+keeps opacity/color transitions but makes positional animation (the hero's
+stagger-in, card lift, trace-dot scale) instant — one line, whole-app
+coverage.
+
+### Verification, and a real bug found in the process
+
+Built the whole slice, then drove it in an actual browser (Playwright) —
+not just visual screenshots of static markup, but a real interaction: click
+a genre card, watch the trace stepper animate through real streamed
+progress events, wait for either a result or a failure. Checked light and
+dark themes, and a hover state (the card's radial glow).
+
+That last check surfaced a real, pre-existing **backend** bug, unrelated to
+this slice's own code: `POST /ask/stream` crashes the whole Python process
+—not a Python exception with a traceback, a hard native fault
+(`OPENSSL_Uplink(...): no OPENSSL_Applink` printed to stderr, then the
+process exits) — reproducibly, on the first request that does real work.
+`/health` (no outbound network call) works fine every time; the crash
+happens exactly when the agent would make its first real HTTPS call (Groq).
+Working hypothesis, not yet confirmed: `truststore.inject_into_ssl()` (added
+back in the pyproject.toml/uv migration, to route around Avast's TLS
+interception via the OS trust store) patches Python's global `ssl` module
+in a way that collides with another native extension's own statically
+linked OpenSSL the first time a real TLS handshake actually happens — the
+same family of Windows TLS issue this project has already hit twice before
+(`uv sync`/`uv lock`'s `UnknownIssuer` errors), just triggered from inside
+the running app instead of from `uv`. Not chased further here: it's a
+backend runtime issue, out of scope for a frontend-visual-polish slice, and
+guessing at a fix without reproducing it outside this one environment risked
+breaking the ingestion/eval paths that already depend on `truststore`/
+`native-tls`. What *was* verified: the frontend's own handling of a dropped
+connection is correct — `lib/api.ts`'s `fetch` rejects, `page.tsx`'s catch
+block sets the existing "Couldn't reach the backend" error state, no crash,
+no stuck loading spinner.
+
+### Open questions (new)
+
+- **The `/ask/stream` native crash needs real investigation** — likely
+  `truststore` vs. some other native extension's bundled OpenSSL on
+  Windows, per the hypothesis above, but unconfirmed. Next step if
+  picked up: reproduce with `MODEL_PROVIDER=ollama` (no outbound HTTPS at
+  all) to test whether the crash is specifically tied to the first real
+  TLS handshake, then bisect which native extension collides with
+  `truststore`'s patched `ssl` module.
+- **Grid-adjacency CVD validation for the genre palette** — validated as a
+  linear sequence per the dataviz skill's method; a true 2D-grid adjacency
+  check would need extending the validator's pairlist logic, not attempted
+  here since the icon+label pairing already covers the accessibility gap.
