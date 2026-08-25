@@ -49,12 +49,12 @@ export default function TraceSteps({
           <div key={s.node} className="flex items-center">
             <div className="flex flex-col items-center gap-1.5 w-14">
               <motion.div
-                className="h-2.5 w-2.5"
+                className="h-2 w-2 rounded-full"
                 animate={{
-                  backgroundColor: isVisited ? "var(--accent)" : "var(--border)",
-                  scale: isCurrent ? [1, 1.35, 1] : 1,
+                  backgroundColor: isVisited ? "var(--accent)" : "var(--border-strong)",
+                  scale: isCurrent ? [1, 1.3, 1] : 1,
                   boxShadow: isVisited
-                    ? "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 10px var(--accent-glow)"
+                    ? "0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent)"
                     : "0 0 0 0px transparent",
                 }}
                 transition={
@@ -64,7 +64,7 @@ export default function TraceSteps({
                 }
               />
               <span
-                className={`font-pixel text-[7px] uppercase tracking-wide transition-colors ${
+                className={`font-mono text-[10px] tracking-wide transition-colors ${
                   isVisited ? "text-[var(--foreground)]" : "text-[var(--muted)]"
                 } ${isPast ? "opacity-60" : ""}`}
               >
@@ -88,7 +88,7 @@ export default function TraceSteps({
         <motion.span
           initial={{ opacity: 0, x: -6 }}
           animate={{ opacity: 1, x: 0 }}
-          className="ml-2 font-pixel text-[7px] uppercase tracking-wide text-[var(--accent)] -mt-4"
+          className="ml-2 font-mono text-[10px] tracking-wide text-[var(--accent)] -mt-4"
         >
           → {TERMINAL_LABELS[terminalNode]}
         </motion.span>

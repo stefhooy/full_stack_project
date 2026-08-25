@@ -35,20 +35,18 @@ export default function Markdown({ children }: { children: string }) {
         ),
         li: ({ children }) => (
           <li className="flex gap-2">
-            <span className="font-pixel text-[6px] mt-1.5" style={{ color: "var(--accent)" }}>
-              ▸
-            </span>
+            <span className="text-[var(--accent)] leading-relaxed">–</span>
             <span className="flex-1">{children}</span>
           </li>
         ),
         code: ({ children }) => (
-          <code className="font-mono text-xs px-1 py-0.5 border border-[var(--border)] bg-[var(--background)]">
+          <code className="font-mono text-xs px-1 py-0.5 rounded border border-[var(--border)] bg-[var(--background)]">
             {children}
           </code>
         ),
         hr: () => <hr className="my-3 border-t border-[var(--border)]" />,
         table: ({ children }) => (
-          <div className="my-2.5 overflow-x-auto border border-[var(--border)]">
+          <div className="my-2.5 overflow-x-auto rounded-lg border border-[var(--border)]">
             <table className="w-full text-xs sm:text-sm font-mono border-collapse">{children}</table>
           </div>
         ),
@@ -59,8 +57,8 @@ export default function Markdown({ children }: { children: string }) {
         tr: ({ children }) => <tr>{children}</tr>,
         th: ({ children }) => (
           <th
-            className="text-left font-pixel text-[7px] uppercase tracking-wide px-2.5 py-2 border-b"
-            style={{ color: "var(--accent)", borderColor: "var(--border)" }}
+            className="text-left text-[11px] uppercase tracking-wide font-medium px-2.5 py-2 border-b"
+            style={{ color: "var(--muted)", borderColor: "var(--border)" }}
           >
             {children}
           </th>

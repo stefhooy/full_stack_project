@@ -1,31 +1,33 @@
 @import "tailwindcss";
 
-/* Brand tokens — one committed synthwave-night identity, not a light/dark
-   pair. "I don't like the black or white" plus a specific reference image
-   (a magenta grid horizon under a glowing sun) called for a single vivid
-   world, not two toned-down variants of it — the artifact-design skill's
-   own allowance for this ("a design that deliberately commits to one
-   visual world... may stay single-theme") is exactly this case. The scene
-   itself lives in components/RetroBackground.tsx (sky, sun, mountains,
-   grid); these tokens are what UI chrome sits on top of it with — a dark
-   translucent "glass" surface (backdrop-blur) so panels read as floating
-   over the neon night rather than as opaque boxes painted on top of it.
-   --accent stays warm gold/amber on purpose: it's the sun's own color,
-   and the same amber ARCHITECTURE.md's agent-trace artifact already used
-   (same brand thread, still holds even though the ground around it
-   changed completely). */
+/* Brand tokens — a restrained dev-tool identity (Linear/Vercel-adjacent),
+   replacing the synthwave-arcade skin: the user's own words were "not look
+   like AI slop" after two passes on the retro direction — the honest read
+   is that a neon-grid-plus-pixel-font hero is itself a recognizable
+   template trope by now, however carefully built. Restraint reads as
+   considered; decoration reads as generated. Near-black/near-white,
+   hairline borders, one confident accent, real typographic hierarchy doing
+   the work instead of a novelty display face. Still single-theme dark on
+   purpose — this genre of product (Linear, Vercel, Raycast) ships
+   dark-only marketing pages routinely, and per artifact-design's own
+   allowance, a design that commits to one world can skip the light
+   variant. --accent stays the same warm gold used throughout this project
+   (ARCHITECTURE.md's trace artifact, the previous two passes) — the one
+   thread of continuity kept on purpose through this rebuild; everything
+   else about the execution changed. */
 :root {
-  --background: #1a0b2e;
-  --surface: rgba(30, 14, 51, 0.66);
-  --surface-raised: rgba(38, 18, 64, 0.78);
-  --foreground: #faf3ff;
-  --muted: #cbb3dd;
-  --border: rgba(255, 170, 221, 0.16);
-  --accent: #ffc857;
-  --accent-contrast: #2a1400;
-  --accent-glow: rgba(255, 200, 87, 0.35);
+  --background: #08090a;
+  --surface: #111214;
+  --surface-raised: #17181b;
+  --foreground: #f5f6f7;
+  --muted: #8a8f98;
+  --border: rgba(245, 246, 247, 0.09);
+  --border-strong: rgba(245, 246, 247, 0.16);
+  --accent: #f0a63a;
+  --accent-contrast: #1a1206;
+  --accent-glow: rgba(240, 166, 58, 0.28);
   --danger: #ff8a80;
-  --danger-bg: rgba(255, 138, 128, 0.14);
+  --danger-bg: rgba(255, 138, 128, 0.1);
 }
 
 @theme inline {
@@ -35,6 +37,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
   --color-accent-contrast: var(--accent-contrast);
   --color-danger: var(--danger);
@@ -42,16 +45,14 @@
   --font-sans: var(--font-display);
   --font-display: var(--font-display);
   --font-mono: var(--font-data-mono);
-  --font-marquee: var(--font-marquee);
-  --font-pixel: var(--font-pixel);
 }
 
-/* Genre identity palette — unchanged values from the dataviz skill's
-   validated default 8-slot categorical palette (the "dark" step of each
-   hue, since every surface is dark-glass now regardless of OS theme),
-   assigned in real-data prevalence order at render time — see
-   lib/genres.ts / GET /genres. Kept structurally separate from --accent:
-   chrome uses --accent only, cartridges use --genre-* only. */
+/* Genre identity palette — unchanged from the dataviz skill's validated
+   default 8-slot categorical palette, assigned in real-data prevalence
+   order at render time (see lib/genres.ts / GET /genres). The one place
+   in the UI with more than one color in play, and it's load-bearing (which
+   genre is which), not decorative — kept structurally separate from
+   --accent so chrome and genre identity never compete for meaning. */
 :root {
   --genre-1: #3987e5;
   --genre-2: #d95926;
@@ -69,98 +70,20 @@ body {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
-/* Faint scanline texture over the whole scene — much lighter than before,
-   since the synthwave background now carries most of the atmosphere
-   itself; this is just enough CRT grain to keep it feeling like a screen. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    #000 0,
-    #000 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  opacity: 0.05;
-}
-
-/* Terminal-style blinking cursor, used next to the ask console's prompt
-   glyph while it's empty and unfocused. */
-@keyframes blink-cursor {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-.blink-cursor {
-  animation: blink-cursor 1s steps(1) infinite;
-}
-
-/* Marquee chase-light border — a rotating conic gradient masked down to a
-   1.5px ring, like the chasing bulbs around an arcade cabinet marquee.
-   Applied to the ask console (components stay quiet everywhere else — see
-   artifact-design's "spend your boldness in one place"). @property makes
-   the angle animatable; browsers without support just see a static
-   gradient ring, a fine fallback. */
-@property --marquee-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-.marquee-border {
-  position: relative;
-}
-.marquee-border::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  z-index: -1;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--marquee-angle),
-    transparent 0%,
-    var(--accent) 8%,
-    transparent 22%,
-    transparent 50%,
-    var(--accent) 58%,
-    transparent 72%
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: marquee-spin 4s linear infinite;
-}
-@keyframes marquee-spin {
-  to { --marquee-angle: 360deg; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .blink-cursor { animation: none; opacity: 1; }
-  .marquee-border::before { animation: none; }
-}
-
-/* Glass panel — the one surface treatment every floating panel in the app
-   uses now (result card, progress trace, cartridge leaderboard, error
-   banner): translucent + blurred so the synthwave scene behind it still
-   shows through at the edges instead of the panel reading as a flat
-   opaque box dropped on top of the scene. */
-.glass-panel {
+/* A hairline-bordered solid surface — every panel in the app uses this.
+   No blur, no translucency: the previous "glass over a busy scene"
+   treatment doesn't apply once the background is quiet. A confident solid
+   panel reads calmer. */
+.panel {
   background: var(--surface);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
 }
 
 /* Chart tokens (validated default palette — see the dataviz skill's
    references/palette.md). Deliberately its own light "paper" surface, not
-   the app's glass panels — a chart is read as data on a controlled ground,
-   not as chrome floating over the scene; same reasoning as before, just
-   now also giving the chart a stable, always-legible surface independent
-   of the (much busier) background outside it. Single-hue charts only in
-   this app (one series per question), so only the sequential/series-1
-   slot is needed, not the full categorical order. */
+   the app's dark panels — a chart is read as data on a controlled ground.
+   Single-hue charts only in this app (one series per question), so only
+   the sequential/series-1 slot is needed, not the full categorical order. */
 .viz-root {
   color-scheme: light;
   --viz-surface: #fcfcfb;

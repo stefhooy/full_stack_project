@@ -1,24 +1,19 @@
 import type { Metadata } from "next";
-import { Chakra_Petch, IBM_Plex_Mono, Monoton, Press_Start_2P } from "next/font/google";
+import { Geist, IBM_Plex_Mono } from "next/font/google";
 import MotionProvider from "@/components/MotionProvider";
-import RetroBackground from "@/components/RetroBackground";
 import "./globals.css";
 
-// Four faces, each with one job — an 80s-arcade-cabinet identity, not a
-// generic display/body pair:
-//   - Chakra Petch: UI/body text. A retro-computer/tech face (squared-off
-//     terminals, slightly angular) that still reads cleanly at paragraph
-//     size — swapped in for Archivo, which was doing the "readable" job
-//     fine but wasn't reading as retro at all next to the other three.
-//   - IBM Plex Mono: data/code/HUD readouts. Same pairing as
-//     ARCHITECTURE.md's agent-trace artifact, kept for brand continuity.
-//   - Monoton: the hero headline ONLY — neon-tube marquee lettering, used
-//     in exactly one place (see artifact-design's "spend your boldness in
-//     one place" — this is that one place).
-//   - Press Start 2P: short pixel-font labels (eyebrows, badges, section
-//     headers) — genuinely 8-bit, illegible at paragraph length by design,
-//     so it's never used for anything longer than a few words.
-const chakraPetch = Chakra_Petch({
+// Two faces, each with one job — restraint over decoration:
+//   - Geist: UI/body/headline. Real typographic hierarchy (weight + size)
+//     carries the hero instead of a novelty display face — the previous
+//     pass's Monoton/Press Start 2P read as the arcade-template signal
+//     more than any single other choice, so both are gone, not just toned
+//     down. Vercel's own font; genuinely associated with serious dev
+//     tooling rather than a generic "safe" default.
+//   - IBM Plex Mono: data/code readouts (SQL, stats, trace labels). Same
+//     face ARCHITECTURE.md's agent-trace artifact already uses — the one
+//     thread of typographic continuity kept through this rebuild.
+const geist = Geist({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -30,18 +25,6 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
-const monoton = Monoton({
-  variable: "--font-marquee",
-  subsets: ["latin"],
-  weight: "400",
-});
-
-const pressStart = Press_Start_2P({
-  variable: "--font-pixel",
-  subsets: ["latin"],
-  weight: "400",
-});
-
 export const metadata: Metadata = {
   title: "AI Game Analyst",
   description:
@@ -50,12 +33,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${chakraPetch.variable} ${plexMono.variable} ${monoton.variable} ${pressStart.variable} h-full antialiased`}
-    >
+    <html lang="en" className={`${geist.variable} ${plexMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <RetroBackground />
         <MotionProvider>{children}</MotionProvider>
       </body>
     </html>

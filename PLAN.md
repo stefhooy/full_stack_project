@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 9f complete → starting Slice 10 (mobile-web polish + deployment) next**
+**Current slice: 9g complete → starting Slice 10 (mobile-web polish + deployment) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -367,6 +367,59 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Real mobile-viewport re-verification (iPhone 14 + desktop) after both
       the data change and the animation changes — no overflow, no console
       errors, mobile genre-header fix from Slice 9e still holds
+
+## Slice 9g — Full landing page rebuild: dev-tool identity, real 3D
+- [x] Reversed the Slice 9/9b-9d retro-arcade direction after direct
+      feedback it still read as "AI slop" — the honest diagnosis (see
+      DOCEXP.md) is that a synthwave grid + neon glow + pixel font is
+      itself a recognizable template trope regardless of execution
+      quality. Removed `RetroBackground.tsx`, `GenreCartridge.tsx`, the
+      Monoton/Press Start 2P fonts, the marquee chase-light border, the
+      blinking cursor, and the scanline texture entirely — not toned down,
+      gone
+- [x] New direction, named by the user (linear.app) and grounded in what
+      this product actually does rather than a decorative theme: near-
+      black/off-white neutrals, one confident accent (kept the same warm
+      gold used throughout this whole project — the one thread of
+      continuity through the rebuild), Geist for UI/headlines (Vercel's
+      font — distinctive without being a novelty display face), IBM Plex
+      Mono kept for data/code. Real typographic hierarchy (size + weight)
+      replaces the previous pass's glow/pixel-font signaling
+- [x] Real 3D, not faked with CSS: added React Three Fiber + drei +
+      `@types/three`. `components/HeroScene.tsx` — a single WebGL canvas
+      (not one per card) with 6 lit primitive objects (icosahedron,
+      octahedron, torus, box, capsule, cone) in the genre categorical
+      palette, `MeshPhysicalMaterial` with clearcoat for a glossy/premium
+      look, manual 3-light setup (no CDN-hosted HDRI environment — kept
+      the project's no-external-asset discipline), gentle per-object
+      rotation + a subtle mouse-parallax camera drift, all skipped under
+      `prefers-reduced-motion`. Removed Anime.js (no longer has a job —
+      R3F's own render loop replaced what it was animating)
+- [x] Genre picker rebuilt as plain flat cards (icon + label + count),
+      dropping the Game Boy cartridge silhouette from Slice 9d along with
+      the arcade skin — kept the parts that were actually load-bearing
+      (live per-genre data, the click-to-browse-real-games leaderboard)
+      and dropped the decorative shape
+- [x] Fixed 4 real React-Compiler-era lint findings surfaced by the new
+      Three.js code (not suppressed): `Math.random()` in a render-path
+      `useMemo` (impure) → replaced with a value deterministically derived
+      from each object's index; mutating `camera` destructured from
+      `useThree()` inside `useFrame` (flagged as mutating a hook's return
+      value) → read `state.camera` from the `useFrame` callback parameter
+      instead, which is the standard R3F-vs-React-Compiler-rules
+      workaround; one-shot `useEffect`+`setState` for reading
+      `prefers-reduced-motion` → replaced with `useSyncExternalStore`,
+      which is also more correct (reacts live if the OS setting changes
+      mid-session, which the old version didn't)
+- [x] Full re-verification: build, typecheck, lint all clean; live-browser
+      check (desktop + iPhone 14 emulation) of the hero, genre grid, a
+      forecast result (still honest about insufficient history), and the
+      genre-leaderboard flow — no console errors, no layout overflow
+- [x] Found and recovered from an unrelated real regression mid-slice: the
+      Python venv had somehow lost `pip`/`uvicorn` entirely between
+      sessions (cause not fully diagnosed — possibly an interrupted
+      external `uv` operation). Recovered via the same known-safe
+      `uv sync --extra agent` rebuild used once before in this project
 
 ## Slice 10 — Mobile-web polish + deployment
 - [ ] Further responsive-design pass beyond the Slice 9e bug fix — Slice 9e

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
 import GenreShowcase from "@/components/GenreShowcase";
+import HeroScene from "@/components/HeroScene";
 import Markdown from "@/components/Markdown";
 import TraceSteps from "@/components/TraceSteps";
 import {
@@ -28,9 +29,16 @@ const ROUTE_LABELS: Record<string, string> = {
   needs_clarification: "Needs clarification",
 };
 
-function Badge({ children }: { children: React.ReactNode }) {
+function Pill({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "accent" }) {
   return (
-    <span className="inline-flex items-center border border-[var(--border)] px-2 py-1 font-pixel text-[8px] uppercase tracking-wide text-[var(--muted)]">
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium"
+      style={
+        tone === "accent"
+          ? { color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 14%, transparent)" }
+          : { color: "var(--muted)", background: "var(--surface-raised)" }
+      }
+    >
       {children}
     </span>
   );
@@ -38,14 +46,7 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function RouteBadge({ route }: { route: string | null }) {
   if (!route) return null;
-  return (
-    <span
-      className="inline-flex items-center border-l-2 px-2 py-1 font-pixel text-[8px] uppercase tracking-wide"
-      style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
-    >
-      {ROUTE_LABELS[route] ?? route}
-    </span>
-  );
+  return <Pill tone="accent">{ROUTE_LABELS[route] ?? route}</Pill>;
 }
 
 function StatsResultView({ stats }: { stats: StatsResult }) {
@@ -71,7 +72,7 @@ function StatsResultView({ stats }: { stats: StatsResult }) {
           <span
             className={
               s["significant_at_0.05"]
-                ? "text-emerald-600 dark:text-emerald-400"
+                ? "text-emerald-400"
                 : "text-[var(--muted)]"
             }
           >
@@ -124,27 +125,23 @@ function StatsResultView({ stats }: { stats: StatsResult }) {
 function ForecastResultView({ forecast }: { forecast: ForecastResult }) {
   if (forecast.insufficient_history) {
     return (
-      <div className="border-2 border-dashed border-[var(--border)] px-3.5 py-3 text-sm font-mono">
-        <div className="font-pixel text-[8px] uppercase tracking-wide text-[var(--muted)] mb-2">
-          [ insufficient history ]
+      <div className="rounded-lg border border-dashed border-[var(--border-strong)] px-3.5 py-3 text-sm">
+        <div className="text-[11px] uppercase tracking-wide font-medium text-[var(--muted)] mb-2">
+          Insufficient history
         </div>
-        {forecast.message}
+        <span className="text-[var(--foreground)]">{forecast.message}</span>
       </div>
     );
   }
   return (
-    <div className="border-2 border-[var(--border)] px-3.5 py-3 space-y-2">
+    <div className="rounded-lg border border-[var(--border)] px-3.5 py-3 space-y-2">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <span className="font-pixel text-[8px] uppercase tracking-wide text-[var(--muted)]">
-          [ projection ]
+        <span className="text-[11px] uppercase tracking-wide font-medium text-[var(--muted)]">
+          Projection
         </span>
-        {forecast.low_confidence && (
-          <span className="font-pixel text-[8px] uppercase tracking-wide text-[var(--danger)]">
-            low confidence
-          </span>
-        )}
+        {forecast.low_confidence && <Pill>Low confidence</Pill>}
       </div>
-      <div className="text-2xl font-[800] font-mono" style={{ color: "var(--accent)" }}>
+      <div className="text-2xl font-semibold font-mono" style={{ color: "var(--accent)" }}>
         ≈ {Math.round(forecast.projected_value ?? 0).toLocaleString()} players
       </div>
       <div className="text-xs font-mono text-[var(--muted)]">
@@ -166,22 +163,25 @@ function ForecastResultView({ forecast }: { forecast: ForecastResult }) {
 
 function ResultTable({ columns, rows }: { columns: string[]; rows: unknown[][] }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
       <table className="text-sm border-collapse w-full">
         <thead>
           <tr className="border-b border-[var(--border)]">
             {columns.map((c) => (
-              <th key={c} className="text-left py-1.5 pr-4 font-medium text-[var(--muted)]">
+              <th
+                key={c}
+                className="text-left py-2 px-3 text-[11px] uppercase tracking-wide font-medium text-[var(--muted)]"
+              >
                 {c}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-[var(--border)]">
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-[var(--border)]">
+            <tr key={i}>
               {row.map((cell, j) => (
-                <td key={j} className="py-1.5 pr-4 font-mono">
+                <td key={j} className="py-2 px-3 font-mono">
                   {String(cell)}
                 </td>
               ))}
@@ -204,7 +204,6 @@ const heroItem = {
 
 export default function Home() {
   const [question, setQuestion] = useState("");
-  const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<Extract<StreamEvent, { type: "progress" }>[]>([]);
   const [result, setResult] = useState<AskResult | null>(null);
@@ -250,74 +249,80 @@ export default function Home() {
   const currentNode = loading ? visitedNodes[visitedNodes.length - 1] ?? null : null;
 
   return (
-    <div className="relative z-[1] min-h-screen font-sans max-w-2xl mx-auto px-6 py-14">
-      <motion.div variants={heroContainer} initial="hidden" animate="show">
-        <motion.span
-          variants={heroItem}
-          className="inline-block font-pixel text-[9px] tracking-[0.1em] text-[var(--accent)] mb-4"
-          style={{ textShadow: "0 2px 10px rgba(10,4,20,0.85)" }}
-        >
-          [ AI GAME ANALYST ]
-        </motion.span>
-        <motion.h1
-          variants={heroItem}
-          className="font-marquee text-4xl sm:text-5xl leading-tight mb-4 text-balance"
-          style={{
-            color: "var(--accent)",
-            textShadow:
-              "0 0 6px var(--accent-glow), 0 0 22px var(--accent-glow), 0 0 46px var(--accent-glow)",
-          }}
-        >
-          Ask the Market
-        </motion.h1>
-        <motion.p
-          variants={heroItem}
-          className="text-[var(--foreground)] text-sm mb-7 max-w-md"
-          style={{ textShadow: "0 2px 10px rgba(10,4,20,0.85), 0 1px 2px rgba(10,4,20,0.9)" }}
-        >
-          A tool-using agent writes real SQL, runs real statistics, and projects
-          real trends against a self-collected game-market dataset — no
-          guessing, no canned answers.
-        </motion.p>
+    <div className="min-h-screen font-sans">
+      {/* Hero: wider column, text + 3D scene side by side on desktop */}
+      <div className="max-w-5xl mx-auto px-6 pt-20 pb-4 grid md:grid-cols-2 gap-10 items-center">
+        <motion.div variants={heroContainer} initial="hidden" animate="show">
+          <motion.span
+            variants={heroItem}
+            className="inline-block font-mono text-xs tracking-wide text-[var(--muted)] mb-4"
+          >
+            AI Game Analyst
+          </motion.span>
+          <motion.h1
+            variants={heroItem}
+            className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1] mb-4 text-balance"
+          >
+            Ask the market <span style={{ color: "var(--accent)" }}>a question.</span>
+          </motion.h1>
+          <motion.p variants={heroItem} className="text-[var(--muted)] text-base leading-relaxed max-w-md">
+            A tool-using agent writes real SQL, runs real statistics, and
+            projects real trends against a self-collected game-market
+            dataset — no guessing, no canned answers.
+          </motion.p>
+        </motion.div>
 
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="relative h-64 md:h-80"
+          aria-hidden="true"
+        >
+          <Suspense fallback={null}>
+            <HeroScene />
+          </Suspense>
+        </motion.div>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-6 pb-14">
         <motion.form
           variants={heroItem}
+          initial="hidden"
+          animate="show"
           onSubmit={(e) => {
             e.preventDefault();
             ask(question);
           }}
-          className="marquee-border relative mb-3"
+          className="mb-3 mt-4"
         >
-          <div className="glass-panel flex items-center gap-2 border-2 border-[var(--border)] px-3 py-1">
-            <span className="font-mono text-[var(--accent)] text-sm select-none">›</span>
+          <div className="panel flex items-center gap-2 rounded-lg px-3 py-1 transition-colors focus-within:border-[var(--border-strong)]">
             <input
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder="ask about the games catalog..."
-              className="flex-1 bg-transparent px-1 py-2.5 text-sm font-mono outline-none placeholder:text-[var(--muted)]"
+              placeholder="Ask about the games catalog…"
+              className="flex-1 bg-transparent px-1 py-2.5 text-sm outline-none placeholder:text-[var(--muted)]"
             />
-            {!focused && !question && (
-              <span className="blink-cursor -ml-8 font-mono text-sm text-[var(--muted)] select-none">
-                █
-              </span>
-            )}
             <motion.button
               type="submit"
               disabled={loading || !question.trim()}
-              whileHover={loading || !question.trim() ? undefined : { scale: 1.04 }}
+              whileHover={loading || !question.trim() ? undefined : { scale: 1.03 }}
               whileTap={loading || !question.trim() ? undefined : { scale: 0.97 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="px-3.5 py-2.5 font-pixel text-[9px] disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
             >
-              {loading ? "···" : "ASK"}
+              {loading ? "Asking…" : "Ask"}
             </motion.button>
           </div>
         </motion.form>
 
-        <motion.div variants={heroItem} className="flex flex-wrap gap-1.5 mb-12">
+        <motion.div
+          variants={heroItem}
+          initial="hidden"
+          animate="show"
+          className="flex flex-wrap gap-1.5 mb-12"
+        >
           {EXAMPLE_QUESTIONS.map((q) => (
             <motion.button
               key={q}
@@ -326,94 +331,86 @@ export default function Home() {
               whileHover={loading ? undefined : { y: -1 }}
               whileTap={loading ? undefined : { scale: 0.97 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="glass-panel text-xs px-3 py-2 border border-[var(--border)] text-[var(--foreground)]/80 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+              className="rounded-full text-xs px-3 py-1.5 border border-[var(--border)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)] disabled:opacity-40 transition-colors"
             >
               {q}
             </motion.button>
           ))}
         </motion.div>
-      </motion.div>
 
-      <div className="mb-12">
-        <GenreShowcase onPick={ask} disabled={loading} />
-      </div>
-
-      <AnimatePresence mode="wait">
-        {(loading || progress.length > 0) && !result && (
-          <motion.div
-            key="progress"
-            initial={{ opacity: 0, filter: "blur(4px)" }}
-            animate={{ opacity: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(4px)" }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="glass-panel mb-6 border-2 border-[var(--border)] px-4 py-4"
-          >
-            <TraceSteps visited={visitedNodes} current={currentNode} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {error && (
-        <div className="border-2 border-[var(--danger)]/30 bg-[var(--danger-bg)] text-[var(--danger)] text-sm px-4 py-3 mb-4">
-          {error}
+        <div className="mb-12">
+          <GenreShowcase onPick={ask} disabled={loading} />
         </div>
-      )}
 
-      <AnimatePresence>
-        {result && (
-          <motion.div
-            key="result"
-            initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(4px)" }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel relative border-2 border-[var(--border)] p-5 space-y-4"
-          >
-            <span
-              className="pointer-events-none absolute top-0 left-0 h-3 w-3 border-t-2 border-l-2"
-              style={{ borderColor: "var(--accent)" }}
-            />
-            <span
-              className="pointer-events-none absolute bottom-0 right-0 h-3 w-3 border-b-2 border-r-2"
-              style={{ borderColor: "var(--accent)" }}
-            />
-            <div className="flex items-center gap-2 flex-wrap">
-              <RouteBadge route={result.route} />
-              {result.cached && <Badge>cached</Badge>}
-            </div>
+        <AnimatePresence mode="wait">
+          {(loading || progress.length > 0) && !result && (
+            <motion.div
+              key="progress"
+              initial={{ opacity: 0, filter: "blur(4px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, filter: "blur(4px)" }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="panel mb-6 rounded-xl px-4 py-4"
+            >
+              <TraceSteps visited={visitedNodes} current={currentNode} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-            <Markdown>{result.answer}</Markdown>
-
-            {result.forecast_result && <ForecastResultView forecast={result.forecast_result} />}
-
-            {result.chart_spec && <Chart spec={result.chart_spec} />}
-
-            {!result.chart_spec && result.columns && result.rows && (
-              <ResultTable columns={result.columns} rows={result.rows} />
-            )}
-
-            {result.stats_result && <StatsResultView stats={result.stats_result} />}
-
-            {(result.sql || result.retrieved_schema_chunks) && (
-              <details className="text-xs text-[var(--muted)]">
-                <summary className="cursor-pointer select-none">Show the work</summary>
-                <div className="mt-2 space-y-2">
-                  {result.sql && (
-                    <pre className="whitespace-pre-wrap border border-[var(--border)] bg-[var(--background)] p-2.5 overflow-x-auto font-mono">
-                      {result.sql}
-                    </pre>
-                  )}
-                  {result.retrieved_schema_chunks && (
-                    <div>
-                      retrieved schema: {result.retrieved_schema_chunks.join(", ")}
-                    </div>
-                  )}
-                </div>
-              </details>
-            )}
-          </motion.div>
+        {error && (
+          <div className="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger-bg)] text-[var(--danger)] text-sm px-4 py-3 mb-4">
+            {error}
+          </div>
         )}
-      </AnimatePresence>
+
+        <AnimatePresence>
+          {result && (
+            <motion.div
+              key="result"
+              initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, filter: "blur(4px)" }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="panel rounded-xl p-5 space-y-4"
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <RouteBadge route={result.route} />
+                {result.cached && <Pill>Cached</Pill>}
+              </div>
+
+              <Markdown>{result.answer}</Markdown>
+
+              {result.forecast_result && <ForecastResultView forecast={result.forecast_result} />}
+
+              {result.chart_spec && <Chart spec={result.chart_spec} />}
+
+              {!result.chart_spec && result.columns && result.rows && (
+                <ResultTable columns={result.columns} rows={result.rows} />
+              )}
+
+              {result.stats_result && <StatsResultView stats={result.stats_result} />}
+
+              {(result.sql || result.retrieved_schema_chunks) && (
+                <details className="text-xs text-[var(--muted)]">
+                  <summary className="cursor-pointer select-none">Show the work</summary>
+                  <div className="mt-2 space-y-2">
+                    {result.sql && (
+                      <pre className="whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 overflow-x-auto font-mono">
+                        {result.sql}
+                      </pre>
+                    )}
+                    {result.retrieved_schema_chunks && (
+                      <div>
+                        retrieved schema: {result.retrieved_schema_chunks.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

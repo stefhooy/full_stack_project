@@ -2,27 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import GenreCartridge from "@/components/GenreCartridge";
+import GenreIcon from "@/components/GenreIcon";
 import { fetchGamesByGenre, fetchGenres, type GenreGame, type Genre } from "@/lib/genres";
 
 const container = {
   hidden: {},
   show: {
-    transition: { staggerChildren: 0.06 },
+    transition: { staggerChildren: 0.05 },
   },
 };
 
 const card = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] as const } },
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const } },
 };
 
 function CardSkeleton() {
   return (
-    <div className="glass-panel aspect-[3/4] border-2 border-[var(--border)] p-3.5 animate-pulse">
-      <div className="h-9 w-9 bg-[var(--border)] mx-auto mt-4" />
-      <div className="h-3.5 w-16 bg-[var(--border)] mt-4 mx-auto" />
-      <div className="h-2.5 w-10 bg-[var(--border)] mt-2 mx-auto" />
+    <div className="panel rounded-lg p-4 animate-pulse">
+      <div className="h-8 w-8 rounded-md bg-[var(--border-strong)]" />
+      <div className="h-3.5 w-16 rounded bg-[var(--border-strong)] mt-3" />
+      <div className="h-2.5 w-10 rounded bg-[var(--border-strong)] mt-2" />
     </div>
   );
 }
@@ -50,33 +50,36 @@ function GamesLeaderboard({
       className="overflow-hidden"
     >
       <div
-        className="glass-panel mt-2.5 border-2 px-4 py-3.5"
-        style={{ ["--g" as string]: `var(${genre.hueVar})`, borderColor: "var(--border)" }}
+        className="panel mt-2.5 rounded-lg px-4 py-3.5"
+        style={{ ["--g" as string]: `var(${genre.hueVar})` }}
       >
         <div className="flex items-baseline justify-between mb-2.5 flex-wrap gap-2">
-          <span className="font-pixel text-[8px] tracking-wide" style={{ color: "var(--g)" }}>
-            [ TOP {genre.label.toUpperCase()} GAMES ]
+          <span
+            className="font-mono text-[11px] uppercase tracking-wide font-medium"
+            style={{ color: "var(--g)" }}
+          >
+            Top {genre.label} games
           </span>
           <button
             type="button"
             onClick={onAsk}
             disabled={disabled}
-            className="text-[11px] font-mono text-[var(--muted)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+            className="text-[11px] text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40 transition-colors"
           >
-            ask the agent about {genre.label} →
+            Ask the agent about {genre.label} →
           </button>
         </div>
 
         {loading && (
           <div className="space-y-1.5">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-5 bg-[var(--border)] animate-pulse" />
+              <div key={i} className="h-5 rounded bg-[var(--border-strong)] animate-pulse" />
             ))}
           </div>
         )}
 
         {!loading && games && games.length === 0 && (
-          <div className="text-sm font-mono text-[var(--muted)]">
+          <div className="text-sm text-[var(--muted)]">
             No {genre.label} games found in the catalog.
           </div>
         )}
@@ -84,21 +87,18 @@ function GamesLeaderboard({
         {!loading && games && games.length > 0 && (
           <ul className="font-mono text-xs sm:text-sm divide-y divide-[var(--border)]">
             {games.map((game, i) => (
-              <li
-                key={game.name}
-                className="flex items-center gap-3 py-1.5 hover:bg-[color-mix(in_srgb,var(--g)_8%,transparent)] transition-colors"
-              >
-                <span className="font-pixel text-[8px] w-6 shrink-0" style={{ color: "var(--g)" }}>
-                  {String(i + 1).padStart(2, "0")}
+              <li key={game.name} className="flex items-center gap-3 py-1.5">
+                <span className="text-[var(--muted)] w-5 shrink-0 tabular-nums">
+                  {i + 1}
                 </span>
                 <span className="flex-1 truncate">{game.name}</span>
-                <span className="text-[var(--muted)] shrink-0 w-14 text-right">
+                <span className="text-[var(--muted)] shrink-0 w-14 text-right tabular-nums">
                   {game.price_usd == null ? "—" : game.price_usd === 0 ? "free" : `$${game.price_usd.toFixed(2)}`}
                 </span>
-                <span className="text-[var(--muted)] shrink-0 w-12 text-right">
+                <span className="text-[var(--muted)] shrink-0 w-12 text-right tabular-nums">
                   {game.review_score == null ? "—" : `${Math.round(game.review_score * 100)}%`}
                 </span>
-                <span className="text-[var(--muted)] shrink-0 w-20 text-right hidden sm:inline">
+                <span className="text-[var(--muted)] shrink-0 w-24 text-right hidden sm:inline tabular-nums">
                   {game.peak_ccu == null ? "—" : `peak ${game.peak_ccu.toLocaleString()}`}
                 </span>
               </li>
@@ -157,11 +157,9 @@ export default function GenreShowcase({
   return (
     <section>
       <div className="flex items-baseline justify-between flex-wrap gap-x-3 gap-y-1 mb-3">
-        <h2 className="font-pixel text-[10px] text-[var(--muted)] tracking-wide">
-          [ OR EXPLORE BY GENRE ]
-        </h2>
-        <span className="text-[11px] font-mono text-[var(--muted)] whitespace-nowrap">
-          {genres ? "live from the catalog" : "loading..."}
+        <h2 className="text-sm font-medium text-[var(--foreground)]">Explore by genre</h2>
+        <span className="text-xs text-[var(--muted)] whitespace-nowrap">
+          {genres ? "Live from the catalog" : "Loading…"}
         </span>
       </div>
       {!genres ? (
@@ -179,15 +177,39 @@ export default function GenreShowcase({
             viewport={{ once: true, margin: "-40px" }}
             className="grid grid-cols-2 sm:grid-cols-4 gap-2.5"
           >
-            {genres.map((g) => (
-              <motion.div key={g.label} variants={card}>
-                <GenreCartridge
-                  genre={g}
-                  selected={selected?.label === g.label}
+            {genres.map((g) => {
+              const isSelected = selected?.label === g.label;
+              return (
+                <motion.button
+                  key={g.label}
+                  variants={card}
+                  type="button"
                   onClick={() => toggle(g)}
-                />
-              </motion.div>
-            ))}
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  className="panel rounded-lg p-4 text-left transition-colors duration-150"
+                  style={{
+                    ["--g" as string]: `var(${g.hueVar})`,
+                    borderColor: isSelected ? "var(--g)" : "var(--border)",
+                  }}
+                >
+                  <span
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md"
+                    style={{
+                      color: "var(--g)",
+                      background: "color-mix(in srgb, var(--g) 14%, transparent)",
+                    }}
+                  >
+                    <GenreIcon genreId={g.id} label={g.label} />
+                  </span>
+                  <div className="text-sm font-medium leading-tight mt-3">{g.label}</div>
+                  <div className="text-xs text-[var(--muted)] mt-0.5 tabular-nums">
+                    {g.count.toLocaleString()} games
+                  </div>
+                </motion.button>
+              );
+            })}
           </motion.div>
 
           <AnimatePresence mode="wait">

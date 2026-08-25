@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9f** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9g** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -48,14 +48,14 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — a committed synthwave identity (a full
-  gradient-sky/sun/mountain/neon-grid scene, Motion for the animated
-  node-by-node progress trace and a marquee chase-light console border,
-  Anime.js for the animated grid horizon, glass panels), genre selection as
-  Game Boy-style cartridges that browse the real games behind each genre
-  (`GET /games`, no LLM call, counts/labels fetched live from
-  `GET /genres`), markdown-rendered answers, charts, and a "Show the work"
-  panel — see
+- A Next.js frontend (`frontend/`) — a restrained dev-tool identity
+  (near-black/off-white, one accent color, Geist type, real typographic
+  hierarchy instead of a decorative theme; a React Three Fiber hero scene
+  with lit 3D objects in the genre categorical palette; Motion for the
+  animated node-by-node progress trace), a genre picker (flat cards) that
+  browses the real games behind each genre (`GET /games`, no LLM call,
+  counts/labels fetched live from `GET /genres`), markdown-rendered
+  answers, charts, and a "Show the work" panel — see
   `frontend/README.md`
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead

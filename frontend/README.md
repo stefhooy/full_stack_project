@@ -17,20 +17,26 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 ## What's here
 
-- `app/page.tsx` — the whole UI: hero, HUD-styled ask console, example
-  questions, genre showcase, streamed progress (as an animated trace
-  stepper), answer, chart/table, stats/forecast result.
-- `app/globals.css` — one committed synthwave-night palette (no light/dark
-  split for chrome tokens — a deliberate exception, see DOCEXP.md's Slice
-  9d entry), `--accent` the same warm gold used throughout the project, the
-  `.glass-panel` translucent+blur treatment every floating panel uses, and
-  the marquee chase-light border / blinking-cursor effects (all
-  `prefers-reduced-motion`-guarded where animated).
+A restrained dev-tool identity (near-black/off-white, one accent, real
+typographic hierarchy) — see DOCEXP.md's Slice 9g entry for why this
+replaced an earlier retro-arcade direction wholesale rather than iterating
+on it.
+
+- `app/page.tsx` — the whole UI: hero (headline + the 3D scene), ask
+  console, example questions, genre picker, streamed progress (as an
+  animated trace stepper), answer, chart/table, stats/forecast result.
+- `app/globals.css` — one committed dark palette (no light/dark split for
+  chrome tokens — a deliberate exception carried over from Slice 9d, see
+  DOCEXP.md; this class of dev-tool product routinely ships dark-only
+  marketing pages), `--accent` the same warm gold used since
+  ARCHITECTURE.md's trace artifact, and the plain hairline-bordered
+  `.panel` surface every card/result panel uses (no blur/translucency —
+  the busy background that justified glass panels is gone).
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
   `/ask/stream` endpoint.
 - `lib/genres.ts` — curation metadata (hand-drawn icon id, a nicer example
-  question) for the genre showcase, keyed by label, plus `fetchGamesByGenre()`.
+  question) for the genre picker, keyed by label, plus `fetchGamesByGenre()`.
   NOT the genre list itself — that's fetched live from `GET /genres` at
   render time (`fetchGenres()`), so counts and which genres appear both
   track the real catalog instead of a snapshot baked into this file. A
@@ -39,51 +45,47 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 - `components/Chart.tsx` — bar/scatter rendering via Recharts, styled from
   the validated default palette (single hue — every question produces at
   most one series, so no categorical palette or legend is needed).
-- `components/Markdown.tsx` — `react-markdown` + `remark-gfm` (tables,
-  added in Slice 9e once the backend started producing them) wrapped with
+- `components/Markdown.tsx` — `react-markdown` + `remark-gfm` wrapped with
   an explicit per-element `components` map styled to this app's tokens, so
-  the agent's answer renders properly instead of showing literal
-  `**asterisks**` or raw table pipes/dashes — see DOCEXP.md's Slice
-  9c/9e entries. The real fix for malformed (non-table-shaped) markdown
-  lives on the backend, not here — see `src/agent/prompts.py`'s
+  the agent's answer (including real GFM tables) renders properly instead
+  of showing literal `**asterisks**` or raw pipes/dashes — see DOCEXP.md's
+  Slice 9c/9e entries. The real fix for malformed (non-table-shaped)
+  markdown lives on the backend, not here — see `src/agent/prompts.py`'s
   formatting rule.
 - `components/GenreIcon.tsx` — 10 hand-authored line-art SVG glyphs + a
   generic fallback (no icon library dependency).
-- `components/GenreCartridge.tsx` — the genre picker's visual shape: a
-  chamfered-corner Game Boy-style cartridge (CSS `clip-path` for the actual
-  cut, a stroke-only SVG polygon overlay to make the cut's edge visible —
-  see DOCEXP.md's Slice 9d entry for why both are needed), ejecting on
-  hover.
-- `components/GenreShowcase.tsx` — fetches `GET /genres` on mount (loading
-  skeleton + graceful hide-on-failure); clicking a cartridge fetches
-  `GET /games` for that genre (deterministic, no LLM call) and shows a
-  retro "leaderboard" of the real games in it, with a secondary link that
-  still bridges into asking the agent about that genre through
-  `/ask/stream`.
+- `components/GenreShowcase.tsx` — flat cards (icon + label + count), not
+  a decorative shape (an earlier pass used a Game Boy cartridge silhouette
+  — dropped in Slice 9g along with the rest of the retro skin). Fetches
+  `GET /genres` on mount (loading skeleton + graceful hide-on-failure);
+  clicking a card fetches `GET /games` for that genre (deterministic, no
+  LLM call) and shows a leaderboard of the real games in it, with a
+  secondary link that still bridges into asking the agent about that genre
+  through `/ask/stream`.
+- `components/HeroScene.tsx` — the hero's one visual flourish: a React
+  Three Fiber (WebGL) canvas with 6 lit 3D primitive objects in the genre
+  categorical palette, gentle rotation + mouse-parallax, `prefers-reduced-
+  motion`-aware. Real 3D, not CSS `transform: rotateX/Y` — see DOCEXP.md's
+  Slice 9g entry for why that distinction mattered here, and for the
+  React-Compiler-lint-rules-vs-R3F friction points it hit (all fixed
+  properly, not suppressed).
 - `components/TraceSteps.tsx` — turns streamed progress events into a
   node-by-node animated trace (router → schema → think → query → chart),
   the same visual language as the root `ARCHITECTURE.md` agent-trace
   diagram/artifact, instead of a flat text log. `forecast`-routed questions
-  flow through this exact same trace now (see DOCEXP.md's Slice 9b entry —
-  forecast isn't a separate terminal node anymore).
+  flow through this exact same trace (forecast isn't a separate terminal
+  node — see DOCEXP.md's Slice 9b entry).
 - `components/MotionProvider.tsx` — wraps the app in `MotionConfig
   reducedMotion="user"` so every animation in the tree honors
   `prefers-reduced-motion` automatically.
-- `components/RetroBackground.tsx` — the full synthwave scene behind the
-  page (gradient sky, striped sun, mountain silhouettes, a neon perspective
-  grid), mounted once in `app/layout.tsx`. The grid's scroll and a handful
-  of drifting motes are animated with **Anime.js** — the one deliberate
-  exception to "Motion is the only animation library," scoped to an
-  imperative loop with no React state involved at all, never used anywhere
-  else; see DOCEXP.md's Slice 9c/9d entries for why that's not a
-  contradiction of the Slice 9 decision.
 - Animation: [Motion](https://motion.dev) for every state-driven UI
-  transition (hero entrance, card hover, `AnimatePresence`) + Anime.js for
-  the one ambient background loop above — not two libraries doing the same
-  job, see DOCEXP.md.
-- Type: Archivo (body/UI) + IBM Plex Mono (data/code) + Monoton (the hero
-  headline only) + Press Start 2P (short pixel labels only) — four faces,
-  each confined to exactly one job; see DOCEXP.md's Slice 9b entry for why.
+  transition (hero entrance, card hover, `AnimatePresence`, the blur
+  transitions between panels). React Three Fiber's own render loop
+  (`useFrame`) drives the hero scene — Anime.js, used for an earlier
+  version of the background, no longer has a job and was removed.
+- Type: [Geist](https://vercel.com/font) (UI/body/headline — real
+  typographic hierarchy carries the hero instead of a display face) + IBM
+  Plex Mono (data/code, same face ARCHITECTURE.md's trace artifact uses).
 
 ## Deploy
 
