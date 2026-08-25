@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9b** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -22,17 +22,21 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   embedded, and retrieved per-question instead of always injecting the
   whole schema into the prompt
 - A supervisor-router that classifies each question (lookup / analysis /
-  forecast / needs-clarification) before any DB work happens, and routes
-  forecast/ambiguous questions away from the SQL pipeline entirely instead
-  of letting the agent guess
+  forecast / needs-clarification) before any DB work happens, routing
+  ambiguous questions away from the SQL pipeline entirely instead of letting
+  the agent guess
 - A minimal LangGraph agent — `router` → `retrieve_schema` → `agent` →
   `execute_tools` → `build_chart_spec` loop — with a self-correcting retry
   loop (tool errors get fed back to the model, up to 3 attempts)
-- Two tools: `run_sql` (bound for every routable question) and `run_stats`
+- Three tools: `run_sql` (bound for every routable question), `run_stats`
   (bound only for `analysis`-routed questions) — real statistics via scipy:
   a Welch's t-test with a p-value for group comparisons, z-score outlier
   detection, and summary stats, instead of the LLM eyeballing an average
-  comparison in SQL
+  comparison in SQL — and `run_forecast` (bound only for `forecast`-routed
+  questions) — a real linear-trend projection over the live player-count
+  time series, honest about insufficient history instead of fabricating a
+  number when too little exists for a given game (self-upgrades to a real
+  projection the moment enough real snapshots accumulate — see DOCEXP.md)
 - A deterministic (non-LLM) chart-spec generator that infers a bar/scatter
   spec from a successful query's shape
 - A FastAPI `POST /ask` endpoint wiring it all together, returning the
@@ -42,11 +46,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — HUD-styled ask console, streamed
-  progress rendered as an animated node-by-node trace (Motion), an
-  illustrated per-genre question showcase (8 hand-drawn icons, real counts
-  from the catalog), charts, and a "Show the work" panel — see
-  `frontend/README.md`
+- A Next.js frontend (`frontend/`) — an 80s-arcade-cabinet visual identity
+  (Motion for the animated node-by-node progress trace and a marquee
+  chase-light console border, sharp-cornered HUD panels, neon glow), an
+  illustrated per-genre question showcase (8 hand-drawn icons, counts and
+  labels fetched live from `GET /genres` rather than hardcoded), charts, and
+  a "Show the work" panel — see `frontend/README.md`
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead
   of raw stack traces
@@ -63,7 +68,11 @@ Dependencies are managed with [uv](https://docs.astral.sh/uv/) —
 `pyproject.toml` + `uv.lock`, not requirements.txt. The base dependency set
 is deliberately lean (just what ingestion/db/config need); the `agent`
 extra adds the LLM/RAG/API stack on top — see the comments in
-`pyproject.toml` for why it's split that way.
+`pyproject.toml` for why it's split that way. `.python-version` pins
+Python 3.12 — uv's newest available standalone build (3.14.2, at the time
+this was pinned) has a real Windows TLS bug that crashes any outbound HTTPS
+call; see DOCEXP.md's Slice 9b entry if `.venv` somehow ends up on a
+different version and HTTPS calls start hard-crashing the process.
 
 ```bash
 uv sync --extra agent   # creates .venv and installs everything needed to run the agent/API
@@ -392,16 +401,23 @@ choices worth being able to defend:
 
 ## Not in this slice (see PLAN.md)
 
-A real forecasting tool remains out of scope — `player_counts` now
-provides the time-series data forecasting would need, but a forecasting
-*method* (even a simple trend line) is a distinct, real piece of engineering
-that hasn't been built yet. The router still routes forecast questions to
-an honest "not supported yet." The Expo mobile client (Slice 10) is next.
+The Expo mobile client (Slice 10) is next — same API, React Native/Expo UI,
+no app-store publishing planned.
 
-A real, pre-existing backend bug surfaced while verifying Slice 9's frontend
-work: `POST /ask/stream` reproducibly crashes the whole Python process (a
-native `OPENSSL_Uplink` fault, not a Python exception) on the first request
-that makes a real outbound HTTPS call. Not caused by the frontend changes —
-open, unfixed, logged in DOCEXP.md with a working hypothesis
-(`truststore`'s `ssl` patch colliding with another native extension's own
-OpenSSL, the same family of issue as the earlier `uv sync` TLS errors).
+Forecasting is real now, not deferred: `run_forecast` (Slice 9b) is a real
+linear-trend projection over `player_counts` history, bound only for
+`forecast`-routed questions. It's honest about a real limitation, though —
+the live player-count time series is genuinely young, so a given game may
+not have enough history yet to project from; the tool reports that plainly
+instead of fabricating a number, and self-upgrades to a real projection the
+moment more snapshots accumulate. See DOCEXP.md's Slice 9b entry.
+
+The `POST /ask/stream` crash noted in an earlier snapshot of this README
+(a native `OPENSSL_Uplink` fault killing the whole process) is fixed — it
+turned out to be an environment issue, not a code bug: `uv`'s default Python
+3.14.2 standalone Windows build has a broken TLS stack, unrelated to
+`truststore`/Avast (the actual, separate, already-understood cause of every
+*other* TLS wrinkle this project has hit). Pinning `.python-version` to
+`3.12` and rebuilding `.venv` resolved it. Full isolation trail (why the
+original `truststore` hypothesis was wrong, and how the real cause was
+found) is in DOCEXP.md's Slice 9b entry.

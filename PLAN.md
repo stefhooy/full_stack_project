@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 9 complete → starting Slice 10 (Expo mobile client) next**
+**Current slice: 9b complete → starting Slice 10 (Expo mobile client) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -84,9 +84,8 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Visualization-spec tool `infer_chart_spec` (src/tools/viz_tool.py) — deterministic,
       not an LLM call; a new `build_chart_spec` graph node runs it after a successful
       run_sql result; `/ask` returns `chart_spec`
-- [ ] Forecasting tool — deliberately NOT built this slice: no time-series data exists yet
-      (Slice 7). Router's "not supported yet" response from Slice 3 stands; revisit once
-      player_counts exists.
+- [x] Forecasting tool — NOT built this slice, as planned (no time-series data existed yet).
+      Built in Slice 9b once player_counts (Slice 7) existed to project from.
 - [x] `/ask` also returns `stats_query` + `stats_result` for transparency
 - [x] Tested all 3 stats modes directly against real data, then through the full graph,
       then live over HTTP; found and fixed a real type-coercion bug (z_threshold arriving
@@ -194,12 +193,68 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       appearing in the product itself, not just the docs
 - [x] Verified in a real browser (Playwright, light + dark, hover states, a
       genre-card-triggered ask): found a real *backend* bug in the process —
-      `/ask/stream` reliably crashes the whole Python process (native
+      `/ask/stream` reliably crashed the whole Python process (native
       `OPENSSL_Uplink`/no-Applink fault, not a Python exception) on the
-      first request that does real work — see DOCEXP.md. Out of scope to
-      fix in this slice (frontend-only); the frontend's own handling of a
-      dropped connection (graceful error banner, no crash) was verified
-      correct.
+      first request that did real work. Root-caused and fixed in Slice 9b
+      (it was never a code bug — see that slice's notes and DOCEXP.md); at
+      the time this bullet was written the frontend's own handling of the
+      resulting dropped connection (graceful error banner, no crash) had
+      already been verified correct regardless.
+
+## Slice 9b — Retro redesign + real forecasting
+- [x] Visual identity overhaul: 80s-arcade-cabinet direction (chosen from 3
+      concrete options — arcade/neon, terminal/phosphor, Y2K-futurism — the
+      first Slice 9 pass had drifted toward a generic "safe SaaS" look).
+      Sharp-cornered panels with pixel-corner HUD brackets, a single amber
+      neon-glow accent (unchanged hex values — same amber as ARCHITECTURE.md's
+      trace artifact), grounds realigned exactly to that artifact's palette
+      (`#0d1014` dark / `#f6f4f0` light) rather than the earlier approximation
+- [x] Four-typeface system, each with exactly one job: Archivo (body/UI),
+      IBM Plex Mono (data/code, unchanged from Slice 9), Monoton (the hero
+      headline only — neon marquee tube lettering), Press Start 2P (short
+      pixel labels — eyebrows, badges, section headers; never body text)
+- [x] A marquee chase-light animated border (CSS conic-gradient, `@property`,
+      `prefers-reduced-motion`-guarded) on the ask console, and a genuine
+      genre-card neon-glow-on-hover (box-shadow in the card's own hue, not a
+      generic highlight) — the two places motion earns its keep, not motion
+      everywhere
+- [x] Real forecasting: `src/tools/forecast_tool.py` (`run_forecast`) — a real
+      linear regression (scipy) over `player_counts` history, bound only for
+      `forecast`-routed questions. `forecast` no longer routes to a hardcoded
+      "not supported" terminal node — it flows through the same
+      retrieve_schema → agent → execute_tools loop as lookup/analysis (see
+      ARCHITECTURE.md's updated graph). The honesty constraint moved from the
+      route level into the tool itself: fewer than 2 real snapshots for a
+      game returns a structured "not enough history yet" result instead of a
+      fabricated number, self-upgrading to a real projection (with an
+      explicit low-confidence flag when the projection horizon dwarfs the
+      observed history) the moment a second snapshot exists — no further code
+      changes needed. Verified against real data: the actual catalog
+      currently has exactly one player_counts snapshot, so this was verified
+      taking the honest path for real, through a real Groq call, not just in
+      a unit test
+- [x] `/genres` endpoint (`src/db/genre_stats.py`) + the frontend's genre
+      showcase switched from a snapshot hardcoded in `lib/genres.ts` (as
+      built in Slice 9) to fetching live counts every render — raised
+      directly by the user mid-session ("I don't want just 200 data
+      timestamp, I want the retrieval to be dynamic"). Both the counts AND
+      which genres make the top 8 now track the live catalog instead of
+      drifting stale as `refresh_catalog.yml` re-ingests; curated per-genre
+      icons/example-questions degrade gracefully (generic icon, templated
+      question) for any genre outside the hand-curated set
+- [x] Found and fixed a real, unrelated environment bug while chasing why
+      `/ask/stream` couldn't be tested live: `uv`'s default-selected Python
+      (3.14.2, its newest standalone Windows build) hard-crashes the whole
+      process — not a Python exception — on ANY real TLS handshake
+      (reproduced with plain stdlib `ssl`+`socket`, no project code
+      involved). Root-caused by isolating layer by layer (stdlib ssl → bare
+      requests → truststore-enabled requests, on both the venv's Python and
+      an unrelated system Python) rather than guessing; fixed by pinning
+      `.python-version` to 3.12 and rebuilding `.venv` — not a truststore bug,
+      not an Avast bug (though Avast's cert interception is real and still
+      why truststore is needed at all), a python-build-standalone Windows
+      issue specific to the 3.14.2 build. See DOCEXP.md for the full
+      isolation trail.
 
 ## Slice 10 — Expo mobile client
 - [ ] Same API, React Native/Expo UI — one codebase for iOS + Android

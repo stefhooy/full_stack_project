@@ -1,23 +1,21 @@
-// Genre identity used by components/GenreShowcase.tsx.
+// Genre identity used by components/GenreShowcase.tsx. Counts and which
+// genres even appear are fetched live from GET /genres (src/db/genre_stats.py
+// on the backend) at render time — not a snapshot baked into this file.
+// That backend endpoint does the real work: splitting SteamSpy's
+// comma-joined `genre` field, counting tokens across the live catalog,
+// excluding the two non-genre tags it also carries ("Early Access" is a
+// release status, "Free To Play" a pricing model), and capping at 8 per the
+// dataviz skill's categorical-palette rule (a 9th series never gets a
+// generated hue).
 //
-// `count` is real: SteamSpy's `genre` field is a comma-joined free-text list
-// (e.g. "Action, Adventure, RPG"), so this was produced by splitting every
-// row in the actual 200-game catalog on comma and counting tokens — not
-// guessed. The 8 genres below are the true top 8 by that count; two
-// non-genre tags SteamSpy also emits (release-status "Early Access" and the
-// pricing model "Free To Play") were excluded on purpose, and a long tail of
-// one-off non-game software categories ("Photo Editing", "Utilities" — noise
-// from a handful of mislabeled catalog entries) folds into "Other" rather
-// than getting its own slot, per the dataviz skill's categorical-palette
-// rule: an 8-hue palette is a hard cap, not a suggestion — a 9th series
-// never gets a generated hue.
-//
-// `hueVar` points at the matching --genre-N custom property in globals.css.
-// The mapping is ordered by this real prevalence (most common first) and
-// that same order is what's on screen (GenreShowcase renders this array
-// in order) — that's what keeps the CVD-safety guarantee the dataviz skill
-// validated for this exact 8-hue sequence: it was validated as an ordered
-// sequence, and preserving the order preserves the guarantee.
+// What stays client-side, deliberately, is only what can't be derived from
+// the DB: which hand-drawn icon a label gets, and a nicer curated example
+// question for the genres common enough to be worth writing one for. Both
+// degrade gracefully for a genre outside this curated set (which can happen
+// — the catalog's real top-8 can shift as it grows) via GenreIcon's Generic
+// fallback glyph and a templated question below.
+import { API_BASE_URL } from "@/lib/api";
+
 export interface Genre {
   id: string;
   label: string;
@@ -26,61 +24,52 @@ export interface Genre {
   question: string;
 }
 
-export const GENRES: Genre[] = [
-  {
-    id: "action",
-    label: "Action",
-    count: 148,
-    hueVar: "--genre-1",
-    question: "What are the 5 highest-rated Action games?",
-  },
-  {
-    id: "adventure",
-    label: "Adventure",
-    count: 75,
-    hueVar: "--genre-2",
-    question: "What's the average price of Adventure games?",
-  },
-  {
-    id: "indie",
-    label: "Indie",
-    count: 67,
-    hueVar: "--genre-3",
-    question: "Is the price difference between Indie games and other games statistically significant?",
-  },
-  {
-    id: "rpg",
-    label: "RPG",
-    count: 50,
-    hueVar: "--genre-4",
-    question: "Which RPG has the highest peak concurrent player count?",
-  },
-  {
-    id: "simulation",
-    label: "Simulation",
-    count: 41,
-    hueVar: "--genre-5",
-    question: "Are there any Simulation games with an unusually high review count compared to the rest?",
-  },
-  {
-    id: "mmo",
-    label: "Massively Multiplayer",
-    count: 38,
-    hueVar: "--genre-6",
-    question: "What are the 5 most-owned Massively Multiplayer games?",
-  },
-  {
-    id: "strategy",
-    label: "Strategy",
-    count: 33,
-    hueVar: "--genre-7",
-    question: "How does average playtime compare between Strategy games and Action games?",
-  },
-  {
-    id: "casual",
-    label: "Casual",
-    count: 24,
-    hueVar: "--genre-8",
-    question: "What are the 5 cheapest well-reviewed Casual games?",
-  },
-];
+const ICON_BY_LABEL: Record<string, string> = {
+  action: "action",
+  adventure: "adventure",
+  indie: "indie",
+  rpg: "rpg",
+  simulation: "simulation",
+  "massively multiplayer": "mmo",
+  strategy: "strategy",
+  casual: "casual",
+  sports: "sports",
+  racing: "racing",
+};
+
+const CURATED_QUESTIONS: Record<string, string> = {
+  action: "What are the 5 highest-rated Action games?",
+  adventure: "What's the average price of Adventure games?",
+  indie: "Is the price difference between Indie games and other games statistically significant?",
+  rpg: "Which RPG has the highest peak concurrent player count?",
+  simulation: "Are there any Simulation games with an unusually high review count compared to the rest?",
+  "massively multiplayer": "What are the 5 most-owned Massively Multiplayer games?",
+  strategy: "How does average playtime compare between Strategy games and Action games?",
+  casual: "What are the 5 cheapest well-reviewed Casual games?",
+  sports: "What are the 5 highest-rated Sports games?",
+  racing: "What's the average price of Racing games?",
+};
+
+function idFor(label: string): string {
+  return ICON_BY_LABEL[label.toLowerCase()] ?? "generic";
+}
+
+function questionFor(label: string): string {
+  return (
+    CURATED_QUESTIONS[label.toLowerCase()] ??
+    `What are the 5 highest-rated ${label} games?`
+  );
+}
+
+export async function fetchGenres(signal?: AbortSignal): Promise<Genre[]> {
+  const response = await fetch(`${API_BASE_URL}/genres`, { signal });
+  if (!response.ok) throw new Error(`genres request failed (${response.status})`);
+  const data: { genres: { label: string; count: number }[] } = await response.json();
+  return data.genres.map((g, i) => ({
+    id: idFor(g.label),
+    label: g.label,
+    count: g.count,
+    hueVar: `--genre-${i + 1}`,
+    question: questionFor(g.label),
+  }));
+}

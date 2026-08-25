@@ -19,25 +19,37 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 - `app/page.tsx` — the whole UI: hero, HUD-styled ask console, example
   questions, genre showcase, streamed progress (as an animated trace
-  stepper), answer, chart/table, stats result.
+  stepper), answer, chart/table, stats/forecast result.
+- `app/globals.css` — the 80s-arcade-cabinet design tokens: grounds/accent
+  aligned to the root `ARCHITECTURE.md` agent-trace artifact's exact
+  palette, the genre categorical palette, and the marquee chase-light
+  border / blinking-cursor / CRT-scanline effects (all
+  `prefers-reduced-motion`-guarded where animated).
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
   `/ask/stream` endpoint.
-- `lib/genres.ts` — the 8 genre identities shown in the genre showcase.
-  Counts and labels are real (split+counted from the actual catalog's
-  comma-joined `genre` field), not guessed — see DOCEXP.md's Slice 9 entry.
+- `lib/genres.ts` — curation metadata (hand-drawn icon id, a nicer example
+  question) for the genre showcase, keyed by label. NOT the genre list
+  itself — that's fetched live from `GET /genres` at render time
+  (`fetchGenres()`), so counts and which genres appear both track the real
+  catalog instead of a snapshot baked into this file. A genre outside the
+  curated set gets a generic icon/question instead of breaking — see
+  DOCEXP.md's Slice 9b entry.
 - `components/Chart.tsx` — bar/scatter rendering via Recharts, styled from
   the validated default palette (single hue — every question produces at
   most one series, so no categorical palette or legend is needed).
-- `components/GenreIcon.tsx` — 8 hand-authored line-art SVG glyphs (no icon
-  library dependency).
-- `components/GenreShowcase.tsx` — the illustrated per-genre grid; clicking
-  a card asks that genre's question through the same `/ask/stream` path as
-  the example-question chips.
+- `components/GenreIcon.tsx` — 10 hand-authored line-art SVG glyphs + a
+  generic fallback (no icon library dependency).
+- `components/GenreShowcase.tsx` — fetches `GET /genres` on mount (loading
+  skeleton + graceful hide-on-failure) and renders the illustrated per-genre
+  grid; clicking a card asks that genre's question through the same
+  `/ask/stream` path as the example-question chips.
 - `components/TraceSteps.tsx` — turns streamed progress events into a
   node-by-node animated trace (router → schema → think → query → chart),
   the same visual language as the root `ARCHITECTURE.md` agent-trace
-  diagram/artifact, instead of a flat text log.
+  diagram/artifact, instead of a flat text log. `forecast`-routed questions
+  flow through this exact same trace now (see DOCEXP.md's Slice 9b entry —
+  forecast isn't a separate terminal node anymore).
 - `components/MotionProvider.tsx` — wraps the app in `MotionConfig
   reducedMotion="user"` so every animation in the tree honors
   `prefers-reduced-motion` automatically.
@@ -45,6 +57,9 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
   Motion — same library, same npm-author lineage). It's the only animation
   library in this app; see DOCEXP.md for why react-spring/Anime.js weren't
   also added.
+- Type: Archivo (body/UI) + IBM Plex Mono (data/code) + Monoton (the hero
+  headline only) + Press Start 2P (short pixel labels only) — four faces,
+  each confined to exactly one job; see DOCEXP.md's Slice 9b entry for why.
 
 ## Deploy
 

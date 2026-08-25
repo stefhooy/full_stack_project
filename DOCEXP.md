@@ -1466,3 +1466,194 @@ no stuck loading spinner.
   linear sequence per the dataviz skill's method; a true 2D-grid adjacency
   check would need extending the validator's pairlist logic, not attempted
   here since the icon+label pairing already covers the accessibility gap.
+
+---
+
+## Slice 9b — Retro redesign, real forecasting, dynamic genre stats
+
+**Date:** 2026-08-25
+
+The user tried Slice 9's frontend, and it worked (a real Groq round trip
+rendered correctly, screenshots included), but the reaction was blunt: it
+"feels like an AI slop website." Fair — re-reading it, the first pass had
+drifted into exactly the look the artifact-design skill's cliché list warns
+about: soft rounded-xl everything, muted warm neutrals, safe spacing. Good
+engineering, forgettable design. Three follow-on requests arrived together:
+make it genuinely distinctive ("retro"), build the forecast route for real,
+and stop hardcoding the genre-showcase counts.
+
+### Picking a retro lane, not "retro" in general
+
+"Retro" spans unrelated worlds — asked the user to choose among three
+concrete directions (80s arcade/neon, 90s terminal/phosphor, Y2K
+retro-futurism) rather than guess, since a full visual identity is expensive
+to redo twice. Landed on 80s arcade/neon. That decision drove real,
+falsifiable choices, not just a vibe:
+- Sharp corners + thick borders everywhere a panel/console appears (cabinet
+  bezel), contrasted with round pill buttons for actual clickable controls
+  (cabinet joystick buttons) — the contrast is the point, not an oversight.
+- Four typefaces, each doing exactly one job, is a genuine departure from
+  the "one display + one body" pairing structure `artifact-design` normally
+  recommends: Archivo (body/UI, unchanged), IBM Plex Mono (data/code,
+  unchanged), **Monoton** (the hero headline, *only* the hero headline — a
+  neon-tube marquee face, illegible at paragraph length by design, which is
+  exactly why it's confined to four words), **Press Start 2P** (pixel
+  labels — section eyebrows, route/cached badges, the trace stepper's node
+  labels; same illegibility-at-length constraint, same confinement).
+- The marquee chase-light animated border (`.marquee-border` in
+  globals.css — a rotating `conic-gradient` masked to a ring via
+  `@property --marquee-angle`) went on exactly one element, the ask console.
+  Considered putting it on the result panel too and didn't — one orchestrated
+  motion moment reads as a choice; two competing ones read as decoration.
+- Grounds got realigned to the *exact* hex values ARCHITECTURE.md's
+  agent-trace artifact already used (`#0d1014` dark / `#f6f4f0` light) rather
+  than the close-but-not-identical approximation Slice 9 shipped
+  (`#141310`/`#faf8f4`) — the user's second screenshot in this conversation
+  was literally that artifact's graph, used as the reference for "this is
+  the level of polish I want," so tightening brand continuity to match it
+  exactly was the correct read of that signal, not a coincidence to ignore.
+
+### Forecast: honesty moved from the router into the tool
+
+Slice 3/4 explicitly deferred forecasting with a hardcoded router→
+terminal-node "not supported yet." That's gone now: `forecast` flows through
+the identical retrieve_schema → agent → execute_tools loop as lookup/
+analysis (see ARCHITECTURE.md's updated graph), with `run_forecast`
+(`src/tools/forecast_tool.py`) bound alongside `run_sql`. The interesting
+design decision wasn't the linear regression (scipy `linregress`, nothing
+exotic) — it was where the "do we actually have enough data" honesty check
+lives. It does NOT live in the router (classify forecast questions as
+forecast regardless of whether data exists — the router's job is
+understanding the question, not knowing the DB's current state) and does
+NOT live in a route-level gate (a fixed "not supported" block would make the
+feature permanently disabled even once real history accumulates). It lives
+*inside the tool*: `execute_run_forecast` checks the actual distinct
+snapshot count for whatever query the LLM wrote, and returns a structured
+`insufficient_history` result instead of fitting a line through one point.
+This means the feature **self-upgrades**: the moment the Slice 7 poller
+lands a second real snapshot for some game, that game's forecast questions
+start returning real projections, with zero code changes — verified this is
+architecturally true by unit-testing `_forecast()` directly against
+constructed multi-point data (a real 6-point rising series, both a
+near-horizon and a deliberately-absurd 365-day-out horizon), not just
+against the real (currently single-snapshot) DB.
+
+Also added a `low_confidence` flag, separate from `insufficient_history`:
+even with ≥2 points, projecting further ahead than the *observed* span is
+extrapolation past what the data can support, and <5 points is thin enough
+that a line captures noise as easily as trend. Both conditions are checked
+independently and their reasons are returned as a list, not a boolean —
+the system prompt (`FORECAST_TOOL_GUIDANCE` in prompts.py) instructs the
+model to always surface these reasons in prose rather than stating a
+number with false confidence. Verified end-to-end with a real Groq call
+against "How many players will Counter-Strike have next year?" (the exact
+phrase the router/prompts docstrings use as their example, and one of the 4
+default example questions in the frontend) — the agent correctly reported
+insufficient history AND, on its own initiative, fell back to a real
+`run_sql` query for CS:GO's `peak_ccu` to give a useful answer instead of a
+bare refusal. That fallback behavior wasn't prompted for explicitly; it fell
+out of binding `[run_sql, run_forecast]` together for the forecast route
+(the same "give it more than one tool and let it decide" pattern
+`analysis`'s `[run_sql, run_stats]` already established in Slice 4).
+
+### Dynamic genre counts: what the user actually flagged
+
+Mid-session interjection: "I dont want just 200 data timestamp, I want the
+retrieval of the data to be dynamic." Read literally this is about
+`player_counts`, but in context (right after seeing the genre showcase) it
+was about `lib/genres.ts` — Slice 9 baked the 8 genre labels/counts in as a
+TypeScript literal, computed once by hand against a local export. That's
+exactly the kind of frozen snapshot the project's `refresh_catalog.yml`
+(weekly re-ingestion) would silently invalidate. Fixed by adding
+`GET /genres` (`src/db/genre_stats.py`) — the same split-comma-and-count
+logic, now running at request time against the live `games` table — and
+having `GenreShowcase.tsx` fetch it on mount instead of importing a
+constant. Went further than just re-fetching the *counts*: which 8 labels
+even make the top-8 is now live too, since the real top-8 could shift as
+the catalog grows. That meant `lib/genres.ts` had to change shape — it's no
+longer a list of genres, it's curation metadata (icon id, a nicer example
+question) keyed by label, with a generic fallback (`GenreIcon`'s new
+`Generic` glyph, a templated "What are the 5 highest-rated {label} games?"
+question) for any label outside the curated set. Deliberately did NOT try
+to curate icons for every SteamSpy tag the catalog could ever produce —
+Sports and Racing got real hand-drawn icons since they're plausible top-8
+contenders; the long tail (the occasional mislabeled non-game entry
+producing a tag like "Photo Editing") gets the generic fallback and that's
+fine, it's meant to.
+
+This turned `genre_stats.py` into the first read path in the whole system
+that touches the DB *without* going through `connection.py`'s guard —
+worth being explicit about why that's correct, not an oversight: the guard
+exists to constrain **LLM-generated** SQL. `genre_stats.py` runs one fixed,
+hand-written query with no model or user input anywhere in it. Routing it
+through `validate_select_only` would add a dependency for zero safety
+benefit — there's nothing adversarial to guard against here.
+
+### A real bug, found by accident, that had nothing to do with any of this
+
+Tried to verify the forecast feature live and hit the exact `/ask/stream`
+crash flagged (but not investigated) at the end of Slice 9 — `OPENSSL_Uplink
+(...): no OPENSSL_Applink`, killing the whole Python process, no traceback.
+Slice 9's DOCEXP entry guessed this was `truststore`'s `ssl` patch colliding
+with some other native extension's bundled OpenSSL. **That hypothesis was
+wrong**, and worth recording as wrong rather than quietly dropped, per this
+file's own habit of correcting itself in the open (see the Slice 4 group-
+mislabeling entry).
+
+Isolated it properly this time, one layer at a time, in the actual venv:
+1. A **plain `requests.get()`** to a real HTTPS endpoint, zero project code
+   imported — crashed identically. Ruled out truststore, ruled out Groq's
+   SDK, ruled out LangChain/LangGraph entirely; this was never an agent-code
+   bug.
+2. **Raw stdlib `ssl.wrap_socket()`**, no `requests`/`urllib3` either —
+   crashed identically. Ruled out the requests/urllib3 layer too. This is a
+   fault in the Python installation's own TLS stack, full stop.
+3. The **already-installed Microsoft Store Python 3.12** on the same
+   machine — same real network, same Avast, same everything else — did a
+   real TLS handshake to the same host with zero issue. This is what ruled
+   out Avast as the cause of *this specific crash* (Avast's TLS interception
+   is real and is exactly why `truststore` exists at all — but it produces a
+   catchable `CERTIFICATE_VERIFY_FAILED`, not a process-killing native
+   fault, and this system Python hit neither).
+4. A **uv-managed Python 3.12.13** (`uv run --python 3.12`) — also clean.
+   At this point the only variable left was the interpreter build itself:
+   the project's `.venv` was on uv's default pick, **3.14.2**, uv's newest
+   available standalone Windows build at the time. Python 3.14 had only
+   just been released; a rough edge in a brand-new platform-specific
+   standalone build was, by this point, the only hypothesis still standing.
+
+Fixed by pinning `.python-version` to `3.12` and rebuilding `.venv` (`rm -rf
+.venv && uv sync --extra agent`) — `requires-python = ">=3.12"` already
+permitted this, so no dependency constraint needed to change. Re-ran the
+same plain-`requests` probe on the rebuilt venv: it now failed with the
+*expected*, *already-understood*, *already-solved* Avast error
+(`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`) — and
+then succeeded cleanly once `src.config` (which calls
+`truststore.inject_into_ssl()` at import time) was imported first. That's
+the tell that this really was two separate, unrelated issues stacked on top
+of each other: a genuine `python-build-standalone` 3.14.2 Windows bug (fixed
+by not using that build), sitting on top of the long-standing, already-
+correctly-handled Avast TLS interception (fixed by `truststore`, same as
+every prior occurrence in this project). Confirmed fixed against a real
+Groq call afterward — see the forecast section above.
+
+The methodological point worth keeping: the fix came from isolating variables
+one at a time against the *real* environment (this venv, this network, this
+Avast install) rather than pattern-matching to "we've seen a TLS error
+before, it's probably the same cause" — the previous entry's guess did
+exactly that pattern-match and was wrong.
+
+### Open questions (new)
+
+- **`.python-version` pins 3.12, not a specific patch version.** uv will
+  still pick up new 3.12.x patch releases as they're published. Reasonable
+  for now; revisit if a similar issue ever shows up on a specific patch.
+- **Should this project's CI/deployment pin Python the same way?** The
+  `Dockerfile` doesn't currently specify a Python version explicitly at all
+  (relies on whatever `uv sync` resolves inside the container image) — worth
+  checking it doesn't silently pick up a fresh, potentially-buggy standalone
+  build the same way local dev just did.
+- **The result panel's answer text renders literal `**markdown**`
+  asterisks** — noticed during this slice's live screenshots (pre-existing,
+  not introduced here: `<p>{result.answer}</p>` has never parsed markdown).
+  Small, real, not fixed here — out of scope for a redesign+forecast slice.

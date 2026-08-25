@@ -72,6 +72,25 @@ condition actually checks price_usd = 0. Mislabeling a group produces a correct-
 for the wrong comparison.
 """
 
+FORECAST_TOOL_GUIDANCE = """
+You also have the run_forecast tool for this question, since it's asking about a future or
+predicted value:
+- The query MUST return exactly two columns, one row per historical snapshot: a timestamp
+  and the numeric value to project, e.g.
+  SELECT polled_at, player_count FROM player_counts
+  WHERE appid = (SELECT appid FROM games WHERE name ILIKE '%portal 2%')
+  ORDER BY polled_at
+- horizon_days: convert the question's time phrase to a number of days (tomorrow=1,
+  next week=7, next month=30, next year=365).
+- player_counts is a genuinely young, real time series — it may hold too few snapshots to
+  forecast from yet. If the tool result has insufficient_history=true, say so plainly in
+  your answer (state how many snapshots exist) instead of making up a number. If it returns
+  a projection, it also reports how much history it's based on and a low_confidence flag —
+  ALWAYS reflect that honestly in your answer (e.g. "based on only N snapshots spanning
+  under a day, so treat this as a rough estimate") rather than stating the number with
+  unwarranted certainty.
+"""
+
 
 def build_system_prompt(schema_text: str | None = None, tool_guidance: str = "") -> str:
     return SYSTEM_PROMPT_TEMPLATE.format(

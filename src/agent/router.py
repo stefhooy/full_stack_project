@@ -11,12 +11,14 @@ Four categories:
                            category will route to instead. The classification
                            already exists and is tested; giving it its own
                            handler later is additive, not a rewrite.
-  - forecast:              A question about future/predicted values. No
-                           forecasting tool and no time-series data exist yet
-                           (Slice 4 / Slice 7), so this routes to an honest
-                           "not supported yet" response instead of letting
-                           the SQL agent attempt something it has no way to
-                           do correctly.
+  - forecast:              A question about future/predicted values. Routes
+                           to the same retrieve_schema -> agent -> execute_tools
+                           pipeline as lookup/analysis, with run_forecast
+                           (src/tools/forecast_tool.py) bound instead of/
+                           alongside run_sql — a real linear-trend projection
+                           over player_counts history, or an honest "not
+                           enough history yet" when too little exists for
+                           the game in question (see that module's docstring).
   - needs_clarification:   The question is too ambiguous to answer as asked.
                            Routed to a node that asks a clarifying question
                            back, instead of guessing and confidently
@@ -49,8 +51,9 @@ free-to-play games?"
 
 - forecast: A question about future or predicted values — trends going forward, \
 projections, "will X happen". Example: "How many players will this game have next month?" \
-This system has no forecasting capability yet, so classify honestly even though it can't \
-be answered.
+This routes to a real linear-trend tool over live player-count history; it may still answer \
+honestly that there isn't enough history yet for a given game, but classify the question \
+based on what it's asking, not on whether data happens to exist for it.
 
 - needs_clarification: The question is too vague or ambiguous to answer meaningfully as \
 asked — it's missing a key detail (which game, what metric, what time period) or uses a \

@@ -7,7 +7,7 @@
 const SHARED = {
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.6,
+  strokeWidth: 1.9,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
@@ -85,8 +85,48 @@ function Casual() {
   return (
     <>
       <rect x="4.5" y="4.5" width="15" height="15" rx="5" {...SHARED} />
-      <path d="M9 10.2h.01M15 10.2h.01" {...SHARED} strokeWidth={2.2} />
+      <path d="M9 10.2h.01M15 10.2h.01" {...SHARED} strokeWidth={2.4} />
       <path d="M8.7 14.3c.9 1.15 2 1.75 3.3 1.75s2.4-.6 3.3-1.75" {...SHARED} />
+    </>
+  );
+}
+
+function Sports() {
+  return (
+    <>
+      <circle cx="12" cy="12" r="8" {...SHARED} />
+      <path
+        d="M12 4v16M4.6 8.5h14.8M4.6 15.5h14.8M12 4a11 11 0 0 1 0 16 11 11 0 0 1 0-16Z"
+        {...SHARED}
+      />
+    </>
+  );
+}
+
+function Racing() {
+  return (
+    <>
+      <path d="M5 4v16" {...SHARED} />
+      <path
+        d="M5 4h6.5l-1.5 2.5L13 9H5.5"
+        {...SHARED}
+        strokeLinejoin="round"
+      />
+      <path d="M5 9h5l1.5 2.5L10 14H5" {...SHARED} strokeLinejoin="round" />
+    </>
+  );
+}
+
+// Fallback for any genre this component hasn't been hand-drawn for yet — a
+// generic controller glyph rather than silently reusing Action's, so an
+// unrecognized genre from the live /genres endpoint (see GenreShowcase.tsx)
+// still reads as "a genre, unspecified" instead of implying it's Action.
+function Generic() {
+  return (
+    <>
+      <rect x="3.5" y="8.5" width="17" height="9" rx="4.5" {...SHARED} />
+      <path d="M8 11v4M6 13h4" {...SHARED} />
+      <path d="M15.2 12.3h.01M17.6 14.3h.01" {...SHARED} strokeWidth={2.4} />
     </>
   );
 }
@@ -100,6 +140,8 @@ const ICONS: Record<string, () => ReturnType<typeof Action>> = {
   mmo: MMO,
   strategy: Strategy,
   casual: Casual,
+  sports: Sports,
+  racing: Racing,
 };
 
 export default function GenreIcon({
@@ -111,7 +153,7 @@ export default function GenreIcon({
   label: string;
   className?: string;
 }) {
-  const Glyph = ICONS[genreId] ?? Action;
+  const Glyph = ICONS[genreId] ?? Generic;
   return (
     <svg
       viewBox="0 0 24 24"

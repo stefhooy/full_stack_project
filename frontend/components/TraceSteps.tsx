@@ -5,11 +5,13 @@ import { motion } from "motion/react";
 // Turns the streamed progress events into the same node-by-node "trace"
 // visual used in ARCHITECTURE.md's agent diagram/artifact, instead of a
 // flat scrolling text log. STEPS is the graph's happy-path node order (see
-// src/agent/graph.py's build_graph()); build_chart_spec/forecast/clarify
-// are alternate terminal nodes so only one of the last three ever lights up
-// per run. execute_tools can repeat (the self-correction retry loop) — a
-// repeat visit just re-pulses that same dot rather than adding a new one,
-// same as the interactive artifact does.
+// src/agent/graph.py's build_graph()) — lookup, analysis, AND forecast all
+// flow through this exact same path now (forecast used to be its own
+// terminal node; see graph.py's module docstring for why that changed).
+// execute_tools can repeat (the self-correction retry loop) — a repeat
+// visit just re-pulses that same dot rather than adding a new one, same as
+// the interactive artifact does. ask_clarification is the one remaining
+// alternate terminal (too-ambiguous questions never enter this pipeline).
 const STEPS: { node: string; label: string }[] = [
   { node: "router", label: "route" },
   { node: "retrieve_schema", label: "schema" },
@@ -19,7 +21,6 @@ const STEPS: { node: string; label: string }[] = [
 ];
 
 const TERMINAL_LABELS: Record<string, string> = {
-  forecast_not_supported: "not supported",
   ask_clarification: "clarify",
 };
 
@@ -48,12 +49,12 @@ export default function TraceSteps({
           <div key={s.node} className="flex items-center">
             <div className="flex flex-col items-center gap-1.5 w-14">
               <motion.div
-                className="h-2.5 w-2.5 rounded-full"
+                className="h-2.5 w-2.5"
                 animate={{
                   backgroundColor: isVisited ? "var(--accent)" : "var(--border)",
                   scale: isCurrent ? [1, 1.35, 1] : 1,
                   boxShadow: isVisited
-                    ? "0 0 0 4px var(--accent-glow)"
+                    ? "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 10px var(--accent-glow)"
                     : "0 0 0 0px transparent",
                 }}
                 transition={
@@ -63,7 +64,7 @@ export default function TraceSteps({
                 }
               />
               <span
-                className={`text-[10px] font-mono uppercase tracking-wide transition-colors ${
+                className={`font-pixel text-[7px] uppercase tracking-wide transition-colors ${
                   isVisited ? "text-[var(--foreground)]" : "text-[var(--muted)]"
                 } ${isPast ? "opacity-60" : ""}`}
               >
@@ -87,7 +88,7 @@ export default function TraceSteps({
         <motion.span
           initial={{ opacity: 0, x: -6 }}
           animate={{ opacity: 1, x: 0 }}
-          className="ml-2 text-[10px] font-mono uppercase tracking-wide text-[var(--accent)] -mt-4"
+          className="ml-2 font-pixel text-[7px] uppercase tracking-wide text-[var(--accent)] -mt-4"
         >
           → {TERMINAL_LABELS[terminalNode]}
         </motion.span>

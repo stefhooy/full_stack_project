@@ -22,12 +22,32 @@ export interface StatsResult {
   [key: string]: unknown;
 }
 
+export interface ForecastResult {
+  mode: "forecast";
+  insufficient_history: boolean;
+  n_snapshots: number;
+  earliest_snapshot: string;
+  // Present only when insufficient_history is false:
+  latest_snapshot?: string;
+  observed_span_days?: number;
+  horizon_days?: number;
+  projected_date?: string;
+  projected_value?: number;
+  slope_per_day?: number;
+  r_squared?: number;
+  low_confidence?: boolean;
+  low_confidence_reasons?: string[];
+  // Present only when insufficient_history is true:
+  message?: string;
+}
+
 export interface AskResult {
   answer: string;
   sql: string | null;
   columns: string[] | null;
   rows: unknown[][] | null;
   stats_result: StatsResult | null;
+  forecast_result: ForecastResult | null;
   chart_spec: ChartSpec | null;
   retrieved_schema_chunks: string[] | null;
   route: string | null;

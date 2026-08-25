@@ -23,6 +23,7 @@ from src.agent.graph import AgentResult, run_agent, stream_agent
 from src.api.rate_limit import enforce_rate_limit
 from src.api.schemas import AskRequest, AskResponse
 from src.config import settings
+from src.db.genre_stats import get_genre_counts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
@@ -66,6 +67,20 @@ def health() -> dict:
     }
 
 
+@app.get("/genres")
+def genres() -> dict:
+    """Live genre-prevalence stats for the frontend's genre showcase —
+    computed from the DB on every request (src/db/genre_stats.py), not a
+    count baked into frontend source, so it stays correct as the catalog
+    grows/changes across ingestion re-runs."""
+    if not Path(settings.duckdb_abs_path).exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Database not found. Run `python -m src.ingestion.ingest` first.",
+        )
+    return {"genres": get_genre_counts()}
+
+
 def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
     return AskResponse(
         answer=result.answer,
@@ -73,6 +88,7 @@ def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
         columns=result.columns,
         rows=result.rows,
         stats_result=result.stats_result,
+        forecast_result=result.forecast_result,
         chart_spec=result.chart_spec,
         retrieved_schema_chunks=result.retrieved_chunk_ids,
         route=result.route,

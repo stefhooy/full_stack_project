@@ -46,20 +46,24 @@ flowchart LR
     subgraph tools["src/tools/"]
         sqltool["run_sql"]
         statstool["run_stats"]
+        forecasttool["run_forecast<br/>(linear trend,<br/>honest re: young data)"]
         viztool["chart-spec (deterministic)"]
     end
 
     subgraph surfaces["Serving surfaces"]
-        api["FastAPI<br/>/ask, /ask/stream"]
+        api["FastAPI<br/>/ask, /ask/stream, /genres"]
         mcpsrv["MCP server<br/>(stdio, no LLM key)"]
         webui["Next.js frontend"]
     end
 
+    genrestats["genre_stats.py<br/>(fixed query, no LLM,<br/>no guard needed)"]
+
     steamspy --> ingestpy --> duckdb
     steamweb --> pollpy --> duckdb
     duckdb --> connpy
-    connpy --> sqltool & statstool
-    sqltool & statstool --> lgraph
+    duckdb --> genrestats --> api
+    connpy --> sqltool & statstool & forecasttool
+    sqltool & statstool & forecasttool --> lgraph
     viztool --> lgraph
     llm -.model calls.-> lgraph
     lgraph --> api --> webui
@@ -74,6 +78,13 @@ Two things this diagram is making a point of, not just showing:
 - **The MCP server reuses `run_sql`/`run_stats` directly**, not a second
   implementation. Whatever guarantees the agent gets, the MCP server gets
   identically, for free.
+- **`genre_stats.py` bypasses `connection.py` on purpose.** The guard exists
+  to constrain LLM-*generated* SQL, which this isn't — it's one fixed,
+  hand-written query with no user or model input in it at all, so routing
+  it through the same guard as `run_sql` would be safety theater, not
+  safety. It exists so the frontend's genre showcase counts are computed
+  live from whatever's actually in `games` (see DOCEXP.md's Slice 9
+  addendum), not a number baked into frontend source at design time.
 
 ## The agent graph
 
@@ -87,8 +98,7 @@ flowchart TD
     START(["question"]) --> router
 
     router{{"router<br/>classify_question()<br/>structured LLM output"}}
-    router -->|"lookup / analysis"| retrieve_schema
-    router -->|"forecast"| forecast_not_supported
+    router -->|"lookup / analysis / forecast"| retrieve_schema
     router -->|"needs_clarification"| ask_clarification
 
     retrieve_schema["retrieve_schema<br/>embed question → retrieve<br/>top-K schema chunks (RAG)"]
@@ -98,18 +108,27 @@ flowchart TD
     agent -->|"tool_calls present"| execute_tools
     agent -->|"no tool_calls"| build_chart_spec
 
-    execute_tools["execute_tools<br/>dispatch run_sql / run_stats,<br/>errors → ToolMessage"]
+    execute_tools["execute_tools<br/>dispatch run_sql / run_stats /<br/>run_forecast, errors → ToolMessage"]
     execute_tools --> agent
 
     build_chart_spec["build_chart_spec<br/>infer chart from result shape<br/>(plain code, not an LLM call)"]
 
-    forecast_not_supported["forecast_not_supported<br/>honest 'not built yet'"]
     ask_clarification["ask_clarification<br/>ask, don't guess"]
 
     build_chart_spec --> END(["answer"])
-    forecast_not_supported --> END
     ask_clarification --> END
 ```
+
+`forecast` used to be its own terminal node here — an honest "not built yet"
+with no tool calls possible at all, back when neither a forecasting tool nor
+real time-series data existed. Both exist now (`player_counts` since Slice 7,
+`run_forecast` since this addendum), so `forecast` flows through the same
+loop as `lookup`/`analysis`. The honesty didn't move to a route-level gate,
+though — it moved *into* `run_forecast` itself: the tool checks how many real
+snapshots exist for the game in question before fitting anything, and
+returns a structured "not enough history yet" result instead of a fabricated
+projection when there's fewer than 2. See `src/tools/forecast_tool.py`'s
+docstring.
 
 **Every box is a real Python function, traced individually in LangSmith.**
 There's no hidden orchestration layer between these nodes — the edges in
@@ -122,10 +141,9 @@ this diagram are exactly the edges in `build_graph()` in
 |---|---|---|---|
 | `router` | `question` | `route`, `clarifying_question` | One structured-output LLM call (`RouteDecision`, a Pydantic model with a `Literal` field) — always exactly one of 4 categories, never free text to parse |
 | `retrieve_schema` | `question`, `route` | `messages` (system + human), `retrieved_chunk_ids` | Embeds the question, cosine-similarity ranks against ~24 schema chunks, assembles only the relevant ones into the system prompt — see "RAG" below |
-| `agent` | `messages`, `route`, `attempts` | `messages` (appends one AI message) | Calls the LLM with tools bound *conditionally on route* — `lookup` gets `[run_sql]`, `analysis` gets `[run_sql, run_stats]`. Once `attempts >= SQL_MAX_RETRIES`, binds no tools at all |
-| `execute_tools` | `messages` (last AI message's tool_calls) | `messages` (ToolMessages), `last_successful_*`, `attempts` | Dispatches by tool name to the guarded implementation; catches `UnsafeQueryError`/`duckdb.Error`/`ValueError` and turns them into a message the model reads next turn |
+| `agent` | `messages`, `route`, `attempts` | `messages` (appends one AI message) | Calls the LLM with tools bound *conditionally on route* — `lookup` gets `[run_sql]`, `analysis` gets `[run_sql, run_stats]`, `forecast` gets `[run_sql, run_forecast]`. Once `attempts >= SQL_MAX_RETRIES`, binds no tools at all |
+| `execute_tools` | `messages` (last AI message's tool_calls) | `messages` (ToolMessages), `last_successful_*`, `last_stats_*`, `last_forecast_*`, `attempts` | Dispatches by tool name to the guarded implementation; catches `UnsafeQueryError`/`duckdb.Error`/`ValueError` and turns them into a message the model reads next turn |
 | `build_chart_spec` | `last_successful_columns`, `last_successful_rows` | `chart_spec` | Pure function: column count + Python types of the values → `bar`/`scatter`/`None`. No LLM call |
-| `forecast_not_supported` | — | `messages` | Fixed honest string. No tool calls possible from this route at all |
 | `ask_clarification` | `clarifying_question` | `messages` | Returns the router's own generated clarifying question as the answer |
 
 ### The two structural guarantees worth naming
@@ -271,7 +289,9 @@ responsibility map, not the how-to-run guide:
 src/
   config.py       one typed Settings object — everything else reads config through it
   ingestion/       SteamSpy + Steam Web API clients, ingest/poll/build scripts
-  db/               table schema + the guarded connection (the safety boundary)
+  db/               table schema + the guarded connection (the safety boundary);
+                      genre_stats.py — live genre counts for the frontend,
+                      deliberately outside the guard (fixed query, no LLM input)
   agent/
     graph.py          the LangGraph state machine (this document's main subject)
     router.py          structured-output question classification
@@ -279,8 +299,8 @@ src/
     llm_provider.py     the MODEL_PROVIDER seam
     cache.py            semantic cache (reuses the RAG embedding provider)
     rag/                schema chunk corpus, EMBEDDING_PROVIDER seam, retrieval index
-  tools/            run_sql, run_stats, the chart-spec generator — called by both
-                      the agent graph and the MCP server
+  tools/            run_sql, run_stats, run_forecast, the chart-spec generator —
+                      called by both the agent graph and the MCP server
   evals/            golden questions (live DB ground truth), deterministic checks,
                       LLM-as-judge, the CLI runner
   api/              FastAPI — thin, translates HTTP ⟷ agent; rate limiting

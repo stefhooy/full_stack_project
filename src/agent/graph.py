@@ -3,7 +3,7 @@ retrieval, then a tool-calling loop and a visible self-correction path.
 
     START -> router -> [lookup]                -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
                      -> [analysis]              -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
-                     -> [forecast]              -> forecast_not_supported                                         -> END
+                     -> [forecast]              -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
                      -> [needs_clarification]   -> ask_clarification                                               -> END
 
 - "router": classifies the question (lookup / analysis / forecast /
@@ -18,7 +18,9 @@ retrieval, then a tool-calling loop and a visible self-correction path.
   even bound depends on the route — `lookup` only gets run_sql; `analysis`
   also gets run_stats (see src/tools/stats_tool.py), so it can run a real
   significance test or z-score outlier check instead of eyeballing an
-  average comparison. Once `attempts` reaches SQL_MAX_RETRIES, this node
+  average comparison; `forecast` gets run_forecast (see
+  src/tools/forecast_tool.py), a real linear-trend projection over
+  player_counts history. Once `attempts` reaches SQL_MAX_RETRIES, this node
   stops binding tools at all, so the model *cannot* call one again — it is
   structurally forced to answer in plain text. That's what guarantees the
   loop terminates, rather than relying on the model to politely stop when
@@ -26,14 +28,20 @@ retrieval, then a tool-calling loop and a visible self-correction path.
 - "execute_tools": dispatches each tool call by name to the matching guarded
   implementation, turns errors into a ToolMessage the model reads on its
   next turn (this is the self-correction step), and records the last
-  *successful* SQL/stats result so the API layer can return them.
+  *successful* SQL/stats/forecast result so the API layer can return them.
 - "build_chart_spec": deterministically infers a chart spec from the last
   successful query's shape — not an LLM call, see src/tools/viz_tool.py for
   why this is code, not a prompt.
-- "forecast_not_supported" / "ask_clarification": terminal nodes for the two
-  categories the SQL pipeline shouldn't attempt at all — an honest
-  "can't do that yet" and a clarifying question, respectively, instead of
-  the agent guessing its way to a confident wrong answer.
+- "ask_clarification": terminal node for questions too ambiguous for the SQL
+  pipeline to attempt at all — a clarifying question back, instead of the
+  agent guessing its way to a confident wrong answer.
+
+`forecast` used to be its own terminal "not supported yet" node (no
+forecasting tool or time-series data existed). Both now exist (Slice 7's
+player_counts, this slice's run_forecast), so forecast questions flow
+through the same loop as lookup/analysis — the tool itself, not a route-
+level block, is what decides honestly whether there's enough history to
+answer. See forecast_tool.py's docstring.
 
 Deliberately not using langgraph.prebuilt.create_react_agent: the loop is
 simple enough to write by hand, and doing so means every step is something
@@ -53,20 +61,15 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.agent.llm_provider import get_llm
-from src.agent.prompts import ANALYSIS_TOOL_GUIDANCE, build_system_prompt
+from src.agent.prompts import ANALYSIS_TOOL_GUIDANCE, FORECAST_TOOL_GUIDANCE, build_system_prompt
 from src.agent.rag.schema_index import assemble_schema_text, get_schema_index
 from src.agent.router import classify_question
 from src.config import settings
 from src.db.connection import UnsafeQueryError
+from src.tools.forecast_tool import execute_run_forecast, run_forecast
 from src.tools.sql_tool import execute_run_sql, run_sql
 from src.tools.stats_tool import execute_run_stats, run_stats
 from src.tools.viz_tool import infer_chart_spec
-
-FORECAST_NOT_SUPPORTED_TEXT = (
-    "I can't forecast yet — this system doesn't have a forecasting tool or "
-    "time-series data to project from (both are planned for a later slice). "
-    "I can answer questions about the current catalog instead."
-)
 
 
 class AgentState(TypedDict):
@@ -78,6 +81,8 @@ class AgentState(TypedDict):
     last_successful_rows: list[list] | None
     last_stats_query: str | None
     last_stats_result: dict | None
+    last_forecast_query: str | None
+    last_forecast_result: dict | None
     retrieved_chunk_ids: list[str] | None
     route: str | None
     clarifying_question: str | None
@@ -94,15 +99,9 @@ def router_node(state: AgentState) -> dict:
 
 def route_after_router(state: AgentState) -> str:
     category = state["route"]
-    if category in ("lookup", "analysis"):
+    if category in ("lookup", "analysis", "forecast"):
         return "retrieve_schema"
-    if category == "forecast":
-        return "forecast_not_supported"
     return "ask_clarification"
-
-
-def forecast_not_supported_node(state: AgentState) -> dict:
-    return {"messages": [AIMessage(content=FORECAST_NOT_SUPPORTED_TEXT)]}
 
 
 def ask_clarification_node(state: AgentState) -> dict:
@@ -110,10 +109,16 @@ def ask_clarification_node(state: AgentState) -> dict:
     return {"messages": [AIMessage(content=question)]}
 
 
+_TOOL_GUIDANCE_BY_ROUTE = {
+    "analysis": ANALYSIS_TOOL_GUIDANCE,
+    "forecast": FORECAST_TOOL_GUIDANCE,
+}
+
+
 def retrieve_schema_node(state: AgentState) -> dict:
     chunks = get_schema_index().retrieve(state["question"], top_k=settings.rag_top_k)
     schema_text = assemble_schema_text(chunks)
-    tool_guidance = ANALYSIS_TOOL_GUIDANCE if state["route"] == "analysis" else ""
+    tool_guidance = _TOOL_GUIDANCE_BY_ROUTE.get(state["route"], "")
     return {
         "messages": [
             SystemMessage(
@@ -129,9 +134,12 @@ def _tools_for_route(route: str | None) -> list:
     # lookup: just run_sql. analysis: also gets run_stats, so it can run a
     # real significance test or outlier check instead of hand-computing a
     # comparison via SQL — the concrete difference the router was built to
-    # enable back in Slice 3.
+    # enable back in Slice 3. forecast: also gets run_forecast, a real
+    # linear-trend projection over player_counts history (Slice 9b).
     if route == "analysis":
         return [run_sql, run_stats]
+    if route == "forecast":
+        return [run_sql, run_forecast]
     return [run_sql]
 
 
@@ -172,6 +180,13 @@ def execute_tools_node(state: AgentState) -> dict:
                 )
                 update["last_stats_query"] = call["args"].get("query", "")
                 update["last_stats_result"] = result
+            elif call["name"] == "run_forecast":
+                result = execute_run_forecast(
+                    call["args"].get("query", ""),
+                    call["args"].get("horizon_days", 0),
+                )
+                update["last_forecast_query"] = call["args"].get("query", "")
+                update["last_forecast_result"] = result
             else:
                 raise ValueError(f"Unknown tool: {call['name']!r}")
             tool_messages.append(
@@ -204,7 +219,6 @@ def build_graph():
     graph.add_node("agent", agent_node)
     graph.add_node("execute_tools", execute_tools_node)
     graph.add_node("build_chart_spec", build_chart_spec_node)
-    graph.add_node("forecast_not_supported", forecast_not_supported_node)
     graph.add_node("ask_clarification", ask_clarification_node)
 
     graph.set_entry_point("router")
@@ -213,7 +227,6 @@ def build_graph():
         route_after_router,
         {
             "retrieve_schema": "retrieve_schema",
-            "forecast_not_supported": "forecast_not_supported",
             "ask_clarification": "ask_clarification",
         },
     )
@@ -225,7 +238,6 @@ def build_graph():
     )
     graph.add_edge("execute_tools", "agent")
     graph.add_edge("build_chart_spec", END)
-    graph.add_edge("forecast_not_supported", END)
     graph.add_edge("ask_clarification", END)
     return graph.compile()
 
@@ -240,7 +252,6 @@ NODE_PROGRESS_MESSAGES = {
     "agent": "Thinking...",
     "execute_tools": "Running query...",
     "build_chart_spec": "Preparing visualization...",
-    "forecast_not_supported": "Checking capabilities...",
     "ask_clarification": "Checking your question...",
 }
 
@@ -253,6 +264,8 @@ class AgentResult:
     rows: list[list] | None
     stats_query: str | None
     stats_result: dict | None
+    forecast_query: str | None
+    forecast_result: dict | None
     retrieved_chunk_ids: list[str] | None
     route: str | None
     chart_spec: dict | None
@@ -268,6 +281,8 @@ def _initial_state(question: str) -> AgentState:
         "last_successful_rows": None,
         "last_stats_query": None,
         "last_stats_result": None,
+        "last_forecast_query": None,
+        "last_forecast_result": None,
         "retrieved_chunk_ids": None,
         "route": None,
         "clarifying_question": None,
@@ -289,6 +304,8 @@ def _result_from_state(final_state: dict) -> AgentResult:
         rows=final_state.get("last_successful_rows"),
         stats_query=final_state.get("last_stats_query"),
         stats_result=final_state.get("last_stats_result"),
+        forecast_query=final_state.get("last_forecast_query"),
+        forecast_result=final_state.get("last_forecast_result"),
         retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
         route=final_state.get("route"),
         chart_spec=final_state.get("chart_spec"),
@@ -325,20 +342,4 @@ async def stream_agent(question: str):
 def run_agent(question: str) -> AgentResult:
     initial_state = _initial_state(question)
     final_state = _compiled_graph.invoke(initial_state, config={"run_name": "ask"})
-    final_message = final_state["messages"][-1]
-    answer = (
-        final_message.content
-        if isinstance(final_message.content, str)
-        else str(final_message.content)
-    )
-    return AgentResult(
-        answer=answer,
-        sql=final_state.get("last_successful_sql"),
-        columns=final_state.get("last_successful_columns"),
-        rows=final_state.get("last_successful_rows"),
-        stats_query=final_state.get("last_stats_query"),
-        stats_result=final_state.get("last_stats_result"),
-        retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
-        route=final_state.get("route"),
-        chart_spec=final_state.get("chart_spec"),
-    )
+    return _result_from_state(final_state)

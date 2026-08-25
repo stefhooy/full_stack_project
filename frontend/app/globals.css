@@ -1,23 +1,22 @@
 @import "tailwindcss";
 
-/* Brand tokens. Warm near-black / warm off-white grounds (not pure
-   black/white — a neutral with a slight hue bias toward the amber accent
-   reads as chosen, not inherited) + a single amber accent, continuing the
-   palette established in ARCHITECTURE.md's agent-trace artifact so the
-   product and the docs read as one identity. Dual-theme: bare :root is the
-   light default, the media query covers OS dark, and [data-theme="dark"]
-   lets an explicit in-app toggle win either way (no toggle UI exists yet,
-   the hook is just left in place). */
+/* Brand tokens — 80s arcade cabinet. Grounds aligned exactly to the palette
+   ARCHITECTURE.md's agent-trace artifact already established (#0d1014 dark
+   / #f6f4f0 light, amber accent) so the live app and the docs are visibly
+   the same project, not a close approximation of one. Dual-theme: bare
+   :root is the light default, the media query covers OS dark, and
+   [data-theme="dark"] lets an explicit in-app toggle win either way (no
+   toggle UI exists yet, the hook is just left in place). */
 :root {
-  --background: #faf8f4;
+  --background: #f6f4f0;
   --surface: #ffffff;
-  --surface-raised: #fffefb;
-  --foreground: #18160f;
+  --surface-raised: #fdfcfa;
+  --foreground: #17150f;
   --muted: #6b6658;
-  --border: rgba(24, 22, 15, 0.1);
+  --border: rgba(23, 21, 15, 0.14);
   --accent: #a8650f;
   --accent-contrast: #fffdf8;
-  --accent-glow: rgba(168, 101, 15, 0.25);
+  --accent-glow: rgba(168, 101, 15, 0.3);
   --danger: #b3261e;
   --danger-bg: #fdecea;
 }
@@ -36,42 +35,44 @@
   --font-sans: var(--font-display);
   --font-display: var(--font-display);
   --font-mono: var(--font-data-mono);
+  --font-marquee: var(--font-marquee);
+  --font-pixel: var(--font-pixel);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: #141310;
-    --surface: #1b1a15;
-    --surface-raised: #211f19;
-    --foreground: #f7f4ec;
-    --muted: #a39d8c;
-    --border: rgba(247, 244, 236, 0.1);
+    --background: #0d1014;
+    --surface: #16191f;
+    --surface-raised: #1c1f26;
+    --foreground: #f5f4ef;
+    --muted: #999b98;
+    --border: rgba(245, 244, 239, 0.14);
     --accent: #f0a63a;
     --accent-contrast: #1a1206;
-    --accent-glow: rgba(240, 166, 58, 0.25);
+    --accent-glow: rgba(240, 166, 58, 0.32);
     --danger: #ff8a80;
     --danger-bg: rgba(255, 138, 128, 0.12);
   }
 }
 
 :root[data-theme="dark"] {
-  --background: #141310;
-  --surface: #1b1a15;
-  --surface-raised: #211f19;
-  --foreground: #f7f4ec;
-  --muted: #a39d8c;
-  --border: rgba(247, 244, 236, 0.1);
+  --background: #0d1014;
+  --surface: #16191f;
+  --surface-raised: #1c1f26;
+  --foreground: #f5f4ef;
+  --muted: #999b98;
+  --border: rgba(245, 244, 239, 0.14);
   --accent: #f0a63a;
   --accent-contrast: #1a1206;
-  --accent-glow: rgba(240, 166, 58, 0.25);
+  --accent-glow: rgba(240, 166, 58, 0.32);
   --danger: #ff8a80;
   --danger-bg: rgba(255, 138, 128, 0.12);
 }
 
 /* Genre identity palette — the dataviz skill's validated default 8-slot
    categorical palette, reused (not re-derived) and assigned in real-data
-   prevalence order (see lib/genres.ts — counted from the actual 200-game
-   catalog, most-common first). This keeps the CVD-safety guarantee that was
+   prevalence order at render time (see lib/genres.ts — GET /genres counts
+   the live catalog, most-common first). This keeps the CVD-safety guarantee
    already validated for this exact hue sequence. Kept structurally separate
    from --accent above: chrome/interaction uses --accent only, genre chips
    use --genre-* only, so the two color systems never compete for meaning. */
@@ -114,8 +115,9 @@ body {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
-/* Faint HUD scanline texture behind the page — decorative only, kept subtle
-   (2% opacity) so it reads as "console" without hurting legibility. */
+/* CRT texture: scanlines + a soft vignette darkening the corners, like a
+   cabinet monitor bezel swallowing the edges. Decorative only, kept subtle
+   enough not to fight legibility. */
 body::before {
   content: "";
   position: fixed;
@@ -129,7 +131,73 @@ body::before {
     transparent 1px,
     transparent 3px
   );
-  opacity: 0.025;
+  opacity: 0.035;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    color-mix(in srgb, var(--background) 70%, black) 130%
+  );
+}
+
+/* Terminal-style blinking cursor, used next to the ask console's prompt
+   glyph while it's empty and unfocused. */
+@keyframes blink-cursor {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.blink-cursor {
+  animation: blink-cursor 1s steps(1) infinite;
+}
+
+/* Marquee chase-light border — a rotating conic gradient masked down to a
+   1.5px ring, like the chasing bulbs around an arcade cabinet marquee.
+   Applied to the ask console (components stay quiet everywhere else — see
+   artifact-design's "spend your boldness in one place"). @property makes
+   the angle animatable; browsers without support just see a static
+   gradient ring, a fine fallback. */
+@property --marquee-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.marquee-border {
+  position: relative;
+}
+.marquee-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--marquee-angle),
+    transparent 0%,
+    var(--accent) 8%,
+    transparent 22%,
+    transparent 50%,
+    var(--accent) 58%,
+    transparent 72%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: marquee-spin 4s linear infinite;
+}
+@keyframes marquee-spin {
+  to { --marquee-angle: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blink-cursor { animation: none; opacity: 1; }
+  .marquee-border::before { animation: none; }
 }
 
 /* Chart tokens (validated default palette — see the dataviz skill's

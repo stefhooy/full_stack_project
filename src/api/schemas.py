@@ -13,6 +13,7 @@ class AskResponse(BaseModel):
     columns: list[str] | None = None
     rows: list[list] | None = None
     stats_result: dict | None = None
+    forecast_result: dict | None = None
     chart_spec: dict | None = None
     retrieved_schema_chunks: list[str] | None = None
     route: str | None = None
