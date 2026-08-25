@@ -1973,6 +1973,28 @@ the Expo entry moved to Dropped in PLAN.md, next to the earlier Gemini
 decision — same shape of decision (a planned-for-later item, reconsidered
 once the actual cost/benefit was concrete instead of hypothetical).
 
+### Addendum: 200 was a config default, not a SteamSpy limit
+
+The user asked directly whether 200 games was all SteamSpy would give —
+worth checking the real ceiling rather than assuming. It wasn't a limit at
+all: `ingest_game_count = 200` in `src/config.py` was just the number
+`ingest.py` happened to slice off SteamSpy's bulk `all` listing.
+`get_all_page(page=0)` already returns ~1000 games (SteamSpy's own
+per-page size, sorted by owners descending) — `ingest.py` was only ever
+asking for the first 200 of those. Getting more right now is a config
+change, not a code change; getting past ~1000 would be a real one
+(`ingest.py` only fetches page 0 — looping over page 1, 2, ... isn't built).
+
+Bumped the default to 1000 everywhere it's declared (`src/config.py`,
+`.env.example`, the real `.env`) and re-ran ingestion. Deliberately did
+**not** bump the `Dockerfile`'s build-time `ARG INGEST_GAME_COUNT` default
+— that ingestion happens at Docker build time on whatever host deploys
+this, and rate-limited to ~1 req/sec, 1000 games adds real minutes to
+every future build. Left it at 200 (fast builds by default) with a
+comment already in place noting it's overridable via `--build-arg` for
+anyone who wants the full 1000 in a deployed instance and is fine trading
+build speed for it.
+
 ### Open questions (new)
 
 - **Mobile design is verified-not-broken, not verified-well-designed.**
@@ -1990,3 +2012,67 @@ once the actual cost/benefit was concrete instead of hypothetical).
   model, scipy, multi-step LLM calls — doesn't fit a lightweight
   always-on-free-tier host well, which is the same reason Vercel's own
   Python functions were ruled out in Slice 6).
+
+---
+
+## Slice 9f — More data, and taste applied concretely instead of by feel
+
+**Date:** 2026-08-26
+
+Two follow-ons: confirming 200 games was a config default not a real
+ceiling (see PLAN.md's Slice 9f entry for the mechanics — SteamSpy's bulk
+page already holds ~1000, `ingest.py` just wasn't asking for that many),
+and a design request that named a specific reference (Emil Kowalski's
+public writing on interaction craft) rather than "make it nicer."
+
+### Grounding "taste" in something checkable
+
+Asked to apply Kowalski-style taste without inventing a fictional "skill"
+for it — his actual published material is real and specific enough to work
+from directly. Fetched his site and "7 Practical Animation Tips" rather
+than working from vague memory of "that designer with the nice toasts."
+Audited this app's existing motion against each of the 7 concretely:
+
+- **Button press scale (0.97, `:active`)** — the Ask button and genre
+  cartridges already had tap feedback; the example-question chips didn't.
+  Real, findable gap once actually checked against a checklist instead of
+  a general "does this feel okay" pass. Fixed, and unified every
+  interactive element's press scale to the same 0.97 — one consistent
+  value reads as deliberate, three slightly different ones read as
+  accidental.
+- **Avoid animating from `scale(0)`** — audited every `initial`/`animate`
+  pair in the app; none do. No change needed, but worth having actually
+  checked rather than assumed.
+- **`ease-out`, not `ease-in`, for entering/exiting** — the hero stagger
+  and card entrances already use a custom ease-out-heavy cubic-bezier
+  (`[0.16, 1, 0.3, 1]`), applied symmetrically to both enter and exit
+  transitions, which is exactly what the tip recommends (ease-out for
+  both, not ease-in for exits). Already correct.
+- **Keep it fast, <300ms for frequent interactions** — this app's
+  interactive elements (button taps, cartridge selection) are already
+  spring-based and settle quickly; explicitly set the new chip
+  press-transition to 150ms rather than leaving it at Motion's spring
+  default, for consistency with the Ask button.
+- **Blur for rough transitions** — genuinely new. Added
+  `blur(4px)→blur(0px)` to both the progress-panel and result-panel
+  `AnimatePresence` transitions, matching Kowalski's specific "underrated"
+  recommendation for masking the seam when one piece of UI replaces
+  another.
+- **Origin-aware transforms / skip delays on repeat tooltips** — don't
+  apply here (no popovers-from-a-trigger-point or tooltip sequences in
+  this app); noted as checked-and-not-applicable rather than silently
+  skipped.
+
+The point of fetching the actual source first: three of the seven tips
+turned out to already be satisfied by decisions made earlier in this
+project for unrelated reasons (the ease-out curve was chosen in Slice 9
+for how it looked, not because it matched a specific external principle) —
+worth knowing that's true, rather than assuming a "craft pass" always
+means new changes everywhere.
+
+### Open questions (new)
+
+- **No literal "taste" or design-review skill exists for this project** —
+  applied the specific external reference material directly this round;
+  if this kind of audit becomes routine, a real project skill capturing
+  "the checklist to run" would be the next step, not this ad hoc version.

@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 9e complete → starting Slice 10 (mobile-web polish + deployment) next**
+**Current slice: 9f complete → starting Slice 10 (mobile-web polish + deployment) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -340,6 +340,33 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       390px-wide viewport the two pieces overlapped/collided instead of
       wrapping. Confirmed no horizontal page overflow and no console errors
       across both device profiles after the fix
+
+## Slice 9f — 1000-game catalog, craft/animation polish pass
+- [x] Bumped `ingest_game_count` default 200→1000 (`src/config.py`,
+      `.env.example`, `.env`) — 1000 is the free ceiling with the current
+      ingestion code (SteamSpy's bulk listing returns ~1000/page, `ingest.py`
+      only fetches page 0), not a real SteamSpy limit. Ran it for real:
+      1000 games ingested, verified in the DB. Deliberately left the
+      `Dockerfile`'s build-time default at 200 — that ingestion runs at
+      Docker build time, rate-limited ~1/sec, so 1000 there means ~15 extra
+      minutes on every future deploy build; documented as overridable via
+      `--build-arg` instead of silently slowing deploys
+- [x] Confirmed the Slice 9b/9c dynamic-genres design paid off exactly as
+      intended: zero code changes needed for the genre showcase/leaderboard
+      to reflect the new 1000-game distribution (top-8 genre order actually
+      shifted — Strategy/Simulation now outrank Casual/Massively
+      Multiplayer at this larger sample size)
+- [x] Applied a concrete craft-audit pass grounded in Emil Kowalski's
+      published animation/interaction principles (not vibes) — added
+      `:active` press feedback (`scale(0.97)`, ~150ms ease-out) to the
+      example-question chips, which had none before despite every other
+      interactive element having it; unified all tap-feedback scale values
+      to the same 0.97; added a subtle `blur(4px)→blur(0px)` transition to
+      the progress-panel/result-panel swaps (Kowalski's "underrated" tip
+      for smoothing rough transitions)
+- [x] Real mobile-viewport re-verification (iPhone 14 + desktop) after both
+      the data change and the animation changes — no overflow, no console
+      errors, mobile genre-header fix from Slice 9e still holds
 
 ## Slice 10 — Mobile-web polish + deployment
 - [ ] Further responsive-design pass beyond the Slice 9e bug fix — Slice 9e

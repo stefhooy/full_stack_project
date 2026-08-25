@@ -74,7 +74,11 @@ class Settings(BaseSettings):
 
     # --- ingestion ---
     steamspy_user_agent: str = "ai-game-analyst-ingest/0.1"
-    ingest_game_count: int = 200
+    ingest_game_count: int = 1000
+    """1000 is the free ceiling with the current ingestion code — SteamSpy's
+    bulk `all` listing returns ~1000 games per page, and ingest.py only
+    fetches page 0. Going higher needs a code change to loop over more
+    pages, not just a config bump."""
 
     # --- serving (Slice 6) ---
     debug: bool = False

@@ -4,13 +4,15 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9e** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9f** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
 ## What's here right now
 
-- A SteamSpy ingestion script that builds a local DuckDB catalog of ~200 games
+- A SteamSpy ingestion script that builds a local DuckDB catalog of up to
+  ~1000 games (`INGEST_GAME_COUNT`, the free ceiling with the current
+  ingestion code — see DOCEXP.md's Slice 9e addendum for why)
 - A scheduled live player-count poller (Steam Web API, no key needed) building
   a real time-series table — the two tables have opposite freshness
   contracts (the catalog is always-current and gets overwritten; player

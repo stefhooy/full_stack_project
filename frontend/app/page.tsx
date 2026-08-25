@@ -307,8 +307,9 @@ export default function Home() {
               type="submit"
               disabled={loading || !question.trim()}
               whileHover={loading || !question.trim() ? undefined : { scale: 1.04 }}
-              whileTap={loading || !question.trim() ? undefined : { scale: 0.96 }}
-              className="px-3.5 py-2 font-pixel text-[9px] disabled:opacity-40 disabled:cursor-not-allowed"
+              whileTap={loading || !question.trim() ? undefined : { scale: 0.97 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              className="px-3.5 py-2.5 font-pixel text-[9px] disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
             >
               {loading ? "···" : "ASK"}
@@ -318,14 +319,17 @@ export default function Home() {
 
         <motion.div variants={heroItem} className="flex flex-wrap gap-1.5 mb-12">
           {EXAMPLE_QUESTIONS.map((q) => (
-            <button
+            <motion.button
               key={q}
               onClick={() => ask(q)}
               disabled={loading}
-              className="glass-panel text-xs px-3 py-1.5 border border-[var(--border)] text-[var(--foreground)]/80 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+              whileHover={loading ? undefined : { y: -1 }}
+              whileTap={loading ? undefined : { scale: 0.97 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+              className="glass-panel text-xs px-3 py-2 border border-[var(--border)] text-[var(--foreground)]/80 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
             >
               {q}
-            </button>
+            </motion.button>
           ))}
         </motion.div>
       </motion.div>
@@ -338,9 +342,10 @@ export default function Home() {
         {(loading || progress.length > 0) && !result && (
           <motion.div
             key="progress"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, filter: "blur(4px)" }}
+            animate={{ opacity: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, filter: "blur(4px)" }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
             className="glass-panel mb-6 border-2 border-[var(--border)] px-4 py-4"
           >
             <TraceSteps visited={visitedNodes} current={currentNode} />
@@ -358,9 +363,9 @@ export default function Home() {
         {result && (
           <motion.div
             key="result"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, filter: "blur(4px)" }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             className="glass-panel relative border-2 border-[var(--border)] p-5 space-y-4"
           >
