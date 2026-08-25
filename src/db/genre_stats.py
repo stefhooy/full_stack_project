@@ -50,3 +50,41 @@ def get_genre_counts(top_n: int = TOP_N) -> list[dict]:
     # GenreShowcase.tsx) nondeterministic across requests.
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
     return [{"label": label, "count": count} for label, count in ranked]
+
+
+def get_games_by_genre(label: str, limit: int = 12) -> list[dict]:
+    """The actual games behind a genre showcase card — what "click a genre,
+    see the games" needs. Matches on the comma-split token, not a raw
+    ILIKE substring, for the same reason get_genre_counts() splits rather
+    than pattern-matches: a substring match on the whole free-text field
+    risks a false positive (e.g. a hypothetical genre containing another
+    genre's name as a substring) that a token-equality check can't have.
+    """
+    conn = duckdb.connect(settings.duckdb_abs_path, read_only=True)
+    try:
+        rows = conn.execute(
+            "SELECT name, genre, price_usd, review_score, peak_ccu FROM games "
+            "WHERE genre IS NOT NULL"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    target = label.strip().lower()
+    matches = [
+        {
+            "name": name,
+            "price_usd": price_usd,
+            "review_score": review_score,
+            "peak_ccu": peak_ccu,
+        }
+        for name, genre_field, price_usd, review_score, peak_ccu in rows
+        if target in {t.strip().lower() for t in genre_field.split(",")}
+    ]
+    matches.sort(
+        key=lambda g: (
+            g["review_score"] if g["review_score"] is not None else -1,
+            g["peak_ccu"] if g["peak_ccu"] is not None else -1,
+        ),
+        reverse=True,
+    )
+    return matches[:limit]

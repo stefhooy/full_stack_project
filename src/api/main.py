@@ -23,7 +23,7 @@ from src.agent.graph import AgentResult, run_agent, stream_agent
 from src.api.rate_limit import enforce_rate_limit
 from src.api.schemas import AskRequest, AskResponse
 from src.config import settings
-from src.db.genre_stats import get_genre_counts
+from src.db.genre_stats import get_games_by_genre, get_genre_counts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
@@ -79,6 +79,21 @@ def genres() -> dict:
             detail="Database not found. Run `python -m src.ingestion.ingest` first.",
         )
     return {"genres": get_genre_counts()}
+
+
+@app.get("/games")
+def games(genre: str, limit: int = 12) -> dict:
+    """The actual games behind a genre showcase card — deterministic, no
+    LLM involved (this is browsing the catalog, not asking a question of
+    it). `limit` is capped the same way sql_max_rows caps everything else
+    that returns rows."""
+    if not Path(settings.duckdb_abs_path).exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Database not found. Run `python -m src.ingestion.ingest` first.",
+        )
+    capped_limit = min(max(limit, 1), settings.sql_max_rows)
+    return {"games": get_games_by_genre(genre, capped_limit)}
 
 
 def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:

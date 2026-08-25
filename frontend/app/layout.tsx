@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, IBM_Plex_Mono, Monoton, Press_Start_2P } from "next/font/google";
 import MotionProvider from "@/components/MotionProvider";
+import RetroBackground from "@/components/RetroBackground";
 import "./globals.css";
 
 // Four faces, each with one job — an 80s-arcade-cabinet identity, not a
@@ -52,6 +53,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${archivo.variable} ${plexMono.variable} ${monoton.variable} ${pressStart.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <RetroBackground />
         <MotionProvider>{children}</MotionProvider>
       </body>
     </html>

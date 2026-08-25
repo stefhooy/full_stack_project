@@ -51,7 +51,7 @@ flowchart LR
     end
 
     subgraph surfaces["Serving surfaces"]
-        api["FastAPI<br/>/ask, /ask/stream, /genres"]
+        api["FastAPI<br/>/ask, /ask/stream, /genres, /games"]
         mcpsrv["MCP server<br/>(stdio, no LLM key)"]
         webui["Next.js frontend"]
     end

@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 9b complete → starting Slice 10 (Expo mobile client) next**
+**Current slice: 9c complete → starting Slice 10 (Expo mobile client) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -255,6 +255,34 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       why truststore is needed at all), a python-build-standalone Windows
       issue specific to the 3.14.2 build. See DOCEXP.md for the full
       isolation trail.
+
+## Slice 9c — Markdown rendering, real genre browsing, ambient background
+- [x] Fixed a real bug found while looking at Slice 9b's own screenshots:
+      the answer panel rendered literal `**bold**`/`* item` markdown syntax
+      instead of formatting it (`<p>{answer}</p>` never parsed markdown).
+      `components/Markdown.tsx` wraps `react-markdown` with an explicit
+      per-element `components` map (styled to this app's tokens, not a
+      generic typography plugin) — bold, lists, code, links all render
+      properly now
+- [x] Genre cards now show the real games behind them. `GET /games`
+      (`src/db/genre_stats.py`'s `get_games_by_genre`) — deterministic, no
+      LLM call, same "fixed query, no guard needed" reasoning as
+      `get_genre_counts()` — returns the actual top games for a genre
+      (sorted by review score, then peak concurrent players). Clicking a
+      card toggles a retro "leaderboard" panel (rank/name/price/review%/
+      peak-CCU) instead of firing an LLM question; a secondary "ask the
+      agent about {genre} →" link inside the panel still bridges into the
+      existing `/ask/stream` flow for anyone who wants that
+- [x] Ambient retro background (`components/RetroBackground.tsx`): a
+      synthwave grid horizon + drifting pixel motes, animated with
+      **Anime.js** — the one deliberate exception to "Motion is the only
+      animation library," scoped specifically to an imperative, non-
+      interactive ambient loop with no React state to synchronize with
+      (Motion owns every state-driven UI transition elsewhere in the app).
+      Kept faint (low opacity, `--accent`-derived color only) and skips
+      starting entirely under `prefers-reduced-motion`. See DOCEXP.md for
+      why this doesn't reopen the "one animation library" decision from
+      Slice 9
 
 ## Slice 10 — Expo mobile client
 - [ ] Same API, React Native/Expo UI — one codebase for iOS + Android

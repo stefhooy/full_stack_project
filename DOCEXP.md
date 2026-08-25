@@ -1657,3 +1657,107 @@ exactly that pattern-match and was wrong.
   asterisks** — noticed during this slice's live screenshots (pre-existing,
   not introduced here: `<p>{result.answer}</p>` has never parsed markdown).
   Small, real, not fixed here — out of scope for a redesign+forecast slice.
+  Fixed next in Slice 9c.
+
+---
+
+## Slice 9c — Markdown, real genre browsing, Anime.js background
+
+**Date:** 2026-08-25
+
+Three follow-ons from actually using Slice 9b: the markdown bug flagged (but
+correctly left unfixed, as out of scope) at the end of that entry, the
+genre showcase's click behavior, and a request to use Anime.js specifically
+for background motion.
+
+### Markdown: `react-markdown` over hand-rolling it
+
+Considered a small hand-written `**bold**`/`* item` regex parser first —
+consistent with this project's usual "no dependency for something this
+small" instinct (the SSE parsing in `lib/api.ts` is hand-rolled for exactly
+that reason). Went with `react-markdown` instead once the actual failure
+mode was reconsidered: the agent's answers are real LLM prose, not a fixed
+template, so what shows up (bold, bullet or numbered lists, occasional
+inline code) is whatever GPT-OSS decided to write — a hand parser would need
+to cover CommonMark's real edge cases (nested lists, escaped characters,
+mixed list markers) to not just move the bug rather than fix it, at which
+point it's reimplementing a markdown parser, badly, instead of using the
+industry-standard one. `components/Markdown.tsx` wraps it with an explicit
+`components` map — every element (`p`, `strong`, `ul`/`li`, `code`, `a`) is
+styled to this app's own tokens by hand, not a generic `@tailwindcss/
+typography` "prose" class, so the rendered markdown looks like it belongs
+to this app specifically rather than to a plugin's default theme.
+
+### Genre cards: browsing, not asking
+
+Slice 9 made a genre card fire a curated LLM question. Explicit correction
+this round: "when we click on it, we should display the games." This is a
+better design independent of being asked for — clicking a card to *browse*
+what's actually in that genre is a faster, more expected interaction than
+clicking a card to *ask an AI about* that genre, and it doesn't cost a Groq
+round trip to satisfy. `GET /games` (`get_games_by_genre` in
+`src/db/genre_stats.py`, alongside `get_genre_counts`) is a second
+deterministic, no-LLM, no-guard endpoint for the same reason the first one
+is: it's one fixed query with a parameterized genre argument, not
+LLM-generated SQL, so `connection.py`'s guard has nothing to add. Matches on
+the comma-split token (case-insensitive), not a raw `ILIKE '%label%'`
+substring — same reasoning `get_genre_counts()` already established: a
+substring match on the whole free-text field can't distinguish a real match
+from an accidental one where the label happens to be a substring of a
+different, unrelated tag.
+
+The LLM-question path didn't disappear — a card's expanded panel has a
+secondary "ask the agent about {genre} →" link that calls the same
+`onPick` the old click behavior used, so both interactions coexist:
+fast/deterministic browsing as the primary action, the agent still one
+click away for anyone who wants a synthesized answer instead of a raw list.
+
+One real implementation snag, not a design decision: the new-ish
+`react-hooks/set-state-in-effect` ESLint rule flagged calling `setGames(null)`/
+`setGamesLoading(true)` synchronously in the effect body that runs the
+fetch. Fixed by moving those two resets into the click handler itself
+(`toggle()`) — the effect now only sets state from the async fetch's
+resolution (`.then`/`.catch`/`.finally`), which is what the rule is
+actually asking for: an effect should react to an external system's result,
+not synchronously mutate state itself the moment it runs.
+
+### Anime.js: one exception, scoped on purpose
+
+The user asked for it by name again, specifically for background animation,
+after Slice 9's consolidation onto Motion alone (partly *because* the
+original ask listed Anime.js as one of four overlapping libraries for
+general UI animation). This isn't reopening that call: `components/
+RetroBackground.tsx` is a synthwave grid-horizon-plus-drifting-motes loop
+with **no React state involved at all** — nothing it animates is derived
+from or feeds back into a component's props/state. Motion's whole value
+proposition (`variants`, `AnimatePresence`, gesture props tied to render)
+doesn't apply to a background that never needs to know anything about the
+React tree. Anime.js's imperative, timeline-first API — grab a DOM/SVG ref,
+animate it, let it run — is a better fit for exactly that job, and using it
+there isn't redundant with Motion's job anywhere else in the app. Kept
+strictly to this one file; nothing else in the app imports it.
+
+Implementation notes, since Anime.js v4 is a genuinely different API from
+the v3 most people remember (`anime({targets, ...})` → named exports
+`animate(targets, params)`, `easing` → `ease`, modular sub-path imports)
+— introspected the installed package's actual `.d.ts` files rather than
+trusting memorized v3 API shape, same discipline as the MCP SDK version
+drift in Slice 8. One real design choice inside it: the scrolling grid is
+NOT an animated SVG `<pattern>` (the first draft used one) — CSS `transform`
+support on `<pattern>` elements is inconsistent across browsers since
+patterns aren't normal rendered/laid-out elements. Switched to animating a
+plain `<g>` of explicit `<line>` elements instead (universally reliable),
+sized with two extra rows past both edges of the visible band so a
+one-row-height loop reads as continuous with no visible seam at the wrap.
+
+### Open questions (new)
+
+- **No table/task-list markdown styling** — `react-markdown`'s default
+  CommonMark support covers everything seen in real answers so far (bold,
+  lists, occasional code); GFM extras (tables, strikethrough) aren't wired
+  up (`remark-gfm` isn't installed) since no real answer has needed them
+  yet. Add it if/when a stats answer actually wants a table.
+- **The games leaderboard always shows exactly what `get_games_by_genre`
+  returns (top 8 by review score, then peak CCU)** — no sort/filter control
+  in the UI yet. Fine for a browsing entry point; would need one if this
+  panel grows into something people spend real time in.

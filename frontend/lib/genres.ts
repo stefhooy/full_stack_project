@@ -73,3 +73,26 @@ export async function fetchGenres(signal?: AbortSignal): Promise<Genre[]> {
     question: questionFor(g.label),
   }));
 }
+
+export interface GenreGame {
+  name: string;
+  price_usd: number | null;
+  review_score: number | null;
+  peak_ccu: number | null;
+}
+
+// Backs the genre showcase's "click a card, see the games" panel — a plain
+// catalog lookup (GET /games, src/db/genre_stats.py), not a question asked
+// of the agent. No LLM round trip, so it's fast enough to fire on every
+// card click without a loading state feeling heavy.
+export async function fetchGamesByGenre(
+  label: string,
+  limit = 8,
+  signal?: AbortSignal
+): Promise<GenreGame[]> {
+  const url = `${API_BASE_URL}/games?genre=${encodeURIComponent(label)}&limit=${limit}`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`games request failed (${response.status})`);
+  const data: { games: GenreGame[] } = await response.json();
+  return data.games;
+}

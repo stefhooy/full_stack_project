@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
 import GenreShowcase from "@/components/GenreShowcase";
+import Markdown from "@/components/Markdown";
 import TraceSteps from "@/components/TraceSteps";
 import {
   streamAsk,
@@ -371,7 +372,7 @@ export default function Home() {
               {result.cached && <Badge>cached</Badge>}
             </div>
 
-            <p className="text-sm leading-relaxed">{result.answer}</p>
+            <Markdown>{result.answer}</Markdown>
 
             {result.forecast_result && <ForecastResultView forecast={result.forecast_result} />}
 

@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9b** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9c** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -48,10 +48,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   an LLM-as-judge pass, runnable as a regression check with a real exit code
 - A Next.js frontend (`frontend/`) — an 80s-arcade-cabinet visual identity
   (Motion for the animated node-by-node progress trace and a marquee
-  chase-light console border, sharp-cornered HUD panels, neon glow), an
-  illustrated per-genre question showcase (8 hand-drawn icons, counts and
-  labels fetched live from `GET /genres` rather than hardcoded), charts, and
-  a "Show the work" panel — see `frontend/README.md`
+  chase-light console border, Anime.js for an ambient background grid,
+  sharp-cornered HUD panels, neon glow), an illustrated per-genre showcase
+  (8 hand-drawn icons, counts/labels fetched live from `GET /genres`) that
+  browses the real games behind each genre (`GET /games`, no LLM call),
+  markdown-rendered answers, charts, and a "Show the work" panel — see
+  `frontend/README.md`
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead
   of raw stack traces
