@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9c** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 9e** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -46,13 +46,14 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — an 80s-arcade-cabinet visual identity
-  (Motion for the animated node-by-node progress trace and a marquee
-  chase-light console border, Anime.js for an ambient background grid,
-  sharp-cornered HUD panels, neon glow), an illustrated per-genre showcase
-  (8 hand-drawn icons, counts/labels fetched live from `GET /genres`) that
-  browses the real games behind each genre (`GET /games`, no LLM call),
-  markdown-rendered answers, charts, and a "Show the work" panel — see
+- A Next.js frontend (`frontend/`) — a committed synthwave identity (a full
+  gradient-sky/sun/mountain/neon-grid scene, Motion for the animated
+  node-by-node progress trace and a marquee chase-light console border,
+  Anime.js for the animated grid horizon, glass panels), genre selection as
+  Game Boy-style cartridges that browse the real games behind each genre
+  (`GET /games`, no LLM call, counts/labels fetched live from
+  `GET /genres`), markdown-rendered answers, charts, and a "Show the work"
+  panel — see
   `frontend/README.md`
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead
@@ -403,8 +404,12 @@ choices worth being able to defend:
 
 ## Not in this slice (see PLAN.md)
 
-The Expo mobile client (Slice 10) is next — same API, React Native/Expo UI,
-no app-store publishing planned.
+A native mobile app was considered and dropped (see PLAN.md's "Dropped")
+in favor of the same responsive Next.js frontend — verified on real
+mobile-viewport emulation in Slice 9e, one real overlap bug found and
+fixed there. Slice 10 is a further mobile-web design pass plus actually
+deploying (Vercel + Render/Fly.io, the plan resolved back in Slice 6 —
+see "Deploying" below).
 
 Forecasting is real now, not deferred: `run_forecast` (Slice 9b) is a real
 linear-trend projection over `player_counts` history, bound only for

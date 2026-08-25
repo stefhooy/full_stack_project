@@ -255,6 +255,7 @@ export default function Home() {
         <motion.span
           variants={heroItem}
           className="inline-block font-pixel text-[9px] tracking-[0.1em] text-[var(--accent)] mb-4"
+          style={{ textShadow: "0 2px 10px rgba(10,4,20,0.85)" }}
         >
           [ AI GAME ANALYST ]
         </motion.span>
@@ -269,7 +270,11 @@ export default function Home() {
         >
           Ask the Market
         </motion.h1>
-        <motion.p variants={heroItem} className="text-[var(--muted)] text-sm mb-7 max-w-md">
+        <motion.p
+          variants={heroItem}
+          className="text-[var(--foreground)] text-sm mb-7 max-w-md"
+          style={{ textShadow: "0 2px 10px rgba(10,4,20,0.85), 0 1px 2px rgba(10,4,20,0.9)" }}
+        >
           A tool-using agent writes real SQL, runs real statistics, and projects
           real trends against a self-collected game-market dataset — no
           guessing, no canned answers.
@@ -283,7 +288,7 @@ export default function Home() {
           }}
           className="marquee-border relative mb-3"
         >
-          <div className="flex items-center gap-2 border-2 border-[var(--border)] bg-[var(--surface)] px-3 py-1">
+          <div className="glass-panel flex items-center gap-2 border-2 border-[var(--border)] px-3 py-1">
             <span className="font-mono text-[var(--accent)] text-sm select-none">›</span>
             <input
               value={question}
@@ -317,7 +322,7 @@ export default function Home() {
               key={q}
               onClick={() => ask(q)}
               disabled={loading}
-              className="text-xs px-3 py-1.5 border border-[var(--border)] text-[var(--foreground)]/80 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+              className="glass-panel text-xs px-3 py-1.5 border border-[var(--border)] text-[var(--foreground)]/80 hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
             >
               {q}
             </button>
@@ -336,7 +341,7 @@ export default function Home() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="mb-6 border-2 border-[var(--border)] bg-[var(--surface)] px-4 py-4"
+            className="glass-panel mb-6 border-2 border-[var(--border)] px-4 py-4"
           >
             <TraceSteps visited={visitedNodes} current={currentNode} />
           </motion.div>
@@ -357,7 +362,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="relative border-2 border-[var(--border)] bg-[var(--surface)] p-5 space-y-4"
+            className="glass-panel relative border-2 border-[var(--border)] p-5 space-y-4"
           >
             <span
               className="pointer-events-none absolute top-0 left-0 h-3 w-3 border-t-2 border-l-2"

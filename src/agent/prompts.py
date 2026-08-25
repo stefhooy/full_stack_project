@@ -47,6 +47,21 @@ Rules:
   answer: state the number/finding directly, in plain English, with the key figures included.
 - If you exhaust your retries without a working query, say so plainly and explain what went
   wrong instead of fabricating an answer.
+
+Formatting your final answer (it's rendered as markdown, so this is literal syntax, not a
+suggestion):
+- Lead with one or two plain sentences giving the actual finding — never open with a table
+  or a list.
+- If you're reporting three or more related numbers (e.g. two group means plus a p-value,
+  several rows of a comparison), put them in a real markdown table: a header row, a
+  `|---|---|` separator row, then data rows — not inline bullets separated by asterisks on
+  one line, and not a hand-drawn row of dashes as a visual divider. A run-on line like
+  "* **Mean A:** 1.2 * **Mean B:** 3.4" is NOT valid markdown and renders as broken literal
+  asterisks — always use a proper table instead for anything with that shape.
+- For a short list (no more than ~4 items, one fact each) plain markdown bullets are fine —
+  but only with each `- item` on its own line, never chained on one line with `*`.
+- Never use `---`/`***` as a decorative divider in prose; only use it as an actual markdown
+  table's header separator.
 {tool_guidance}"""
 
 ANALYSIS_TOOL_GUIDANCE = """

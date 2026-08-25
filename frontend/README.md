@@ -20,10 +20,11 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 - `app/page.tsx` — the whole UI: hero, HUD-styled ask console, example
   questions, genre showcase, streamed progress (as an animated trace
   stepper), answer, chart/table, stats/forecast result.
-- `app/globals.css` — the 80s-arcade-cabinet design tokens: grounds/accent
-  aligned to the root `ARCHITECTURE.md` agent-trace artifact's exact
-  palette, the genre categorical palette, and the marquee chase-light
-  border / blinking-cursor / CRT-scanline effects (all
+- `app/globals.css` — one committed synthwave-night palette (no light/dark
+  split for chrome tokens — a deliberate exception, see DOCEXP.md's Slice
+  9d entry), `--accent` the same warm gold used throughout the project, the
+  `.glass-panel` translucent+blur treatment every floating panel uses, and
+  the marquee chase-light border / blinking-cursor effects (all
   `prefers-reduced-motion`-guarded where animated).
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
@@ -38,17 +39,27 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 - `components/Chart.tsx` — bar/scatter rendering via Recharts, styled from
   the validated default palette (single hue — every question produces at
   most one series, so no categorical palette or legend is needed).
-- `components/Markdown.tsx` — `react-markdown` wrapped with an explicit
-  per-element `components` map styled to this app's tokens, so the agent's
-  answer (real bold/list markdown) renders properly instead of showing
-  literal `**asterisks**` — see DOCEXP.md's Slice 9c entry.
+- `components/Markdown.tsx` — `react-markdown` + `remark-gfm` (tables,
+  added in Slice 9e once the backend started producing them) wrapped with
+  an explicit per-element `components` map styled to this app's tokens, so
+  the agent's answer renders properly instead of showing literal
+  `**asterisks**` or raw table pipes/dashes — see DOCEXP.md's Slice
+  9c/9e entries. The real fix for malformed (non-table-shaped) markdown
+  lives on the backend, not here — see `src/agent/prompts.py`'s
+  formatting rule.
 - `components/GenreIcon.tsx` — 10 hand-authored line-art SVG glyphs + a
   generic fallback (no icon library dependency).
+- `components/GenreCartridge.tsx` — the genre picker's visual shape: a
+  chamfered-corner Game Boy-style cartridge (CSS `clip-path` for the actual
+  cut, a stroke-only SVG polygon overlay to make the cut's edge visible —
+  see DOCEXP.md's Slice 9d entry for why both are needed), ejecting on
+  hover.
 - `components/GenreShowcase.tsx` — fetches `GET /genres` on mount (loading
-  skeleton + graceful hide-on-failure); clicking a card fetches `GET /games`
-  for that genre (deterministic, no LLM call) and shows a retro
-  "leaderboard" of the real games in it, with a secondary link that still
-  bridges into asking the agent about that genre through `/ask/stream`.
+  skeleton + graceful hide-on-failure); clicking a cartridge fetches
+  `GET /games` for that genre (deterministic, no LLM call) and shows a
+  retro "leaderboard" of the real games in it, with a secondary link that
+  still bridges into asking the agent about that genre through
+  `/ask/stream`.
 - `components/TraceSteps.tsx` — turns streamed progress events into a
   node-by-node animated trace (router → schema → think → query → chart),
   the same visual language as the root `ARCHITECTURE.md` agent-trace
@@ -58,12 +69,14 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 - `components/MotionProvider.tsx` — wraps the app in `MotionConfig
   reducedMotion="user"` so every animation in the tree honors
   `prefers-reduced-motion` automatically.
-- `components/RetroBackground.tsx` — an ambient synthwave grid + drifting
-  motes behind the page, animated with **Anime.js**, mounted once in
-  `app/layout.tsx`. The one deliberate exception to "Motion is the only
-  animation library" — scoped to an imperative loop with no React state
-  involved at all, never used anywhere else; see DOCEXP.md's Slice 9c entry
-  for why that's not a contradiction of the Slice 9 decision.
+- `components/RetroBackground.tsx` — the full synthwave scene behind the
+  page (gradient sky, striped sun, mountain silhouettes, a neon perspective
+  grid), mounted once in `app/layout.tsx`. The grid's scroll and a handful
+  of drifting motes are animated with **Anime.js** — the one deliberate
+  exception to "Motion is the only animation library," scoped to an
+  imperative loop with no React state involved at all, never used anywhere
+  else; see DOCEXP.md's Slice 9c/9d entries for why that's not a
+  contradiction of the Slice 9 decision.
 - Animation: [Motion](https://motion.dev) for every state-driven UI
   transition (hero entrance, card hover, `AnimatePresence`) + Anime.js for
   the one ambient background loop above — not two libraries doing the same

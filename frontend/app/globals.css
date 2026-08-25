@@ -1,24 +1,31 @@
 @import "tailwindcss";
 
-/* Brand tokens — 80s arcade cabinet. Grounds aligned exactly to the palette
-   ARCHITECTURE.md's agent-trace artifact already established (#0d1014 dark
-   / #f6f4f0 light, amber accent) so the live app and the docs are visibly
-   the same project, not a close approximation of one. Dual-theme: bare
-   :root is the light default, the media query covers OS dark, and
-   [data-theme="dark"] lets an explicit in-app toggle win either way (no
-   toggle UI exists yet, the hook is just left in place). */
+/* Brand tokens — one committed synthwave-night identity, not a light/dark
+   pair. "I don't like the black or white" plus a specific reference image
+   (a magenta grid horizon under a glowing sun) called for a single vivid
+   world, not two toned-down variants of it — the artifact-design skill's
+   own allowance for this ("a design that deliberately commits to one
+   visual world... may stay single-theme") is exactly this case. The scene
+   itself lives in components/RetroBackground.tsx (sky, sun, mountains,
+   grid); these tokens are what UI chrome sits on top of it with — a dark
+   translucent "glass" surface (backdrop-blur) so panels read as floating
+   over the neon night rather than as opaque boxes painted on top of it.
+   --accent stays warm gold/amber on purpose: it's the sun's own color,
+   and the same amber ARCHITECTURE.md's agent-trace artifact already used
+   (same brand thread, still holds even though the ground around it
+   changed completely). */
 :root {
-  --background: #f6f4f0;
-  --surface: #ffffff;
-  --surface-raised: #fdfcfa;
-  --foreground: #17150f;
-  --muted: #6b6658;
-  --border: rgba(23, 21, 15, 0.14);
-  --accent: #a8650f;
-  --accent-contrast: #fffdf8;
-  --accent-glow: rgba(168, 101, 15, 0.3);
-  --danger: #b3261e;
-  --danger-bg: #fdecea;
+  --background: #1a0b2e;
+  --surface: rgba(30, 14, 51, 0.66);
+  --surface-raised: rgba(38, 18, 64, 0.78);
+  --foreground: #faf3ff;
+  --muted: #cbb3dd;
+  --border: rgba(255, 170, 221, 0.16);
+  --accent: #ffc857;
+  --accent-contrast: #2a1400;
+  --accent-glow: rgba(255, 200, 87, 0.35);
+  --danger: #ff8a80;
+  --danger-bg: rgba(255, 138, 128, 0.14);
 }
 
 @theme inline {
@@ -39,72 +46,19 @@
   --font-pixel: var(--font-pixel);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --background: #0d1014;
-    --surface: #16191f;
-    --surface-raised: #1c1f26;
-    --foreground: #f5f4ef;
-    --muted: #999b98;
-    --border: rgba(245, 244, 239, 0.14);
-    --accent: #f0a63a;
-    --accent-contrast: #1a1206;
-    --accent-glow: rgba(240, 166, 58, 0.32);
-    --danger: #ff8a80;
-    --danger-bg: rgba(255, 138, 128, 0.12);
-  }
-}
-
-:root[data-theme="dark"] {
-  --background: #0d1014;
-  --surface: #16191f;
-  --surface-raised: #1c1f26;
-  --foreground: #f5f4ef;
-  --muted: #999b98;
-  --border: rgba(245, 244, 239, 0.14);
-  --accent: #f0a63a;
-  --accent-contrast: #1a1206;
-  --accent-glow: rgba(240, 166, 58, 0.32);
-  --danger: #ff8a80;
-  --danger-bg: rgba(255, 138, 128, 0.12);
-}
-
-/* Genre identity palette — the dataviz skill's validated default 8-slot
-   categorical palette, reused (not re-derived) and assigned in real-data
-   prevalence order at render time (see lib/genres.ts — GET /genres counts
-   the live catalog, most-common first). This keeps the CVD-safety guarantee
-   already validated for this exact hue sequence. Kept structurally separate
-   from --accent above: chrome/interaction uses --accent only, genre chips
-   use --genre-* only, so the two color systems never compete for meaning. */
+/* Genre identity palette — unchanged values from the dataviz skill's
+   validated default 8-slot categorical palette (the "dark" step of each
+   hue, since every surface is dark-glass now regardless of OS theme),
+   assigned in real-data prevalence order at render time — see
+   lib/genres.ts / GET /genres. Kept structurally separate from --accent:
+   chrome uses --accent only, cartridges use --genre-* only. */
 :root {
-  --genre-1: #2a78d6;
-  --genre-2: #eb6834;
-  --genre-3: #1baf7a;
-  --genre-4: #eda100;
-  --genre-5: #e87ba4;
-  --genre-6: #008300;
-  --genre-7: #4a3aa7;
-  --genre-8: #e34948;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --genre-1: #3987e5;
-    --genre-2: #d95926;
-    --genre-3: #199e70;
-    --genre-4: #c98500;
-    --genre-5: #d55181;
-    --genre-6: #008300;
-    --genre-7: #9085e9;
-    --genre-8: #e66767;
-  }
-}
-:root[data-theme="dark"] {
   --genre-1: #3987e5;
   --genre-2: #d95926;
   --genre-3: #199e70;
   --genre-4: #c98500;
   --genre-5: #d55181;
-  --genre-6: #008300;
+  --genre-6: #1fae1f;
   --genre-7: #9085e9;
   --genre-8: #e66767;
 }
@@ -115,9 +69,9 @@ body {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
-/* CRT texture: scanlines + a soft vignette darkening the corners, like a
-   cabinet monitor bezel swallowing the edges. Decorative only, kept subtle
-   enough not to fight legibility. */
+/* Faint scanline texture over the whole scene — much lighter than before,
+   since the synthwave background now carries most of the atmosphere
+   itself; this is just enough CRT grain to keep it feeling like a screen. */
 body::before {
   content: "";
   position: fixed;
@@ -126,24 +80,12 @@ body::before {
   z-index: 0;
   background-image: repeating-linear-gradient(
     to bottom,
-    var(--foreground) 0,
-    var(--foreground) 1px,
+    #000 0,
+    #000 1px,
     transparent 1px,
     transparent 3px
   );
-  opacity: 0.035;
-}
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 55%,
-    color-mix(in srgb, var(--background) 70%, black) 130%
-  );
+  opacity: 0.05;
 }
 
 /* Terminal-style blinking cursor, used next to the ask console's prompt
@@ -200,10 +142,25 @@ body::after {
   .marquee-border::before { animation: none; }
 }
 
+/* Glass panel — the one surface treatment every floating panel in the app
+   uses now (result card, progress trace, cartridge leaderboard, error
+   banner): translucent + blurred so the synthwave scene behind it still
+   shows through at the edges instead of the panel reading as a flat
+   opaque box dropped on top of the scene. */
+.glass-panel {
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
 /* Chart tokens (validated default palette — see the dataviz skill's
-   references/palette.md). Single-hue charts only in this app (one series
-   per question), so we only need the sequential/series-1 slot, not the
-   full categorical order. */
+   references/palette.md). Deliberately its own light "paper" surface, not
+   the app's glass panels — a chart is read as data on a controlled ground,
+   not as chrome floating over the scene; same reasoning as before, just
+   now also giving the chart a stable, always-legible surface independent
+   of the (much busier) background outside it. Single-hue charts only in
+   this app (one series per question), so only the sequential/series-1
+   slot is needed, not the full categorical order. */
 .viz-root {
   color-scheme: light;
   --viz-surface: #fcfcfb;
@@ -213,16 +170,4 @@ body::after {
   --viz-gridline: #e1e0d9;
   --viz-baseline: #c3c2b7;
   --viz-series-1: #2a78d6;
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .viz-root {
-    color-scheme: dark;
-    --viz-surface: #1a1a19;
-    --viz-text-primary: #ffffff;
-    --viz-text-secondary: #c3c2b7;
-    --viz-muted: #898781;
-    --viz-gridline: #2c2c2a;
-    --viz-baseline: #383835;
-    --viz-series-1: #3987e5;
-  }
 }

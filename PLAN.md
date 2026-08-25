@@ -3,7 +3,7 @@
 *(See [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of what's
 built so far, and [DOCEXP.md](DOCEXP.md) for the decision-by-decision log.)*
 
-**Current slice: 9c complete → starting Slice 10 (Expo mobile client) next**
+**Current slice: 9e complete → starting Slice 10 (mobile-web polish + deployment) next**
 
 A tool-using analytical agent that answers plain-English questions about the
 video game market with real analysis (SQL + stats + charts + narrative),
@@ -13,7 +13,7 @@ player-count time series → RAG over the DB schema → supervisor-router →
 specialized tools (SQL, stats, forecasting, viz, live-player fetch) →
 self-correcting SQL loop → guardrails (read-only, allowlisted, row/time
 caps enforced in code) → memory + semantic cache → eval harness + tracing →
-web app → mobile.
+a responsive web app, deployed.
 
 Tech decisions already made (see DOCEXP.md for the "why"):
 - Backend: Python + FastAPI
@@ -24,7 +24,10 @@ Tech decisions already made (see DOCEXP.md for the "why"):
   but is deliberately unfilled — decided against it as a fallback (free-tier
   keys expire too fast to be reliable for a portfolio demo)
 - Database: DuckDB (local file to start)
-- Frontend/deploy: Next.js on Vercel — deferred, hosting approach still open
+- Frontend/deploy: Next.js on Vercel, FastAPI on a normal Python host
+  (Render/Fly.io — resolved in Slice 6, see DOCEXP.md and README's
+  "Deploying" section). No native mobile app — see "Dropped" below; the
+  same responsive frontend covers phones instead.
 
 ---
 
@@ -284,12 +287,80 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       why this doesn't reopen the "one animation library" decision from
       Slice 9
 
-## Slice 10 — Expo mobile client
-- [ ] Same API, React Native/Expo UI — one codebase for iOS + Android
-- [ ] Build/test locally via Expo Go (free) — no app-store publishing planned
-      (Apple $99/yr, Google $25 one-time; skip unless explicitly wanted later)
+## Slice 9d — Synthwave scene + cartridge genre picker
+- [x] Replaced the faint amber-grid-on-neutral-black background with a full
+      committed synthwave scene (`components/RetroBackground.tsx`): gradient
+      sky, a striped glowing sun, low-poly mountain silhouettes, and a neon
+      magenta perspective grid (converging verticals + Anime.js-animated
+      scrolling horizontals) — built from a specific reference image, not a
+      generic "retro" gesture
+- [x] Dropped the light/dark theme split for brand chrome tokens in favor of
+      one committed dark synthwave identity (`app/globals.css`) — a
+      deliberate, explicit exception to the project's usual dual-theme
+      discipline, permitted by the artifact-design skill's own "a design
+      that deliberately commits to one visual world may stay single-theme"
+      allowance. `--accent` stays the same warm gold used throughout the
+      project (now also reads as "the sun's color")
+- [x] UI panels became `.glass-panel` — translucent + backdrop-blur, so
+      they read as floating over the scene rather than painted on top of it
+- [x] Genre cards became genre **cartridges** (`components/
+      GenreCartridge.tsx`): a real Game Boy-style chamfered-corner
+      silhouette, a label-sticker window, and a connector-notch ridge,
+      "ejecting" on hover (Motion spring). Found and fixed a real rendering
+      bug in the process: CSS `clip-path` genuinely cuts the shape but
+      paints no border along the new diagonal edge, so the chamfer was
+      geometrically correct yet visually invisible — fixed by overlaying a
+      stroke-only SVG polygon tracing the same cut, which is what actually
+      draws the visible outline
+
+## Slice 9e — Markdown formatting fix, real mobile-viewport testing
+- [x] Fixed a real bug the user hit live: a `compare_two_groups` answer came
+      back as raw `* **label:** value * **label:** value` text — literal
+      asterisks, no real list. Root cause wasn't the renderer (react-markdown
+      was already correctly parsing valid markdown since Slice 9c) — it was
+      that the *model's own output* wasn't valid markdown at all: bullets
+      chained on one physical line with no newlines between them aren't a
+      CommonMark list no matter what parses them. Fixed at the source: added
+      an explicit "Formatting your final answer" rule to
+      `SYSTEM_PROMPT_TEMPLATE` (src/agent/prompts.py) instructing the model
+      to use a real markdown table (GFM syntax) for ≥3 related numbers
+      instead of inline bullets or a hand-drawn dash divider. Added
+      `remark-gfm` to the frontend's `react-markdown` so a real table
+      renders as a real `<table>` (styled to the app's tokens in
+      `components/Markdown.tsx`) rather than needing the model to avoid
+      GFM syntax it should be free to use. Verified live: the exact
+      question that broke before now returns clean prose plus a real
+      3-column table, confirmed rendered as an actual `<table>` in the
+      browser (not text) with zero raw `**`/`----` anywhere
+- [x] Real mobile-viewport testing (Playwright device emulation — iPhone 14,
+      Pixel 7), not just assumed-fine from unchanged Tailwind responsive
+      classes as the last two slices' "open questions" flagged. Found and
+      fixed a real bug: the genre showcase's section header (`[ OR EXPLORE
+      BY GENRE ]` + "live from the catalog") had no `flex-wrap`, so on a
+      390px-wide viewport the two pieces overlapped/collided instead of
+      wrapping. Confirmed no horizontal page overflow and no console errors
+      across both device profiles after the fix
+
+## Slice 10 — Mobile-web polish + deployment
+- [ ] Further responsive-design pass beyond the Slice 9e bug fix — Slice 9e
+      confirmed nothing is broken/overlapping on a real mobile viewport, not
+      that the mobile experience has had the same design attention as
+      desktop (touch target sizing, the cartridge grid's 2-column density,
+      genre-leaderboard readability on narrow screens)
+- [ ] Deploy for real: Vercel (frontend) + Render or Fly.io (backend) —
+      already the resolved plan since Slice 6 (see README's "Deploying"
+      section for the concrete steps); this slice is actually doing it, not
+      re-deciding it. User's to execute (account creation, secrets) per
+      their standing preference to handle external/billing-adjacent actions
+      themselves
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
       `src/agent/llm_provider.py` stays in place (costs nothing to leave), just not filled in.
+- [x] ~~Expo/React Native mobile client~~ (was Slice 10) — decided against a
+      native app: this is a single-page tool, not something that benefits
+      from app-store distribution, and it doubles the UI surface to
+      maintain for one extra install step's worth of value. The Next.js
+      frontend is already responsive (verified for real in Slice 9e); a
+      phone browser is the mobile experience, not a second codebase.

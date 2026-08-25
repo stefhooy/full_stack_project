@@ -1761,3 +1761,232 @@ one-row-height loop reads as continuous with no visible seam at the wrap.
   returns (top 8 by review score, then peak CCU)** — no sort/filter control
   in the UI yet. Fine for a browsing entry point; would need one if this
   panel grows into something people spend real time in.
+
+---
+
+## Slice 9d — One committed scene, not a subtle texture
+
+**Date:** 2026-08-25
+
+The reaction to Slice 9c's ambient background: "I don't like the black or
+white," with a specific reference image — a magenta grid horizon under a
+glowing sun, mountains in silhouette. Not "more retro texture," a
+correction: the earlier treatment was a faint decoration on top of a
+neutral near-black/near-white page; what was actually wanted is that scene
+*as the page itself*.
+
+### Dropping dual-theme for the chrome tokens, on purpose
+
+This is worth being explicit about since it's a real reversal of a
+discipline this project followed carefully through Slices 6-9c: brand
+chrome (`--background`, `--surface`, `--foreground`, etc.) no longer has a
+light/dark split. One synthwave-night palette, always. Two reasons this is
+the right call here rather than a corner cut: (1) the reference is
+inherently a night scene — a "light mode" synthwave horizon isn't a
+lighter version of the same thing, it's a different image, and diluting a
+specific, deliberate reference into two lesser variants would serve
+neither; (2) the `artifact-design` skill explicitly carves out exactly this
+case ("a design that deliberately commits to one visual world... may stay
+single-theme"). The genre categorical palette and `.viz-root` chart tokens
+both collapsed to their single already-dark-tuned values too, for the same
+reason — every surface in the app is dark-glass now regardless of OS
+theme, so keeping a light variant of hues tuned for a light surface that no
+longer exists would be dead code, not a real fallback.
+
+`--accent` didn't change value (`#ffc857`, close to the prior `#f0a63a`) —
+it's still the same warm-gold thread running through the trace artifact and
+the rest of the app, and it happens to double as "the sun's color" in the
+new scene without any adjustment needed. One brand color, two coincidentally
+compatible contexts.
+
+### The scene itself
+
+`components/RetroBackground.tsx` (rewritten, not extended) draws sky
+(linear gradient, 5 stops), a sun (radial gradient circle, masked with a
+few horizontal black bars near its base for the classic "striped retro
+sun" look), two layers of low-poly mountain silhouettes (`ridge()` — a
+small deterministic sine-wobble generator, not hand-typed path data,
+consistent with the diagramming discipline's "avoid long decorative path
+data"), and a neon grid: static converging verticals fanned from a single
+vanishing point (the "endless road" half of the perspective) plus the
+previously-built animated horizontal scan-lines (recolored magenta,
+boosted opacity, Anime.js-driven scroll unchanged in mechanism from Slice
+9c). Panels got a `.glass-panel` utility (translucent surface +
+`backdrop-filter: blur`) so they read as chrome floating over the scene,
+not boxes painted on top of it.
+
+### Cartridges, and a real rendering bug found building them
+
+"Some cartridges to be the choices... like the old Game Boy or DS
+cartridges" — genre cards became `components/GenreCartridge.tsx`: a
+chamfered-corner silhouette (one shape family for all 8 genres, not
+alternating Game Boy/DS shapes — cohesion over literal variety), a
+label-sticker window holding the existing `GenreIcon` glyph, and a
+connector-notch ridge at the bottom. Hover lifts and slightly rotates the
+cartridge (Motion spring, `whileHover`) for a physical "pop out" read.
+
+First draft used `clip-path: polygon(...)` alone on the glass-panel div to
+cut the chamfer. Screenshotted it to verify (the discipline that's caught
+every other visual bug this project has shipped) and the corner looked
+perfectly square — no chamfer visible anywhere, on any of the 8 cartridges.
+Root cause, once actually checked (`getComputedStyle` confirmed the
+clip-path value WAS applied correctly): `clip-path` genuinely removes the
+pixels outside the polygon, but it doesn't paint anything new along the
+edge it creates — the `border-2` on that div still only draws along the
+*original* rectangular box edges, so where the clip line cuts through,
+there's no stroke at all, just a bare edge revealing whatever's behind it.
+Since what's behind it (the scene, at the point genre cards sit) is a
+similarly dark color to the panel's own near-black glass, the cut was real
+but had ~zero visual contrast — geometrically correct, invisible in
+practice. Fixed by overlaying a second, stroke-only SVG `<polygon>` (same
+points, `fill="none"`) directly on top — that's what actually draws a
+visible line along the diagonal, since an SVG stroke traces its shape's
+full boundary regardless of what a sibling element's CSS clip did.
+General lesson worth keeping: `clip-path` clips content, it does not
+imply an outline — anything that needs the cut *edge itself* to be
+visible needs something else to draw it.
+
+### Addendum: font swap, and actually centering the sun
+
+Two immediate follow-ons once this was live: the body font still read as a
+generic modern grotesque next to Monoton/Press Start 2P/Plex Mono, and the
+sun sat too high — mostly hidden behind the hero copy rather than being a
+real focal point.
+
+Swapped `--font-display` from Archivo to **Chakra Petch** — full weight
+range (so it still works for both body copy and semibold labels, unlike
+Audiowide/Orbitron which are single-weight display faces that get
+illegible at paragraph size), with a squared-off, slightly-angular
+character that actually reads as retro-computer rather than a neutral
+grotesque wearing a retro palette.
+
+Centering the sun took two tries. First attempt: changed the SVG's
+`preserveAspectRatio` from `xMidYMax slice` (bottom-anchored — where the
+horizon/sun end up depends on how much the viewport's aspect ratio
+overflows vertically, which is what was pushing the sun up out of view)
+to `xMidYMid slice`, and grew the viewBox from `800x600` to `800x900` with
+the horizon fixed at the exact vertical middle (y=450) — this makes the
+horizon land at the vertical center of *any* viewport predictably, not
+wherever the old aspect-ratio math happened to put it. Verified the math
+holds by hand for a few real viewport ratios before trusting it (a
+1280×1100 window: scale is width-driven at 1.6×, the visible vertical crop
+window maps back to a horizon position of exactly 50% — confirmed, not
+assumed) rather than just eyeballing one screenshot and hoping it
+generalizes to other window sizes. Also extended the ground/grid drawing
+to y=1000 (past the 900-tall viewBox) so no real aspect ratio produces a
+visible gap under the grid — checked this explicitly against a tall/narrow
+900×1400 viewport, the shape most likely to expose one.
+
+That first attempt centered the sun correctly but made it too large and
+too bright exactly where the hero paragraph lives — a real legibility
+regression, caught by screenshotting before calling it done (the same
+discipline that caught the invisible cartridge chamfer earlier in this
+slice). Fixed two ways together, not by picking one: shrank the sun
+(r 168→132) and biased it down slightly relative to the horizon so its
+brightest band sits mostly above the text column instead of behind it, and
+gave the hero paragraph a dark text-shadow plus switched it from the muted
+lavender tone to full foreground-white — belt-and-suspenders, since exact
+sun geometry will never guarantee zero overlap at every viewport size, but
+shadowed white text stays readable against anything behind it regardless.
+
+### Open questions (new)
+
+- **No light-mode fallback exists anymore for anyone who'd genuinely prefer
+  one** — a deliberate scope choice (see above), not an oversight, but
+  worth revisiting if that preference ever comes up for real.
+- **Mobile/narrow-viewport rendering of the scene and cartridges wasn't
+  separately verified this round** — desktop (1280px) was checked
+  thoroughly (hover, selection, the leaderboard panel, no console errors);
+  the responsive grid classes themselves are unchanged from Slice 9, so
+  behavior should carry over, but that's inference, not a check.
+
+---
+
+## Slice 9e — The markdown bug's real cause, and actually checking mobile
+
+**Date:** 2026-08-25
+
+Two follow-ons, and both are examples of the same lesson: an open question
+flagged and left unfixed will eventually be the thing that breaks.
+
+### The markdown bug wasn't a rendering bug
+
+Slice 9c added `react-markdown` and it worked — verified live with `<strong>`
+count assertions and everything. So when the user reported the exact same
+raw-asterisks symptom afterward, the reflexive assumption would be "the fix
+didn't actually ship" or "there's a renderer edge case." Checked the actual
+API response first instead of guessing: the answer string itself was
+`"...* **Mean price – Indie games:** ≈$15.50 * **Mean price..."` — all one
+physical line, bullets separated by inline `*` with no newline anywhere
+between them. That is not valid CommonMark. No markdown renderer, correctly
+implemented, turns that into a list — the asterisks are ambiguous emphasis
+delimiters at best, literal characters at worst, and `react-markdown` was
+doing exactly the right thing with genuinely malformed input. The Slice 9c
+fix was real and still works (confirmed again this round); the bug was one
+level upstream, in what the model was writing, not in what parsed it.
+
+Fixed by adding an explicit formatting section to `SYSTEM_PROMPT_TEMPLATE`
+(`src/agent/prompts.py`) — spelling out, as literal instruction rather than
+implication, that the answer is rendered as markdown, that ≥3 related
+numbers should become a real GFM table (header row, `|---|---|` separator,
+data rows), and that a chained one-line `* label: value * label: value`
+run is explicitly called out as *not valid* and *not to be used*. Paired
+with a frontend change either way: added `remark-gfm` to `react-markdown`
+so that when the model does emit a real table, it renders as a real
+`<table>` (styled in `Markdown.tsx` to match the rest of the app — pixel-
+font gold headers, monospace data cells) instead of raw pipes and dashes.
+Neither fix alone would have been enough: prompt-only leaves a client that
+can't render a table if the model gets the syntax right; renderer-only
+does nothing about a model that never produces valid list/table syntax in
+the first place. Verified against the literal question that broke
+originally (Indie vs. other games price comparison) — real 2-row table,
+zero raw `**`, zero raw `----`, confirmed as an actual `<table>` element in
+a live browser, not just well-formed markdown in the API response.
+
+### Actually testing mobile, instead of inferring it
+
+Both the Slice 9c and Slice 9d entries logged "mobile wasn't separately
+verified, but the responsive classes are unchanged so it should be fine" as
+an open question — a reasonable-sounding inference that turned out to be
+wrong. Ran Playwright with real device emulation (iPhone 14, Pixel 7) for
+the first time on this redesign and found a genuine bug immediately: the
+genre showcase's section header (`[ OR EXPLORE BY GENRE ]` next to "live
+from the catalog") had `justify-between` with no `flex-wrap`. Every other
+`justify-between` row in the app already had `flex-wrap` (added when each
+of those was originally built and visually checked) — this one line was
+just missed, and nothing caught it because desktop viewports never got
+narrow enough to expose it. Fixed by adding `flex-wrap` + explicit gap,
+same pattern as its siblings. The methodological point: "the classes didn't
+change" is not the same claim as "the layout still works" — narrower
+viewports can expose a latent bug in code that was never touched, if it was
+never actually tested at that width to begin with.
+
+### Dropping the Expo mobile client
+
+The user's call, stated directly: a native app isn't worth it for what this
+is — one tool, one page's worth of functionality, and doubling the UI
+surface (Slice 9's whole visual system would need a second, React Native
+implementation) for what a responsive browser tab already covers once it's
+actually been verified to work on a phone-sized screen. Moved Slice 10 from
+"Expo mobile client" to a mobile-web-polish-plus-deployment slice instead;
+the Expo entry moved to Dropped in PLAN.md, next to the earlier Gemini
+decision — same shape of decision (a planned-for-later item, reconsidered
+once the actual cost/benefit was concrete instead of hypothetical).
+
+### Open questions (new)
+
+- **Mobile design is verified-not-broken, not verified-well-designed.**
+  Slice 9e confirmed nothing overlaps/overflows; it didn't do a real design
+  pass for touch targets, cartridge grid density at 2 columns, or
+  leaderboard table readability at narrow widths. That's explicitly Slice
+  10's job now, not assumed done.
+- **Deployment platform: sticking with the Slice 6 decision (Vercel +
+  Render/Fly.io) unless a real reason to reconsider comes up.** The user
+  asked about alternatives (not Streamlit — correctly, this isn't a
+  Streamlit app; floated Replit). Worth a documented compare-and-decide
+  pass in Slice 10 rather than assuming the two-year-old-in-project-time
+  Slice 6 reasoning still automatically wins, even though it's still
+  probably right (this stack's real footprint — DuckDB, fastembed's ONNX
+  model, scipy, multi-step LLM calls — doesn't fit a lightweight
+  always-on-free-tier host well, which is the same reason Vercel's own
+  Python functions were ruled out in Slice 6).
