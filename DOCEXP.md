@@ -2506,3 +2506,83 @@ all clean, both routes prerendering as static content.
   reopens to the unfiltered first page rather than reproducing what the
   sender was looking at. A reasonable follow-up if shareable catalog
   views turn out to matter, not built this round to keep the slice scoped.
+
+---
+
+## Slice 12b — A named real reference, and a lesson about drift
+
+**Date:** 2026-08-27
+
+Different kind of design request than the earlier "apply Kowalski/taste
+directly" one: this time the user linked an actual live site
+(framer.com) and named two colors (turquoise, black) rather than
+describing a feeling. Scoped it with two quick questions before touching
+anything, since both readings of "ditch the objects" were plausible and
+expensive to get wrong: keep HeroScene's abstract shapes (they're already
+working, already genre-colored, and weren't the thing being complained
+about) and replace only the newer gaming-object scene; make turquoise the
+one site-wide `--accent` rather than confining it to the new background.
+Both confirmed directly rather than assumed.
+
+### What "Framer-inspired" concretely meant here
+
+Fetching framer.com's actual page didn't yield much — a markdown
+extraction of a heavily-scripted marketing site loses essentially all of
+the actual visual design (colors, blur, layout) and returns text content
+instead ("earthy color palettes," organic-shapes copy — the *words* the
+page uses to describe itself, not what it looks like). Worth naming
+plainly rather than pretending the fetch gave real grounding: the actual
+execution here came from well-established, genuinely common knowledge of
+what that whole category of AI-product marketing page looks like (large
+soft blurred gradient orbs drifting behind copy, not literal 3D
+illustration) — combined with the user's own explicit color instruction,
+which matters more here anyway since it overrides whatever hue Framer's
+site actually uses today.
+
+### The scene that got deleted, and what replaced it
+
+`GamingObjectsScene.tsx` — five hand-modeled objects, real Playwright
+verification, tuned lighting and materials — all deleted outright in one
+turn, on direct instruction. Not kept behind a flag or commented out;
+the user said ditch it, and half-removed code non-functional code is
+worse than none. Replaced with `GradientBlobs.tsx`: three blurred
+turquoise circles with slow independent drift, respecting
+`prefers-reduced-motion` through the same shared hook the deleted scene
+also used, plus a small inline SVG `feTurbulence` noise overlay — the
+detail that keeps a large blurred gradient from banding, a real technique
+this category of site actually uses, not decoration for its own sake.
+Placed the gradient behind the *entire* "Meet Ludo" section (heading,
+copy, chips) rather than in a small boxed illustration slot the way the
+3D scene had been — a truer read of how this treatment is actually used
+on sites like Framer's (an ambient field behind content, not a separate
+diagram next to it).
+
+### A real piece of accent-color drift, found by grepping before changing anything
+
+Before touching `globals.css`, grepped the whole frontend for the old
+hex (`f0a63a`) and the word "gold" rather than assuming the CSS variable
+was the only place the color lived. Found one real case of drift:
+`HeroScene.tsx`'s accent-colored point light was hardcoded to the literal
+old hex instead of reading `--accent` like the object materials in the
+same file already did — an inconsistency that would have silently kept
+glowing gold after this slice's turquoise switch if the grep hadn't
+caught it. Fixed to read the CSS variable live via `getComputedStyle`,
+matching the pattern already used elsewhere in the same file, so a future
+accent change won't need to remember this spot exists.
+
+### Cleanup discipline, after last time
+
+Left a background `uvicorn`/`next dev` pair running after the previous
+slice's Playwright verification, which the user then hit for real as a
+port-bind error in their own terminal. This time: identified and killed
+both by the actual listening PID on ports 3000/8000 (`netstat` + explicit
+`taskkill`) before considering the slice finished, not just before moving
+on to the next task.
+
+### Open questions (new)
+
+- **No dark/light theme distinction was reconsidered for the turquoise
+  swap** — this app is deliberately single-theme dark (see globals.css's
+  own comment), so this doesn't apply yet, but worth remembering if a
+  light variant is ever added: turquoise's contrast behavior on a light
+  ground hasn't been checked at all.

@@ -11,10 +11,13 @@
    purpose — this genre of product (Linear, Vercel, Raycast) ships
    dark-only marketing pages routinely, and per artifact-design's own
    allowance, a design that commits to one world can skip the light
-   variant. --accent stays the same warm gold used throughout this project
-   (ARCHITECTURE.md's trace artifact, the previous two passes) — the one
-   thread of continuity kept on purpose through this rebuild; everything
-   else about the execution changed. */
+   variant. --accent is turquoise (Slice 12b, framer.com-inspired direction
+   requested directly by the user, replacing the warm gold used since
+   Slice 9g) — same "one confident accent, not a rainbow" discipline as
+   before, just a different hue. The genre categorical palette below is
+   untouched: that one is load-bearing (which color means which genre),
+   not a decorative choice, so a brand accent change has no reason to
+   touch it. */
 :root {
   --background: #08090a;
   --surface: #111214;
@@ -23,9 +26,9 @@
   --muted: #8a8f98;
   --border: rgba(245, 246, 247, 0.09);
   --border-strong: rgba(245, 246, 247, 0.16);
-  --accent: #f0a63a;
-  --accent-contrast: #1a1206;
-  --accent-glow: rgba(240, 166, 58, 0.28);
+  --accent: #2dd4bf;
+  --accent-contrast: #042e29;
+  --accent-glow: rgba(45, 212, 191, 0.28);
   --danger: #ff8a80;
   --danger-bg: rgba(255, 138, 128, 0.1);
 }

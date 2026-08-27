@@ -130,6 +130,14 @@ function Parallax({ reduceMotion }: { reduceMotion: boolean }) {
 
 export default function HeroScene() {
   const reduceMotion = useReducedMotion();
+  // Reads --accent live rather than hardcoding the old warm-gold hex, so
+  // this point light stays in sync the next time the site's one accent
+  // color changes (it already drifted stale once — Slice 12b's turquoise
+  // switch, caught here while touching this file for something else).
+  const accentColor = useMemo(() => {
+    if (typeof window === "undefined") return "#2dd4bf";
+    return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2dd4bf";
+  }, []);
 
   return (
     <Canvas
@@ -141,7 +149,7 @@ export default function HeroScene() {
       <ambientLight intensity={0.55} />
       <directionalLight position={[4, 5, 4]} intensity={1.1} />
       <directionalLight position={[-4, -2, -3]} intensity={0.35} color="#8fb3ff" />
-      <pointLight position={[0, 0, 4]} intensity={0.4} color="#f0a63a" />
+      <pointLight position={[0, 0, 4]} intensity={0.4} color={accentColor} />
       <Parallax reduceMotion={reduceMotion} />
       {OBJECTS.map((spec, i) => (
         <FloatingObject key={i} spec={spec} index={i} reduceMotion={reduceMotion} />

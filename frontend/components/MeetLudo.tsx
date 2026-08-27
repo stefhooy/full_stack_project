@@ -1,8 +1,7 @@
 "use client";
 
-import { Suspense } from "react";
 import { motion } from "motion/react";
-import GamingObjectsScene from "@/components/GamingObjectsScene";
+import GradientBlobs from "@/components/GradientBlobs";
 
 const NEW_CAPABILITY_QUESTIONS = [
   "What are the highest Metacritic-scored games released in 2023?",
@@ -28,19 +27,15 @@ export default function MeetLudo({
   disabled: boolean;
 }) {
   return (
-    <section className="relative max-w-5xl mx-auto px-6 py-20">
-      <div aria-hidden="true" className="relative h-56 sm:h-72 mb-8">
-        <Suspense fallback={null}>
-          <GamingObjectsScene />
-        </Suspense>
-      </div>
+    <section className="relative overflow-hidden py-24">
+      <GradientBlobs />
 
       <motion.div
         variants={container}
         initial="hidden"
         whileInView="show"
         viewport={{ once: true, margin: "-80px" }}
-        className="max-w-2xl mx-auto text-center"
+        className="relative max-w-2xl mx-auto px-6 text-center"
       >
         <motion.h2 variants={item} className="text-2xl sm:text-3xl font-semibold tracking-tight mb-3 text-balance">
           What can you ask Ludo?

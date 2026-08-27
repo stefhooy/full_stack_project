@@ -584,6 +584,46 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       instead of `next/link`'s `<Link>`), `tsc --noEmit`, and `npm run
       build` all clean; both routes prerender as static content
 
+## Slice 12b — Framer-inspired direction: turquoise accent, gradient blobs
+- [x] User pointed at framer.com directly and asked to ditch the literal
+      3D gaming-object scene for that site's ambient-background language,
+      plus a turquoise+black palette. Scoped with two quick questions
+      first rather than guessing: hero's existing abstract 3D shapes stay
+      (only the controller/console/TV/disc/cartridge scene goes), and
+      turquoise replaces the warm-gold `--accent` site-wide, not just in
+      the new background — the genre categorical palette is untouched
+      either way since it's load-bearing (which hue means which genre),
+      not decorative
+- [x] Deleted `components/GamingObjectsScene.tsx` outright (not kept
+      behind a flag) — new `components/GradientBlobs.tsx`: 3 large,
+      softly blurred (`blur(70px)`) turquoise-toned circles drifting
+      slowly (Motion, frozen under `prefers-reduced-motion` via the
+      already-shared `useReducedMotion` hook) behind the "Meet Ludo"
+      copy, plus a faint SVG feTurbulence noise overlay so the blur
+      doesn't band. Pure CSS/Motion, no WebGL — lighter than the R3F
+      scene it replaces
+- [x] `MeetLudo.tsx` restructured so the gradient sits behind the *whole*
+      section (heading, copy, example chips) rather than confined to a
+      small boxed illustration above the text — closer to how
+      framer.com's own sections actually use this treatment (an ambient
+      field behind content, not a separate diagram)
+- [x] `--accent: #f0a63a` → `#2dd4bf` (turquoise) in `globals.css`,
+      `--accent-contrast`/`--accent-glow` recomputed to match. Found and
+      fixed one real piece of drift while touching this: `HeroScene.tsx`
+      had one point light hardcoded to the old gold hex instead of
+      reading `--accent` like every other accent consumer in the app —
+      would have silently kept glowing gold after this change if not
+      caught
+- [x] Full re-verification: real backend + frontend dev servers, driven
+      with Playwright (desktop + mobile) — zero console errors, zero
+      horizontal overflow, a real `/ask` round trip screenshotted to
+      confirm the route badge/bold-markdown/link colors all actually
+      switched to turquoise (not just the token definition). `npm run
+      lint`, `tsc --noEmit`, and `npm run build` all clean afterward.
+      Killed both background dev servers this time before finishing —
+      left one running after the previous slice and it blocked the
+      user's own `uvicorn --reload` with a port conflict
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
