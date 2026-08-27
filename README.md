@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 9g** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 12** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -12,7 +12,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
 - A SteamSpy ingestion script that builds a local DuckDB catalog of up to
   ~1000 games (`INGEST_GAME_COUNT`, the free ceiling with the current
-  ingestion code — see DOCEXP.md's Slice 9e addendum for why)
+  ingestion code — see DOCEXP.md's Slice 9e addendum for why), enriched
+  per-game with Steam's own storefront API (`store.steampowered.com/api/appdetails`
+  — a second, free, no-key API distinct from both SteamSpy and the Steam Web
+  API poller below) for release date, Metacritic score, platforms, and a
+  curated set of category tags SteamSpy doesn't carry — see DOCEXP.md's
+  Slice 11 entry for why this API and not RAWG/IGDB
 - A scheduled live player-count poller (Steam Web API, no key needed) building
   a real time-series table — the two tables have opposite freshness
   contracts (the catalog is always-current and gets overwritten; player
@@ -57,6 +62,14 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   counts/labels fetched live from `GET /genres`), markdown-rendered
   answers, charts, and a "Show the work" panel — see
   `frontend/README.md`
+- The agent is named **Ludo** (Latin *ludus*, "game, play") — introduced in
+  the hero and a "Meet Ludo" scroll section with a second hand-authored 3D
+  scene (controller/console/TV/disc/cartridge, `GamingObjectsScene.tsx`)
+  and example questions that specifically exercise the new Slice 11 fields
+- A full catalog browse page (`/catalog`) — search by name, filter by
+  genre, sort by 7 fields, paginated, no LLM call (`GET /catalog`,
+  `src/db/catalog.py`); for a question with an answer rather than a
+  filtered list, the homepage's `/ask` is still the point
 - A semantic cache (reuses the RAG embedding provider), per-IP rate
   limiting, and graceful "high demand, try again" error responses instead
   of raw stack traces
@@ -66,6 +79,11 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An MCP server (`src/mcp_server/`) exposing the same guarded `run_sql`/
   `run_stats` to any MCP-compatible AI app (Claude Desktop, Claude Code,
   Cursor) — free, local stdio, no LLM key needed
+- A pytest suite (`tests/`, 66 tests) against the SQL guard, the stats/
+  forecast/viz pure functions, the new ingestion parsing, and the genre
+  stats queries — real DuckDB fixtures, not mocks of this project's own DB
+  layer, and network/LLM-hitting tests are marked `live` and excluded by
+  default; runs on every push/PR via `.github/workflows/test.yml`
 
 ## Setup
 
@@ -78,6 +96,15 @@ Python 3.12 — uv's newest available standalone build (3.14.2, at the time
 this was pinned) has a real Windows TLS bug that crashes any outbound HTTPS
 call; see DOCEXP.md's Slice 9b entry if `.venv` somehow ends up on a
 different version and HTTPS calls start hard-crashing the process.
+
+**Always include `--extra agent`.** A bare `uv sync` is a real, silent trap:
+it reconciles down to `pyproject.toml`'s lean *base* set (just
+ingestion/db) and actively *uninstalls* FastAPI/uvicorn/LangGraph/scipy —
+everything the API needs — because none of that is in the base
+dependency list. This has happened for real, more than once; if a running
+`uvicorn`/API suddenly can't import something or `uvicorn` itself
+disappears from the shell, this is almost always why. Fix is the same
+command below, re-run.
 
 ```bash
 uv sync --extra agent   # creates .venv and installs everything needed to run the agent/API
@@ -134,6 +161,14 @@ python -m src.evals.run_evals --no-judge   # faster, skips the judge LLM calls
 ```
 
 Exits non-zero if any question's route or deterministic check fails.
+
+**Optional: run the test suite** (pure-function + real-throwaway-DuckDB
+tests, no network/LLM calls, no `.env` needed — needs the `dev` extra):
+
+```bash
+uv sync --extra agent --extra dev
+uv run pytest -v
+```
 
 **3. Ask it something:**
 

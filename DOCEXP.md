@@ -2204,3 +2204,305 @@ around.
   respects reduced-motion) on iPhone 14 emulation, but frame-rate under
   load on genuinely low-end hardware is unverified. Worth a real device
   check before treating this as deployment-ready.
+
+---
+
+## Slice 11 — A second Steam API, and the project's first real test suite
+
+**Date:** 2026-08-27
+
+Two questions arrived together: "is SteamSpy too limited, and should we
+switch APIs?" and, separately, "how do we forecast real yearly trends?"
+Worth untangling them, because they have different answers.
+
+### Which API, and why not the ones proposed
+
+SteamSpy's per-game endpoint gives owners/reviews/genre/price — enough for
+most lookup and analysis questions, but nothing about release date,
+Metacritic score, platform support, or feature tags (co-op, controller
+support, Workshop). The user's own first proposal was three Steam Web API
+endpoints from the official docs: `GetPlayerSummaries`,
+`GetGlobalAchievementPercentagesForApp`, `GetNewsForApp`. Checked each
+against what they actually return rather than taking the names at face
+value: `GetPlayerSummaries` returns Steam *user* profile data (persona
+name, avatar, online status) — it has nothing to do with games at all,
+it's keyed on a Steam user id, not an appid. The other two are real but
+narrow: achievement percentages is one metric, and news is unstructured
+article text, neither is a general enrichment source. Said so directly
+rather than building on top of a mismatch.
+
+The actual fix was smaller than switching providers: Steam's own
+storefront API, `store.steampowered.com/api/appdetails` — the same JSON
+endpoint the Steam store website itself calls client-side to render a
+game's page (confirmed by testing `?appids=620` for real and walking
+through why the bare URL with no query param returns `null` — it's a
+real API, just one that has no HTML front end of its own to visit
+directly, unlike `store.steampowered.com/app/620` which is the actual
+store page). Free, no key, no new account — same shape of win as the
+existing SteamSpy/Steam-Web-API split, just a third source layered in the
+same way. RAWG (20k free req/month) and IGDB (free via Twitch OAuth, rate
+limited) were researched via WebSearch as real options for broadening the
+*catalog itself* beyond what SteamSpy's bulk list returns, but that's a
+bigger, separate scope decision (different client, different id space,
+probably a merge/dedup step against the existing `appid`-keyed table) —
+recommended treating it separately rather than folding it into this slice.
+
+### What got built
+
+`SteamStoreClient` (`src/ingestion/steam_store_client.py`) mirrors
+`steam_web_client.py`'s existing pattern rather than inventing a new one:
+same 1.5s rate-limit-between-calls approach, same on-disk JSON caching to
+`data/raw/`, just a different cache-key prefix (`storeapi_` vs.
+SteamSpy's own `appdetails_`) so the two caches can't collide. `run_ingestion`
+now calls both APIs per game and merges the results in `_row_from_appdetails`.
+
+Five new columns landed on `games`: `release_date` (parsed), `release_date_raw`
+(kept as-is even when parsing fails — never silently drop the source
+string), `metacritic_score`, `platforms`, `categories`. `categories` runs
+through a hand-curated 15-entry allowlist (`CATEGORY_ALLOWLIST` in
+`ingest.py`) rather than storing Steam's full ~30-tag raw list — most of
+that raw list is controller/accessibility/remote-play noise that would
+just add retrieval confusion for an agent trying to answer "does this
+game have co-op" type questions.
+
+Two real data quirks found by testing against a live response (Portal 2,
+appid 620) instead of inventing fixture shapes:
+
+- Its `categories` array has two different `id`s (51 and 30) that both
+  carry the description "Steam Workshop" — a real duplicate in Steam's own
+  data, not a parsing bug. Dedup logic keys on description, not id,
+  specifically because of this.
+- `platforms.mac` is `false` in the live response even though
+  `mac_requirements` has actual text in it — meaning the authoritative
+  signal is the `platforms.*` booleans, and inferring platform support
+  from non-empty `*_requirements` text would have been wrong.
+
+Both went straight into `tests/test_ingest_parsing.py` as
+`REAL_PORTAL_2_CATEGORIES` — captured real data, not invented shapes,
+specifically so the dedup logic is tested against the actual quirk that
+motivated it.
+
+The old `games.duckdb` was deleted and rebuilt from scratch rather than
+migrated — the whole table is UPSERT-regenerable from raw ingestion and
+gitignored, so there was no state worth preserving across the schema
+change. This paid off for real mid-run: the full 1000-game re-ingestion
+hit a genuine transient DNS resolution failure against
+`store.steampowered.com` around appid 606280 (`getaddrinfo failed`, not
+an API error — confirmed by re-resolving the same host seconds later and
+getting a normal response) and the script has no retry logic around
+network calls, so it crashed with a real traceback and a non-zero exit
+code roughly 675-680 games in. Deliberately did not add retry/backoff
+logic in response — the existing cache-first design in both API clients
+already made this cheap: every successfully-fetched game (SteamSpy and
+storefront alike) is cached to `data/raw/` before the crash point, so
+simply re-running the same `ingest --count 1000` command picked up
+exactly where it left off, re-fetching only the one failed game and
+whatever hadn't been reached yet, instead of losing an hour of API calls
+to one bad DNS lookup. Worth calling out as the resumable-cache design
+actually earning its keep on a real failure, not just a theoretical
+benefit.
+
+Also added 5 new RAG schema chunks
+(`src/agent/rag/schema_corpus.py`) so the agent can actually retrieve and
+use these columns — worth calling out one wording choice: the
+`metacritic_score` chunk explicitly says NULL means "not scored," not
+"scored zero," because an LLM asked to rank by Metacritic score could
+otherwise silently treat unscored games as the worst-rated instead of
+excluding them.
+
+### The project's first real test suite
+
+No `tests/` directory existed anywhere in this project before this slice
+— stats/forecast/viz logic had gotten real ad hoc verification during
+their original slices (see Slice 4's entry for a real type-coercion bug
+and a real group-mislabeling bug caught that way) but never a checked-in
+regression suite. Built one from scratch: `tests/conftest.py` plus 6 test
+files, 66 tests total.
+
+The one deliberate philosophy, stated directly in `conftest.py`'s
+docstring: prefer a real, throwaway on-disk DuckDB file over mocking this
+project's own DB layer. The `games_db` fixture creates a genuine temp
+DuckDB file, runs the real `CREATE TABLE` SQL from `schema.py`, and
+inserts synthetic-but-realistic rows — so a test failure here means the
+real schema/query code actually broke, not that a mock's assumptions
+drifted from reality. `test_sql_guard.py` in particular runs one real
+`DROP TABLE games` against a live fixture DB and asserts it's rejected
+*and* the table is still there afterward with its 4 rows intact — testing
+the actual guard behavior end to end, not just that a regex matched.
+
+`pyproject.toml` gained a `dev` extra (`pytest`) rather than a
+`[dependency-groups]` entry. That's a deliberate choice given this
+project's history: `[dependency-groups]` installs by default on a bare
+`uv sync`, and this project has already been bitten twice for real by
+bare `uv sync` silently reconciling down to the lean base set (see
+Slice 9b/README's warning) — adding `dev` as another *optional* extra
+keeps that failure mode from getting worse, at the cost of needing
+`--extra dev` explicitly to run tests locally.
+
+A genuine test-authoring bug, found and fixed correctly: the first draft
+of `test_outliers_finds_the_obvious_one` used 4 points (3 normal + 1
+outlier) and asserted 1 outlier would be found. It found 0. Verified by
+hand rather than assumed: mean ≈108, stddev≈219 with only 4 points, so
+the outlier's own z-score (≈1.79) came in under the 2.5 threshold — a
+real small-sample "masking" effect, where one extreme point inflates the
+mean/stddev enough to pull its own z-score back down, not a bug in
+`_outliers`. Fixed the test (20 clustered points + 1 outlier), not the
+code, and left a comment on the test explaining the real effect so a
+future reader doesn't "fix" it back to something smaller.
+
+`.github/workflows/test.yml` runs the suite on every push/PR. First draft
+used `uv sync --extra dev` only, with a comment claiming the LLM/RAG stack
+wasn't needed for these tests — wrong, caught by actually tracing the
+import chain: `test_stats_tool.py`/`test_forecast_tool.py` import
+`stats_tool.py`/`forecast_tool.py`, which import `numpy`/`scipy`, which
+live in the `agent` extra, not base. Fixed to `--extra agent --extra dev`
+before considering the workflow done, rather than trusting the first
+draft's comment.
+
+A second real bug, found by actually re-running the suite exactly the way
+the README/CI tell people to (`uv run pytest -v`) rather than trusting
+that it still worked because it had passed once already:
+`ModuleNotFoundError: No module named 'src'`, failing at `conftest.py`'s
+own import. Root cause is a genuine, well-known pytest gotcha, confirmed
+by testing both invocations directly: `python -m pytest` puts the current
+directory on `sys.path[0]` (that's what `-m` does for any module), so
+`import src` resolves; the plain `pytest` console-script entry point never
+does that, so it doesn't. This project's tests had happened to be run via
+`-m` (or an equivalent) during initial development, masking the gap until
+a plain `uv run pytest` was tried. Fixed at the pytest-config level rather
+than by telling people to remember `-m`: added `pythonpath = ["."]` to
+`[tool.pytest.ini_options]`, pytest's own built-in mechanism for this
+(since 7.0) — makes `pytest`, `uv run pytest`, and `python -m pytest` all
+behave identically, and would have silently broken the CI workflow too
+(same `uv run pytest -v` line) had it not been caught here first.
+
+### Open questions (new)
+
+- **`poll_player_counts.yml`'s catalog-rebuild step now costs meaningfully
+  more CI time per 6-hourly run** — it re-ingests the full catalog just to
+  get appids for the player-count poll, and now that ingestion also makes
+  a storefront-API call per game with no cache persisted between GH
+  Actions runs (`data/raw/` is gitignored). Noticed while re-reading the
+  workflow for style conventions, not yet raised as a problem worth
+  solving — a narrower "just fetch appids" path is the likely fix if the
+  added runtime becomes a real issue.
+- **Real yearly-forecast extrapolation still isn't built.** The user's
+  actual ask ("delta players per year, then extrapolate") needs historical
+  yearly snapshots that don't exist from any free source today. The
+  `player_counts` table is the wrong series for this (6-hourly live CCU,
+  not yearly). Proposed, not yet confirmed or built: converting the
+  weekly `refresh_catalog.yml` re-ingestion into an append-only
+  `owners_history` table, mirroring `player_counts`'s
+  accumulate-don't-overwrite contract, so real year-over-year deltas
+  accumulate naturally over time instead of being faked from one
+  snapshot.
+
+---
+
+## Slice 12 — Naming Ludo, a "Meet Ludo" section, and a real catalog page
+
+**Date:** 2026-08-27
+
+Three asks arrived together: name the agent, add an intro section
+explaining what it can do (floating gaming-object 3D iconography +
+example questions), and build a separate full-catalog browse page. Named
+the agent **Ludo** — offered a short list of directions (Ludo, Steamsight,
+Datapad) and the user picked Ludo directly. Saved as a standing project
+memory (`agent-name-ludo.md`) so future sessions use the name by default
+in new copy without re-asking.
+
+### A second 3D scene, and a real lesson about color and darkness
+
+`GamingObjectsScene.tsx` needed five actually-recognizable objects
+(controller, console, TV, disc, cartridge), not HeroScene's abstract
+genre-colored primitives — a harder ask, since a controller only reads as
+a controller if its grips/joysticks/buttons are legible, not just "a
+lit shape." Built each as a small group of primitive geometries (drei's
+`RoundedBox` plus core cylinder/capsule/sphere/torus primitives) — no
+external `.glb` assets, same discipline as HeroScene.
+
+First real render was nearly invisible: used `--surface-raised` (the
+app's near-black 2D panel token, `#17181b`) as the chassis color, which
+against the canvas's equally near-black background produced silhouettes
+you had to squint to see (verified by actually rendering and screenshotting
+it, not assumed fine because the geometry was correct). HeroScene's
+objects don't have this problem because they're saturated genre hues, not
+because of anything special about its lighting. Fixed with a dedicated
+mid-graphite hex (`#6b6f79`) picked specifically for this scene rather
+than reused from a 2D token — a color that works as a flat panel
+background and a color that works as a lit 3D object's surface are not
+the same design decision, even when the palette intent ("restrained,
+neutral") is identical. Also had to fix the disc separately: its
+`metalness=0.85, roughness=0.15` (very mirror-like) reflected essentially
+nothing under this scene's 3-light setup (no environment map), so the
+disc's body was invisible while only its accent ring showed — dropped to
+`metalness=0.45, roughness=0.35` so it actually picks up diffuse light.
+Deliberately did NOT reuse the genre categorical palette to color these
+objects, even though it was sitting right there and would have been an
+easy source of "more color" — that palette means something specific
+elsewhere in the UI (which hue is which genre) and reusing it as pure
+decoration here would manufacture a false mapping (a controller isn't
+"Action-colored" for a real reason).
+
+Pulled `useReducedMotion` out of `HeroScene.tsx` into
+`lib/useReducedMotion.ts` the moment a second scene needed the identical
+hook — no reason to fork it, and it's now the one place that logic lives.
+
+### The catalog page's real sorting bug, caught before shipping
+
+`src/db/catalog.py` filters and sorts in Python rather than building
+dynamic SQL (the sort column is user input, and a column name can't be a
+bound parameter — an allowlist dict is simpler and safer than templating
+SQL). First implementation floored NULL values to a low sentinel (`-1`,
+`date.min`) so they'd sort to the end — except that only works for
+descending order; on ascending order a floored NULL sorts *first*, the
+opposite of "always last" the code's own comment claimed. Caught this for
+real via `tests/test_catalog.py::test_sort_by_release_date_ascending_puts_nulls_last`
+failing, not by re-reading the code and spotting it — extended the
+`games_db` fixture with real release dates on two rows specifically so
+this test would be meaningful (all-NULL fixture rows can't test NULL
+ordering against real values). Fixed by splitting rows into "has a value"
+and "doesn't," sorting only the first group with the requested direction,
+and appending the second group after — unaffected by `reverse`, so
+NULLs land last regardless of ascending or descending.
+
+### Real Playwright verification, not just unit tests
+
+Ran the actual app (backend `uvicorn`, frontend `next dev`) and drove it
+with Playwright (chromium, found already installed at
+`~/AppData/Local/ms-playwright/chromium-1234` from earlier project work —
+Python's `playwright` package needed the executable path passed
+explicitly since its expected bundled Chromium revision didn't match
+what was actually on disk) across both routes, both a desktop and a
+mobile viewport: zero console errors, zero horizontal overflow, and
+real interaction checks (typed a search term and read back the actual
+filtered rows, selected a genre and verified every visible row's genre
+field, clicked through to page 2 and confirmed the page indicator
+updated) against the live 1000-game backend — not mocked, not assumed
+from reading the component code. Also caught the catalog table's real
+horizontal-scroll problem this way: 9 columns didn't fit in
+`max-w-5xl` on an ordinary 1440px viewport, forcing a scroll a first-time
+visitor wouldn't necessarily notice. Widened the catalog page specifically
+to `max-w-7xl` (the ask-flow's own container stays `max-w-2xl` — a
+focused single-question flow and a dense data table warrant different
+widths, same reasoning that already put the hero at `max-w-5xl`).
+
+Finished with the project's full pre-existing verification bar: `npm run
+lint` (caught one real error — a plain `<a href="/">` where
+`next/link`'s `<Link>` was required), `tsc --noEmit`, and `npm run build`
+all clean, both routes prerendering as static content.
+
+### Open questions (new)
+
+- **The catalog table still needs its own horizontal scroll on narrow
+  mobile viewports** (confirmed: no *page-level* overflow, but the table
+  itself scrolls within its `overflow-x-auto` container past a few
+  columns) — consistent with `ResultTable`'s existing behavior elsewhere
+  in the app, but with no visual affordance (a fade/scroll hint) that more
+  columns exist off-screen. Not fixed here; worth a real mobile design
+  pass if this becomes a common complaint.
+- **No URL-synced filter state on the catalog page** — search/genre/sort/
+  page all live in component state only, so a copied catalog link always
+  reopens to the unfiltered first page rather than reproducing what the
+  sender was looking at. A reasonable follow-up if shareable catalog
+  views turn out to matter, not built this round to keep the slice scoped.

@@ -45,6 +45,19 @@ agent = [
     "mcp[cli]>=2.0.0",
 ]
 
+# Test tooling only — never needed to run ingestion or the agent/API, so
+# it's its own extra rather than folded into "agent". Deliberately an
+# extra (needs `--extra dev`), not a `[dependency-groups]` entry, even
+# though that's the more modern place for dev-only tooling in general:
+# dependency-groups install by *default* on a bare `uv sync`, which would
+# quietly reintroduce the exact "bare uv sync scope" confusion this
+# project already got bitten by once for the `agent` extra (see
+# DOCEXP.md) — one consistent "nothing extra installs without an explicit
+# --extra" rule beats using the technically-more-correct mechanism here.
+dev = [
+    "pytest>=8.3.0",
+]
+
 [tool.uv]
 # This is an application (imported via `from src.x import y`, run as
 # `python -m src.x.y` from the repo root), not a distributable library --
@@ -60,3 +73,21 @@ package = false
 # src/config.py) and again here with uv's own Rust TLS stack. This is the
 # uv-side equivalent: use the OS trust store instead of uv's bundled one.
 native-tls = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Without this, `uv run pytest` (the console-script entry point) can't
+# import `src` -- pytest's console script never adds the project root to
+# sys.path, only `python -m pytest` does that (its `-m` puts cwd on
+# sys.path[0]). This is pytest's built-in fix (since 7.0), so plain
+# `pytest`/`uv run pytest` and `python -m pytest` both work identically --
+# found for real when `uv run pytest -v` (as written in README/CI) raised
+# `ModuleNotFoundError: No module named 'src'` on a fresh shell.
+pythonpath = ["."]
+# Tests that hit a real Groq/Ollama call or a live network API are opt-in
+# (marked "live"), excluded by default -- `pytest -m live` to run only
+# those, `pytest -m "" ` (or unset addopts) to include everything. Everything
+# that runs by default is against pure functions or a real, throwaway
+# on-disk DuckDB fixture -- never a mock of this project's own code.
+addopts = "-m 'not live'"
+markers = ["live: hits a real network API, run explicitly with -m live"]

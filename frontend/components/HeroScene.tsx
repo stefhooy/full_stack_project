@@ -1,33 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-
-// Subscribes to the live prefers-reduced-motion value via
-// useSyncExternalStore — the textbook-correct way to read a synchronous
-// external browser API that can change after mount (matchMedia doesn't
-// have a React-friendly hook of its own), rather than a one-shot
-// useEffect+setState that both misses later toggles and trips the
-// set-state-in-effect lint rule for no real benefit.
-function subscribeReducedMotion(callback: () => void) {
-  const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-  mql.addEventListener("change", callback);
-  return () => mql.removeEventListener("change", callback);
-}
-function getReducedMotionSnapshot() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-function getReducedMotionServerSnapshot() {
-  return false;
-}
-function useReducedMotion() {
-  return useSyncExternalStore(
-    subscribeReducedMotion,
-    getReducedMotionSnapshot,
-    getReducedMotionServerSnapshot
-  );
-}
+import { useReducedMotion } from "@/lib/useReducedMotion";
 
 // The hero's one visual flourish, replacing the previous synthwave scene
 // entirely: a small cluster of real, lit 3D objects (WebGL via React Three

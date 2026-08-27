@@ -23,6 +23,7 @@ from src.agent.graph import AgentResult, run_agent, stream_agent
 from src.api.rate_limit import enforce_rate_limit
 from src.api.schemas import AskRequest, AskResponse
 from src.config import settings
+from src.db.catalog import DEFAULT_PAGE_SIZE, DEFAULT_SORT, MAX_PAGE_SIZE, list_games
 from src.db.genre_stats import get_games_by_genre, get_genre_counts
 
 logging.basicConfig(level=logging.INFO)
@@ -94,6 +95,31 @@ def games(genre: str, limit: int = 12) -> dict:
         )
     capped_limit = min(max(limit, 1), settings.sql_max_rows)
     return {"games": get_games_by_genre(genre, capped_limit)}
+
+
+@app.get("/catalog")
+def catalog(
+    q: str | None = None,
+    genre: str | None = None,
+    sort: str = DEFAULT_SORT,
+    order: str = "desc",
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+) -> dict:
+    """The full-catalog browse page (frontend's /catalog route) — search,
+    genre filter, sort, and pagination, no LLM involved (src/db/catalog.py).
+    `page_size` is capped the same way every other row-returning endpoint
+    caps its limit."""
+    if not Path(settings.duckdb_abs_path).exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Database not found. Run `python -m src.ingestion.ingest` first.",
+        )
+    capped_page_size = min(max(page_size, 1), MAX_PAGE_SIZE)
+    games, total = list_games(
+        q=q, genre=genre, sort=sort, order=order, page=page, page_size=capped_page_size
+    )
+    return {"games": games, "total": total, "page": max(page, 1), "page_size": capped_page_size}
 
 
 def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:

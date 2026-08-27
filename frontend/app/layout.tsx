@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, IBM_Plex_Mono } from "next/font/google";
 import MotionProvider from "@/components/MotionProvider";
+import Nav from "@/components/Nav";
 import "./globals.css";
 
 // Two faces, each with one job — restraint over decoration:
@@ -35,7 +36,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geist.variable} ${plexMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <MotionProvider>{children}</MotionProvider>
+        <MotionProvider>
+          <Nav />
+          {children}
+        </MotionProvider>
       </body>
     </html>
   );

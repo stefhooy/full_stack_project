@@ -162,6 +162,54 @@ SCHEMA_CHUNKS: list[SchemaChunk] = [
             "Use this for 'most players right now' / 'concurrent players' questions."
         ),
     ),
+    # --- Slice 11: Steam's own storefront API (store.steampowered.com/api/
+    # appdetails), not SteamSpy — fills gaps SteamSpy never had.
+    SchemaChunk(
+        id="column:release_date",
+        kind="column",
+        text=(
+            f"Column {GAMES_TABLE}.release_date: DATE. When the game released. NULL if the "
+            "game was still 'coming soon' when this catalog was last refreshed, or if "
+            "Steam's date string for it couldn't be parsed into a real date — see "
+            "release_date_raw for the original text in that case."
+        ),
+    ),
+    SchemaChunk(
+        id="column:release_date_raw",
+        kind="column",
+        text=(
+            f"Column {GAMES_TABLE}.release_date_raw: VARCHAR. The original release-date "
+            "text from Steam, kept even when release_date couldn't be parsed from it."
+        ),
+    ),
+    SchemaChunk(
+        id="column:metacritic_score",
+        kind="column",
+        text=(
+            f"Column {GAMES_TABLE}.metacritic_score: INTEGER, 0-100. Metacritic's critic "
+            "score. NULL for the many games Metacritic never scored (most indie titles) — "
+            "NULL here means 'not scored', not 'scored zero'; don't treat it as 0 in "
+            "aggregates or exclude it silently without noting why."
+        ),
+    ),
+    SchemaChunk(
+        id="column:platforms",
+        kind="column",
+        text=(
+            f"Column {GAMES_TABLE}.platforms: VARCHAR. Comma-separated subset of "
+            "windows, mac, linux the game supports. Match with LIKE '%mac%' etc., not '='."
+        ),
+    ),
+    SchemaChunk(
+        id="column:categories",
+        kind="column",
+        text=(
+            f"Column {GAMES_TABLE}.categories: VARCHAR. Comma-separated feature tags "
+            "(e.g. 'Single-player, Co-op, Steam Achievements, Steam Workshop'). A curated "
+            "subset of Steam's real category list, not exhaustive — match with LIKE "
+            "'%Co-op%' etc., not '='."
+        ),
+    ),
     SchemaChunk(
         id="column:ingested_at",
         kind="column",

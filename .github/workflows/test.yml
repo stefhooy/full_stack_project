@@ -1,0 +1,36 @@
+name: Tests
+
+# Runs on every push/PR, unlike the other two workflows here (those are
+# scheduled data-collection jobs, not CI) -- this is the one that actually
+# gates on "does the code still work," per Slice 11's test suite
+# (tests/, pytest). Deliberately does NOT need real secrets (GROQ_API_KEY
+# etc.): every test that runs by default is against a pure function or a
+# real, throwaway on-disk DuckDB fixture, never a live LLM/network call
+# (those are marked `live` and excluded by default -- see
+# pyproject.toml's [tool.pytest.ini_options]).
+
+on:
+  push:
+    branches: [main, master]
+  pull_request: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Needs --extra agent too, not just base + dev: src/tools/stats_tool.py
+      # and forecast_tool.py import numpy/scipy, which live in the "agent"
+      # extra (see pyproject.toml) even though these specific tests never
+      # touch the LLM/LangChain parts of that extra -- scipy/numpy just
+      # weren't worth a fourth dependency group for two modules.
+      - name: Install dependencies
+        run: uv sync --extra agent --extra dev
+
+      - name: Run tests
+        run: uv run pytest -v

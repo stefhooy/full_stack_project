@@ -6,6 +6,7 @@ import Chart from "@/components/Chart";
 import GenreShowcase from "@/components/GenreShowcase";
 import HeroScene from "@/components/HeroScene";
 import Markdown from "@/components/Markdown";
+import MeetLudo from "@/components/MeetLudo";
 import TraceSteps from "@/components/TraceSteps";
 import {
   streamAsk,
@@ -251,7 +252,7 @@ export default function Home() {
   return (
     <div className="min-h-screen font-sans">
       {/* Hero: wider column, text + 3D scene side by side on desktop */}
-      <div className="max-w-5xl mx-auto px-6 pt-20 pb-4 grid md:grid-cols-2 gap-10 items-center">
+      <div className="max-w-5xl mx-auto px-6 pt-14 pb-4 grid md:grid-cols-2 gap-10 items-center">
         <motion.div variants={heroContainer} initial="hidden" animate="show">
           <motion.span
             variants={heroItem}
@@ -261,10 +262,13 @@ export default function Home() {
           </motion.span>
           <motion.h1
             variants={heroItem}
-            className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1] mb-4 text-balance"
+            className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1] mb-2 text-balance"
           >
-            Ask the market <span style={{ color: "var(--accent)" }}>a question.</span>
+            Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
           </motion.h1>
+          <motion.p variants={heroItem} className="italic text-sm text-[var(--muted)] mb-4">
+            Ludo — from the Latin <em>ludus</em>, &ldquo;game, play.&rdquo;
+          </motion.p>
           <motion.p variants={heroItem} className="text-[var(--muted)] text-base leading-relaxed max-w-md">
             A tool-using agent writes real SQL, runs real statistics, and
             projects real trends against a self-collected game-market
@@ -337,7 +341,11 @@ export default function Home() {
             </motion.button>
           ))}
         </motion.div>
+      </div>
 
+      <MeetLudo onPick={ask} disabled={loading} />
+
+      <div className="max-w-2xl mx-auto px-6 pb-14">
         <div className="mb-12">
           <GenreShowcase onPick={ask} disabled={loading} />
         </div>

@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS {GAMES_TABLE} (
     initial_price_usd DOUBLE,   -- pre-discount price, dollars
     discount_pct      DOUBLE,
     peak_ccu          INTEGER,  -- peak concurrent players yesterday
+    -- Slice 11: Steam's own storefront API (store.steampowered.com/api/appdetails),
+    -- not SteamSpy — see src/ingestion/steam_store_client.py. Fills gaps SteamSpy
+    -- never had: release date, critic score, platform/feature breadth.
+    release_date      DATE,     -- parsed from Steam's "DD Mon, YYYY"-ish string; null if
+                                 -- unparseable or the game was "coming soon" at ingest time
+    release_date_raw  VARCHAR,  -- the original string, kept even when parsing fails
+    metacritic_score  INTEGER,  -- 0-100; null for the many games Metacritic never scored
+    platforms         VARCHAR,  -- comma-joined subset of windows/mac/linux that are true
+    categories        VARCHAR,  -- comma-joined, curated subset of Steam's ~30 raw category
+                                 -- tags (see ingest.py's CATEGORY_ALLOWLIST) -- the full raw
+                                 -- list is mostly controller/accessibility noise
     ingested_at       TIMESTAMP
 );
 """
