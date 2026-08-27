@@ -2586,3 +2586,123 @@ on to the next task.
   own comment), so this doesn't apply yet, but worth remembering if a
   light variant is ever added: turquoise's contrast behavior on a light
   ground hasn't been checked at all.
+
+---
+
+## Slice 13 — A design brief for a different product, and what to keep from it
+
+**Date:** 2026-08-27
+
+Direct, blunt feedback arrived alongside a full ChatGPT-generated design
+brief: "the website is not nice at all, I want it to be like this." Worth
+being honest about what the brief actually specified before writing any
+code, because it wasn't a redesign of Ludo — it was a complete spec for a
+different fictional product: "PlayerLens AI," an internal analytics tool
+for game *studios*, with example content built entirely around churn
+rates, D7 retention, ARPDAU, and monetization cohorts (`mock-data.ts`,
+`POST /api/agent` as a not-yet-real placeholder). None of that data
+domain exists in Ludo's real catalog (SteamSpy + Steam storefront —
+owners, reviews, price, genre, Metacritic, platforms), and Ludo's entire
+premise — the thing that makes it a real project rather than a demo — is
+that every number comes from a real query, never a mock.
+
+### Separating craft from content before building anything
+
+The temptation with a 250-line brief like this is to implement it
+literally, since it's detailed enough to look like a spec. Resisted that
+and asked two direct questions instead: keep Ludo's name/backend/real
+data, or actually rebuild the product as PlayerLens with mocked churn
+data? And separately, re-skin fully to the light Roman-marble look, or
+just raise the craft bar on the existing dark identity? Both answers came
+back the same direction: adopt the *visual language* (warm ivory, serif
+headlines, restrained classical motifs, one royal-blue accent) while
+keeping Ludo real. That's the actual scope this slice executed — a full
+re-skin, zero fictional content anywhere on the page.
+
+### What "restrained Roman" meant in practice, not in the brief's literal asks
+
+The brief asked for a Colosseum background photo, a marble statue bust,
+and a Corinthian column image (with fallback CSS if unavailable). None of
+those got built — not because they'd look bad, but because sourcing
+photographic imagery breaks a rule this project has held since Slice 9g
+(HeroScene's abstract shapes over literal dice/controllers) and Slice
+11/12b (every visual element hand-authored in code, nothing fetched):
+no external image or model assets, ever. The brief's own instructions
+actually argue for this independently — "architectural texture, not a
+hero photograph," "must not look like Rome tourism," restraint over
+literalism throughout. Built two hand-drawn SVG motifs instead: a laurel
+sprig (`Laurel.tsx`, mirrored in pairs) and a single faint line-drawn
+arch (`RomanArch.tsx`, opacity ~0.4 of an already-pale border color) —
+plus an abstract ring-and-ticks medallion replacing the plain-text nav
+logo. Three small elements, used exactly once or twice each, is
+deliberately closer to the brief's own stated ratio ("80% modern SaaS,
+15% classical, 5% game-specific") than anything more elaborate would
+have been.
+
+### The hero visual had to go, and what replaced it
+
+Slice 12b's abstract 3D shapes (kept through the turquoise pass on the
+strength of "already working, don't touch it") stopped being right the
+moment the background went from near-black to warm ivory: saturated
+genre-colored primitives read as toy blocks next to a serif headline on
+a marble-adjacent palette, not as a premium product visual. Rather than
+force them to survive a third re-skin, built `HeroPreview.tsx` — a
+static floating panel showing a **real** answer Ludo already gave earlier
+in this same session (the five highest-rated-games result, verified live
+against the actual backend, not invented for this panel), styled as the
+same card the real result view uses. This is actually closer to what the
+brief's own hero concept wanted anyway ("a large floating application
+panel... ChatGPT + Linear + modern BI dashboard"), and it keeps the
+"everything on this page is real" rule intact where a mockup-style hero
+illustration wouldn't have.
+
+### A capabilities row grounded in the real graph, not the brief's four-item template
+
+The brief's ASK / INVESTIGATE / EXPLAIN / ACT framework assumes a product
+that gives recommendations ("ACT: turn insights into actions your team
+can use"). Ludo doesn't do that — it answers questions, it doesn't
+recommend business decisions. Rather than invent a fourth capability to
+match the template's shape, used exactly the three things Ludo's real
+pipeline (`router` → `retrieve_schema` → `agent` → `execute_tools`,
+already documented in ARCHITECTURE.md) actually does: Ask, Investigate,
+Show the work. Three real capabilities beat four templated ones.
+
+### Fast reversal, named plainly
+
+Slice 12b's turquoise accent shipped less than a day before this slice
+replaced it with royal blue. Worth naming as what it is — a fast
+reversal driven by direct user feedback that the previous pass wasn't
+landing, not a mistake to smooth over in the log. The same "one
+confident accent, changed cleanly through a single CSS variable, genre
+palette untouched" mechanism held up for a third theme in a row, which is
+exactly what having that mechanism was for.
+
+### Verification
+
+Same bar as every previous frontend slice: `npm run lint`, `tsc
+--noEmit`, `npm run build` all clean; Playwright against both routes,
+desktop and mobile, zero console errors, zero horizontal overflow, one
+full real `/ask` round trip screenshotted to confirm the new accent and
+panel styling actually reached the live result view, not just the hero.
+Backend's 76 tests re-run as a sanity check even though this slice never
+touched backend code. One operational note: the dev servers used for
+verification this time were the user's own already-running instances
+(recognized via a coincidentally-reused PID from the previous slice's
+cleanup, still answering real requests) — pointed Playwright at the
+existing ports rather than starting a competing pair, avoiding a repeat
+of Slice 12b's leftover-server mishap by not spawning new servers at all.
+
+### Open questions (new)
+
+- **No `PlayerLens`-style mocked showcase was built anywhere** — the
+  user's second answer confirmed "keep everything real" over "add a
+  labeled mock section," so nothing on the page shows fabricated
+  churn/monetization content. If a portfolio reviewer specifically wants
+  to see how Ludo might extend toward studio-side analytics, that would
+  need real design/scoping work (what data would that even require,
+  where would it come from), not a mockup bolted onto this page.
+- **The capabilities-row vertical dividers are quite subtle** on the
+  light background (`divide-[var(--border)]`, the same pale warm-stone
+  border used everywhere else) — intentional restraint, but worth a
+  second look if a reviewer says the three columns don't read as
+  separated at a glance.

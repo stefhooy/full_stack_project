@@ -624,6 +624,74 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       left one running after the previous slice and it blocked the
       user's own `uvicorn --reload` with a port conflict
 
+## Slice 13 — "Roman Intelligence": a full light re-skin
+- [x] Direct feedback ("the website is not nice at all") plus a full
+      ChatGPT-generated design brief for a *different* fictional product
+      ("PlayerLens AI," a game-studio internal analytics tool with churn/
+      ARPDAU/monetization mock data, Roman-marble visual identity). Named
+      the real conflict before writing any code rather than executing the
+      brief verbatim: different product name, different data domain
+      (Ludo answers public-market questions from a real Steam catalog;
+      the brief's example content is fictional studio telemetry Ludo's
+      backend can't produce), and a mocked `POST /api/agent` contract
+      where Ludo already has a real one. Scoped with two questions before
+      building: keep Ludo's name/backend/real data, adopt only the visual
+      language (light, warm-ivory, serif+sans, restrained Roman motifs,
+      royal-blue accent) — confirmed directly rather than assumed
+- [x] New light design tokens (`globals.css`): warm ivory background
+      (`#f8f7f3`), white floating-card panels with a two-layer soft
+      shadow, royal-blue accent (`#1957ff`, replacing Slice 12b's
+      turquoise less than a day after it shipped — a real, fast reversal,
+      not something to paper over). Genre categorical palette untouched
+      again, same reasoning as every previous accent change
+- [x] Added a third type face: Instrument Serif for display headlines
+      only (`--font-serif`, wired via `next/font/google` same as the
+      existing two), Geist/IBM Plex Mono unchanged — the brief's own
+      "ancient structure, modern intelligence" tension expressed as an
+      actual typographic contrast, not just a mood board reference
+- [x] Two hand-authored Roman motifs, no photographic assets (this
+      project's standing discipline — see HeroScene/GamingObjectsScene's
+      same rule — and the brief's own instruction that restraint beats
+      literalism here): `components/icons/Laurel.tsx` (a simple sprig,
+      flanking the hero eyebrow and dividing the capabilities row from
+      the example questions) and `components/RomanArch.tsx` (one faint
+      line-drawn arch-and-flutes shape in the hero background, opacity
+      ~0.4 of an already-light border color). `components/icons/
+      Medallion.tsx` — an abstract ring-and-ticks logomark replacing the
+      plain text-only nav wordmark
+- [x] Replaced the hero's 3D visual entirely: the saturated genre-colored
+      abstract shapes (kept through Slice 12b) don't fit this elegant,
+      restrained world — bright toy-block primitives next to a serif
+      headline on ivory reads as a mismatch, not a style choice. New
+      `components/HeroPreview.tsx` — a static floating panel showing a
+      **real, previously-verified** Ludo answer (the same "5 highest-
+      rated games" result confirmed live earlier this session), styled as
+      the same panel the actual result view uses. Closer to the brief's
+      own hero concept anyway ("a floating application panel," not a
+      decorative illustration next to the text) — and it's honest, not a
+      mockup
+- [x] `MeetLudo.tsx` rebuilt again: Slice 12b's turquoise gradient-blob
+      background doesn't fit the light re-skin either — replaced with a
+      plain three-column capabilities row (Ask / Investigate / Show the
+      work, mapped to Ludo's real router→retrieve_schema→agent graph from
+      ARCHITECTURE.md, not a fourth invented capability just to match the
+      brief's 4-item ASK/INVESTIGATE/EXPLAIN/ACT template), thin vertical
+      rules between columns, a small laurel divider, and the same real
+      Slice-11-grounded example questions as before
+- [x] Deleted `HeroScene.tsx`, `GradientBlobs.tsx`, and
+      `lib/useReducedMotion.ts` outright once nothing referenced them
+      (confirmed by grep before deleting) — same "don't leave half-
+      removed dead code" discipline as Slice 12b's scene deletion
+- [x] Full re-verification against the user's own already-running dev
+      servers (recognized via a port-6-recycled-but-untraceable-by-
+      tasklist PID from the previous slice's cleanup mishap — didn't
+      touch them, just pointed Playwright at the existing ports): both
+      routes, desktop + mobile, zero console errors, zero horizontal
+      overflow, a real `/ask` round trip screenshotted end to end. `npm
+      run lint`, `tsc --noEmit`, `npm run build` all clean; backend's 76
+      pytest tests re-run as a sanity check (untouched by this frontend-
+      only slice, still green)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

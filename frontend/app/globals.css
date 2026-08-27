@@ -1,36 +1,32 @@
 @import "tailwindcss";
 
-/* Brand tokens — a restrained dev-tool identity (Linear/Vercel-adjacent),
-   replacing the synthwave-arcade skin: the user's own words were "not look
-   like AI slop" after two passes on the retro direction — the honest read
-   is that a neon-grid-plus-pixel-font hero is itself a recognizable
-   template trope by now, however carefully built. Restraint reads as
-   considered; decoration reads as generated. Near-black/near-white,
-   hairline borders, one confident accent, real typographic hierarchy doing
-   the work instead of a novelty display face. Still single-theme dark on
-   purpose — this genre of product (Linear, Vercel, Raycast) ships
-   dark-only marketing pages routinely, and per artifact-design's own
-   allowance, a design that commits to one world can skip the light
-   variant. --accent is turquoise (Slice 12b, framer.com-inspired direction
-   requested directly by the user, replacing the warm gold used since
-   Slice 9g) — same "one confident accent, not a rainbow" discipline as
-   before, just a different hue. The genre categorical palette below is
-   untouched: that one is load-bearing (which color means which genre),
-   not a decorative choice, so a brand accent change has no reason to
-   touch it. */
+/* Brand tokens — Slice 13's "Roman Intelligence" re-skin: a light, warm-
+   ivory premium-SaaS identity (Framer/Linear/Stripe-adjacent) with a
+   restrained classical accent — a serif display face, one royal-blue
+   accent, and a couple of hand-drawn architectural motifs, never literal
+   Roman imagery (no Colosseum photos, no statue renders — this project's
+   standing no-external-asset discipline applies here too, and the
+   direction's own brief argues for restraint over literalism anyway:
+   "architectural texture, not a hero photograph"). Replaces Slice 9g's
+   near-black dev-tool identity and Slice 12b's turquoise-on-black pass —
+   the one thing carried through all three is the same discipline: one
+   confident accent, real typographic hierarchy, no decoration for its own
+   sake. The genre categorical palette below is untouched across all of
+   these — it's load-bearing (which color means which genre), not a brand
+   choice, so a theme change has no reason to touch it. */
 :root {
-  --background: #08090a;
-  --surface: #111214;
-  --surface-raised: #17181b;
-  --foreground: #f5f6f7;
-  --muted: #8a8f98;
-  --border: rgba(245, 246, 247, 0.09);
-  --border-strong: rgba(245, 246, 247, 0.16);
-  --accent: #2dd4bf;
-  --accent-contrast: #042e29;
-  --accent-glow: rgba(45, 212, 191, 0.28);
-  --danger: #ff8a80;
-  --danger-bg: rgba(255, 138, 128, 0.1);
+  --background: #f8f7f3;
+  --surface: #f1efe9;
+  --surface-raised: #ffffff;
+  --foreground: #10131a;
+  --muted: #6b6f78;
+  --border: #e5e3de;
+  --border-strong: #d5d2c8;
+  --accent: #1957ff;
+  --accent-contrast: #ffffff;
+  --accent-glow: rgba(25, 87, 255, 0.16);
+  --danger: #c9403f;
+  --danger-bg: rgba(201, 64, 63, 0.08);
 }
 
 @theme inline {
@@ -47,7 +43,10 @@
   --color-danger-bg: var(--danger-bg);
   --font-sans: var(--font-display);
   --font-display: var(--font-display);
+  --font-serif: var(--font-serif-display);
   --font-mono: var(--font-data-mono);
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.375rem;
 }
 
 /* Genre identity palette — unchanged from the dataviz skill's validated
@@ -73,20 +72,26 @@ body {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
-/* A hairline-bordered solid surface — every panel in the app uses this.
-   No blur, no translucency: the previous "glass over a busy scene"
-   treatment doesn't apply once the background is quiet. A confident solid
-   panel reads calmer. */
+/* The floating-panel look the whole re-skin leans on: a white card, thin
+   warm-stone border, soft diffuse shadow (two layers — a tight contact
+   shadow plus a wider ambient one — rather than one flat drop-shadow,
+   which is what makes it read as "premium" instead of "boxed"). Every
+   panel in the app uses this. */
 .panel {
-  background: var(--surface);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(16, 19, 26, 0.04),
+    0 12px 28px rgba(16, 19, 26, 0.06);
 }
 
 /* Chart tokens (validated default palette — see the dataviz skill's
-   references/palette.md). Deliberately its own light "paper" surface, not
-   the app's dark panels — a chart is read as data on a controlled ground.
-   Single-hue charts only in this app (one series per question), so only
-   the sequential/series-1 slot is needed, not the full categorical order. */
+   references/palette.md). Already a light "paper" surface from Slice 9g,
+   so this needed no change for the light re-skin — it was already the
+   odd one out on purpose (a chart reads as data on a controlled ground,
+   independent of whatever theme the surrounding chrome is in). Single-hue
+   charts only in this app (one series per question), so only the
+   sequential/series-1 slot is needed, not the full categorical order. */
 .viz-root {
   color-scheme: light;
   --viz-surface: #fcfcfb;

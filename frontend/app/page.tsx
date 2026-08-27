@@ -1,12 +1,14 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
 import GenreShowcase from "@/components/GenreShowcase";
-import HeroScene from "@/components/HeroScene";
+import HeroPreview from "@/components/HeroPreview";
+import Laurel from "@/components/icons/Laurel";
 import Markdown from "@/components/Markdown";
 import MeetLudo from "@/components/MeetLudo";
+import RomanArch from "@/components/RomanArch";
 import TraceSteps from "@/components/TraceSteps";
 import {
   streamAsk,
@@ -251,42 +253,41 @@ export default function Home() {
 
   return (
     <div className="min-h-screen font-sans">
-      {/* Hero: wider column, text + 3D scene side by side on desktop */}
-      <div className="max-w-5xl mx-auto px-6 pt-14 pb-4 grid md:grid-cols-2 gap-10 items-center">
-        <motion.div variants={heroContainer} initial="hidden" animate="show">
-          <motion.span
-            variants={heroItem}
-            className="inline-block font-mono text-xs tracking-wide text-[var(--muted)] mb-4"
-          >
-            AI Game Analyst
-          </motion.span>
-          <motion.h1
-            variants={heroItem}
-            className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.1] mb-2 text-balance"
-          >
-            Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
-          </motion.h1>
-          <motion.p variants={heroItem} className="italic text-sm text-[var(--muted)] mb-4">
-            Ludo — from the Latin <em>ludus</em>, &ldquo;game, play.&rdquo;
-          </motion.p>
-          <motion.p variants={heroItem} className="text-[var(--muted)] text-base leading-relaxed max-w-md">
-            A tool-using agent writes real SQL, runs real statistics, and
-            projects real trends against a self-collected game-market
-            dataset — no guessing, no canned answers.
-          </motion.p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="relative h-64 md:h-80"
+      {/* Hero: wider column, text + product preview side by side on desktop */}
+      <div className="relative overflow-hidden">
+        <RomanArch
+          className="pointer-events-none absolute -right-16 top-0 h-[480px] w-auto text-[var(--border-strong)] opacity-40 hidden md:block"
           aria-hidden="true"
-        >
-          <Suspense fallback={null}>
-            <HeroScene />
-          </Suspense>
-        </motion.div>
+        />
+        <div className="relative max-w-5xl mx-auto px-6 pt-14 pb-4 grid md:grid-cols-2 gap-10 items-center">
+          <motion.div variants={heroContainer} initial="hidden" animate="show">
+            <motion.div variants={heroItem} className="flex items-center gap-2 mb-5 text-[var(--muted)]">
+              <Laurel className="h-3.5 w-7" />
+              <span className="font-mono text-[11px] tracking-wide uppercase">
+                AI for the game market
+              </span>
+              <Laurel className="h-3.5 w-7" flip />
+            </motion.div>
+            <motion.h1
+              variants={heroItem}
+              className="font-serif text-5xl sm:text-6xl font-normal leading-[1.05] mb-3 text-balance"
+            >
+              Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
+            </motion.h1>
+            <motion.p variants={heroItem} className="italic font-serif text-lg text-[var(--muted)] mb-5">
+              Ludo — from the Latin <em>ludus</em>, &ldquo;game, play.&rdquo;
+            </motion.p>
+            <motion.p variants={heroItem} className="text-[var(--muted)] text-base leading-relaxed max-w-md">
+              A tool-using agent writes real SQL, runs real statistics, and
+              projects real trends against a self-collected game-market
+              dataset — no guessing, no canned answers.
+            </motion.p>
+          </motion.div>
+
+          <div className="relative">
+            <HeroPreview />
+          </div>
+        </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-6 pb-14">

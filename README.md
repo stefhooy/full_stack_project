@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 12b** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 13** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -53,21 +53,23 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — a restrained dev-tool identity
-  (near-black background, one accent color — turquoise, framer.com-
-  inspired as of Slice 12b — Geist type, real typographic hierarchy
-  instead of a decorative theme; a React Three Fiber hero scene with lit
-  3D objects in the genre categorical palette; Motion for the animated
-  node-by-node progress trace), a genre picker (flat cards) that browses
-  the real games behind each genre (`GET /games`, no LLM call,
-  counts/labels fetched live from `GET /genres`), markdown-rendered
-  answers, charts, and a "Show the work" panel — see
+- A Next.js frontend (`frontend/`) — "Roman Intelligence" (Slice 13): a
+  light, warm-ivory premium-SaaS identity (Framer/Linear/Stripe-adjacent)
+  with a restrained classical accent — Instrument Serif for display
+  headlines, Geist for UI/body, one royal-blue accent, two hand-drawn
+  Roman motifs (a laurel sprig, a faint line-drawn arch — no photographic
+  imagery, consistent with this project's no-external-asset discipline),
+  Motion for the animated node-by-node progress trace, a genre picker
+  (flat cards) that browses the real games behind each genre (`GET
+  /games`, no LLM call, counts/labels fetched live from `GET /genres`),
+  markdown-rendered answers, charts, and a "Show the work" panel — see
   `frontend/README.md`
 - The agent is named **Ludo** (Latin *ludus*, "game, play") — introduced
-  in the hero and a "Meet Ludo" scroll section (soft drifting turquoise
-  gradient blobs, `GradientBlobs.tsx`, Framer-marketing-page-inspired —
-  not the literal 3D gaming-object scene an earlier pass tried) with
-  example questions that specifically exercise the new Slice 11 fields
+  in the hero (a real, previously-verified Ludo answer shown in a floating
+  preview panel, not a mockup) and a "Meet Ludo" section: three real
+  capabilities (Ask / Investigate / Show the work, mapped to the actual
+  agent graph in ARCHITECTURE.md) plus example questions that specifically
+  exercise the new Slice 11 fields
 - A full catalog browse page (`/catalog`) — search by name, filter by
   genre, sort by 7 fields, paginated, no LLM call (`GET /catalog`,
   `src/db/catalog.py`); for a question with an answer rather than a
