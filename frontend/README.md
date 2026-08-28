@@ -17,8 +17,9 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 ## What's here
 
-Slice 17, refining Slice 16 on real positive feedback for the first time
-in this project's redesign history. See DOCEXP.md for the full history
+Slice 18, adding a cartridge detail popup to Slice 17's film strip on
+real positive feedback for the first time in this project's redesign
+history. See DOCEXP.md for the full history
 (Slice 9g's near-black dev-tool look, Slice 12b's turquoise pass, Slice
 13's light "Roman Intelligence" re-skin, Slice 14/14b/14c's dark
 illustrated-then-photographic Roman statue, Slice 15's monochrome-plus-
@@ -68,7 +69,20 @@ deleted full Roman identity.
   Needs `appid` on `CatalogGame` (added to `src/db/catalog.py`'s columns)
   and a `remotePatterns` entry in `next.config.ts` for Steam's CDN, the
   one remote-image source in this app. A cover that fails to load drops
-  out of the strip via `onError` rather than showing broken.
+  out of the strip via `onError` rather than showing broken. Clicking a
+  cover opens `GameCartridge.tsx`, a cartridge-shaped detail card for
+  that one game (cover, name, genre, release date, Metacritic,
+  platforms, price, review score, owners, peak players, all from the
+  same `CatalogGame` object the strip already fetched, no second
+  request), closable via its X button, a backdrop click, or Escape.
+  Deliberately not a `layoutId` shared-layout morph from the clicked
+  cover, since the strip's own list is duplicated for its seamless loop
+  (`[...visible, ...visible]`), so two DOM nodes share the same `appid`
+  at once and a shared-layout id would be ambiguous about its source
+  (see DOCEXP.md's Slice 18 entry) — it's a plain `AnimatePresence`
+  scale-and-fade pop instead. The slide pauses deterministically while
+  a cartridge is open (an inline `animationPlayState`, alongside the
+  existing `:hover` CSS rule) and resumes the instant it closes.
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
   `/ask/stream` endpoint.

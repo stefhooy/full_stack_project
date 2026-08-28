@@ -3432,3 +3432,102 @@ above, not just a screenshot that happened to show a scaled cover.
   over extended reading** — fine for short labels and single words, not
   yet judged for a long markdown answer where multiple bolded terms in
   one paragraph would all carry the same bright accent.
+
+## Slice 18 — A cartridge popup, and why the shared-layout morph got dropped before it was written
+
+**Date:** 2026-08-29
+
+Screenshot feedback on the catalog page's genre filter ("382 games")
+turned out not to be a bug at all: the genre dropdown was set to
+Adventure, and 382 is the real, correct count for that one genre inside
+the 1,000-game catalog, not a data problem. Worth recording because it's
+the first time this session a screenshot prompted an investigation that
+resolved to "working as intended, here's why" rather than a fix.
+
+The same message carried a real feature request: click a film-strip
+cover to see that game's info in a popup styled like a video game
+cartridge, close it back to the strip with an animation, and along the
+way speed up the slide and drop the strip's side borders.
+
+### Why the `layoutId` shared-element morph got dropped before any code was written
+
+The initial pitch (presented to the user, not yet re-confirmed before
+implementation started) described the cover art morphing from its
+film-strip position into the cartridge via Motion's shared-layout
+animation, `layoutId`. Before writing that, re-examined `FilmStrip.tsx`
+and remembered its list is deliberately duplicated for the seamless
+loop: `const strip = [...visible, ...visible]`. That means, at any
+instant, two DOM nodes exist for the same `appid`, both mid-slide, both
+candidates for the same `layoutId`. Motion's shared-layout animation
+needs a single unambiguous source element to morph from; with two live
+nodes sharing an id, which one it treats as "the" source is undefined
+behavior, not a design choice this app makes on purpose. Rather than
+give the strip's rendering scheme (duplicated list) more entanglement
+with the modal's rendering scheme (single game), dropped `layoutId`
+entirely and built a plain scale-and-fade `AnimatePresence` pop instead
+(`GameCartridge.tsx`): it reads as "popping out" without depending on
+which of two identical DOM nodes triggered it. This is the kind of
+mid-task correction the brainstorming skill's design step exists to
+catch, it happened here purely from re-reading the file being changed,
+not from anything going wrong at runtime.
+
+### One card, no second network call
+
+Every field `GameCartridge` shows (cover, name, genre, release date,
+Metacritic, platforms, price, review score, owners, peak players) is
+already present on the `CatalogGame` object the film strip fetched to
+build its cover list. Opening the cartridge is therefore a pure client-
+side state change (`selected: CatalogGame | null`), not a new request to
+the backend.
+
+### Extracting `lib/formatGame.ts`
+
+`CatalogClient.tsx` already had `formatDate`/`formatOwners`/
+`formatPrice`/`formatPlatforms` as private local functions for its
+table. The cartridge needed the exact same formatting for the exact
+same fields. Rather than let a second copy exist and drift (a null
+price rendering differently in the table than in the cartridge, say),
+pulled all four into `lib/formatGame.ts` and pointed both consumers at
+it. `CatalogClient.tsx`'s own `PlatformBadges` component was retired in
+the same pass since `formatPlatforms` returns a plain string now, not
+JSX; the table cell just calls it directly.
+
+### Pausing the strip while the cartridge is open
+
+The Slice 17 hover-pause (`animation-play-state: paused` on `:hover`)
+only fires while the pointer is still over the strip, which usually
+isn't true once someone has clicked a cover and is reading the
+cartridge with their mouse elsewhere. Added a second, independent path
+to the same CSS property: an inline `animationPlayState: selected ?
+"paused" : undefined` alongside the existing `:hover` rule, so the
+slide is guaranteed frozen for the entire time a cartridge is open
+regardless of pointer position, and resumes the instant it closes.
+Verified this the same way Slice 17 verified the hover case: read the
+track's computed `animationPlayState` immediately before opening
+(`running`), while open (`paused`), and immediately after closing
+(`running` again) rather than trusting the CSS rule to behave as
+intended.
+
+### Speed and border, the two small direct requests
+
+The slide's duration multiplier dropped from `visible.length * 2.2`
+seconds to `* 1.2`. The strip's frame border, previously `3px double
+var(--accent)` on all four sides, is now `borderTop`/`borderBottom`
+only, with no left/right rule, matching the direct ask for "an upper
+and bottom border, however on the side nothing."
+
+### Verification
+
+`npm run lint`, `tsc --noEmit`, `npm run build` all clean; backend's 83
+tests untouched and green (this slice is frontend-only). Playwright,
+run twice: once confirming the border computes to 3px top/bottom and
+0px left/right, a click opens the dialog, the X button closes it, and
+`animationPlayState` reads `paused` while open and `running` after
+close, at both desktop and mobile viewports with zero console errors
+and zero horizontal overflow on `/` and `/catalog`; a second pass
+specifically isolating the two other close paths (Escape and a backdrop
+click), since "click X on it" was the only close path spelled out
+explicitly and the other two were part of the design, not just an
+implementation detail. Grepped every new and touched file for em
+dashes, en dashes, and non-breaking hyphens; none found outside code
+comments.

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { motion } from "motion/react";
 import { fetchCatalog, type CatalogGame } from "@/lib/catalog";
+import GameCartridge from "@/components/GameCartridge";
 
 // The hero's visual: real cover art for real games in the catalog,
 // hotlinked from Steam's own CDN (the same asset each game's own store
@@ -46,6 +47,7 @@ function Sprockets() {
 export default function FilmStrip() {
   const [games, setGames] = useState<CatalogGame[] | null>(null);
   const [broken, setBroken] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<CatalogGame | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,28 +57,48 @@ export default function FilmStrip() {
     return () => controller.abort();
   }, []);
 
+  // Escape closes the cartridge from anywhere, not just its own X button.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+
   const visible = (games ?? []).filter((g) => !broken.has(g.appid));
   // Duplicated once so a -50% translateX loop is seamless -- the second
   // copy lands exactly where the first one started.
   const strip = [...visible, ...visible];
 
   return (
-    <div className="relative w-full overflow-hidden" style={{ border: "3px double var(--accent)" }}>
+    <div className="relative w-full overflow-hidden" style={{ borderTop: "3px double var(--accent)", borderBottom: "3px double var(--accent)" }}>
       <Sprockets />
       <div className="overflow-hidden py-3" style={{ backgroundColor: "var(--accent-contrast)" }}>
         {visible.length > 0 && (
           <div
             className="filmstrip-track flex"
-            style={{ gap: GAP, paddingInline: GAP, animationDuration: `${visible.length * 2.2}s` }}
+            style={{
+              gap: GAP,
+              paddingInline: GAP,
+              animationDuration: `${visible.length * 1.2}s`,
+              // Pausing on hover alone isn't enough once the cartridge is
+              // open (the pointer usually isn't still over the strip) --
+              // this deterministically freezes the slide for as long as
+              // a cartridge is open, same mechanism as the :hover rule.
+              animationPlayState: selected ? "paused" : undefined,
+            }}
           >
             {strip.map((g, i) => (
               <motion.div
                 key={`${g.appid}-${i}`}
-                className="relative shrink-0 rounded-sm overflow-hidden"
+                className="relative shrink-0 rounded-sm overflow-hidden cursor-pointer"
                 style={{ width: FRAME_WIDTH, height: FRAME_HEIGHT }}
                 title={g.name}
                 whileHover={{ scale: 1.08, boxShadow: "0 0 0 2px var(--accent), 0 0 24px var(--accent-glow)" }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
+                onClick={() => setSelected(g)}
               >
                 <Image
                   src={coverUrl(g.appid)}
@@ -97,6 +119,7 @@ export default function FilmStrip() {
         )}
       </div>
       <Sprockets />
+      <GameCartridge game={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }

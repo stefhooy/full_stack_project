@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { fetchCatalog, type CatalogGame, type CatalogSort } from "@/lib/catalog";
+import { formatDate, formatOwners, formatPlatforms, formatPrice } from "@/lib/formatGame";
 import { fetchGenres, type Genre } from "@/lib/genres";
 
 const PAGE_SIZE = 24;
@@ -17,36 +18,6 @@ const SORT_OPTIONS: { value: CatalogSort; label: string }[] = [
   { value: "owners_high", label: "Owners" },
   { value: "name", label: "Name" },
 ];
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "n/a";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "n/a";
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-}
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
-  return String(n);
-}
-
-function formatOwners(low: number | null, high: number | null): string {
-  if (low == null || high == null) return "n/a";
-  return `${formatCount(low)} to ${formatCount(high)}`;
-}
-
-function formatPrice(price: number | null): string {
-  if (price == null) return "n/a";
-  return price === 0 ? "Free" : `$${price.toFixed(2)}`;
-}
-
-function PlatformBadges({ platforms }: { platforms: string | null }) {
-  if (!platforms) return <span className="text-[var(--muted)]">n/a</span>;
-  const labels: Record<string, string> = { windows: "Win", mac: "Mac", linux: "Linux" };
-  const list = platforms.split(",").map((p) => labels[p.trim()] ?? p.trim());
-  return <span>{list.join(" · ")}</span>;
-}
 
 function TableSkeleton() {
   return (
@@ -235,7 +206,7 @@ export default function CatalogClient() {
                         {g.metacritic_score ?? "n/a"}
                       </td>
                       <td className="py-2 px-3 hidden lg:table-cell text-[var(--muted)]">
-                        <PlatformBadges platforms={g.platforms} />
+                        {formatPlatforms(g.platforms)}
                       </td>
                       <td className="py-2 px-3 text-right tabular-nums">{formatPrice(g.price_usd)}</td>
                       <td className="py-2 px-3 hidden sm:table-cell text-right tabular-nums">

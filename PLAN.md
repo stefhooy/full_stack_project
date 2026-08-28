@@ -1018,6 +1018,54 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       confirms zero console errors and zero horizontal overflow on both
       routes, desktop and mobile; a real `/ask` round trip still clean
 
+## Slice 18 — The film strip opens: a cartridge detail card, plus speed and border refinements
+- [x] Feedback on Slice 17 asked for three things: click a cover to see
+      that game's info in a "video game cartridge" popup with a close
+      animation back to the strip, a faster slide, and a strip border on
+      the top/bottom only (none on the sides)
+- [x] Ran this through `superpowers:brainstorming`, classified Bounded;
+      the design pitched a `layoutId` shared-element morph from the
+      clicked cover into the cartridge, but that was dropped before
+      writing any code once it became clear the strip's list is
+      duplicated (`[...visible, ...visible]`, for the seamless loop),
+      so two DOM nodes share the same `appid`/`layoutId` at once — a
+      shared-layout morph across them is ambiguous about which node it
+      animates from. Built a plain scale-plus-fade `AnimatePresence` pop
+      instead, which has no such ambiguity
+- [x] New `components/GameCartridge.tsx`: a rounded detail card shaped
+      like a ROM cartridge (a ridged "connector" bar along the bottom),
+      showing the clicked game's cover, name, genre, release date,
+      Metacritic, platforms, price, review score, owners, and peak
+      players — every field already present on the `CatalogGame` the
+      film strip already fetched, so opening it makes no second network
+      call. Closes via its X button, a click on the backdrop, or Escape
+      (all three checked live with Playwright, not just the X)
+- [x] Extracted `lib/formatGame.ts` (`formatDate`, `formatOwners`,
+      `formatPrice`, `formatPlatforms`) out of `CatalogClient.tsx`,
+      which had its own private copies of the same formatting, once the
+      cartridge became a second real consumer that needed exactly the
+      same logic — one shared source instead of two copies drifting
+- [x] `FilmStrip`'s slide now pauses deterministically whenever a
+      cartridge is open (`animationPlayState: selected ? "paused" :
+      undefined` alongside the existing CSS `:hover` rule), not just
+      while the pointer happens to still be over the strip, and resumes
+      the instant it closes — verified programmatically via computed
+      `animationPlayState` before/during/after, not eyeballed
+- [x] Slide duration multiplier dropped from `visible.length * 2.2`s to
+      `* 1.2`s per direct request ("a bit faster")
+- [x] Strip's outer frame border changed from all four sides
+      (`border: "3px double var(--accent)"`) to `borderTop`/
+      `borderBottom` only, no left/right rule, per direct request
+- [x] Re-verified fresh: `npm run lint`, `tsc --noEmit`, `npm run build`
+      all clean; backend's 83 tests untouched and green; Playwright
+      confirms the border computes to 3px top/bottom and 0px left/right,
+      a click opens the cartridge, the X/Escape/backdrop-click paths all
+      close it, the track's `animationPlayState` is `paused` while open
+      and `running` after close, and zero console errors/horizontal
+      overflow on both routes, desktop and mobile; grepped the new/
+      touched files for em dashes, en dashes, and non-breaking hyphens —
+      none found in rendered copy
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
