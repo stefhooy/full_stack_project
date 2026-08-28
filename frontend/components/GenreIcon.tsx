@@ -1,23 +1,34 @@
 // Hand-authored line-art glyphs, one per genre in lib/genres.ts — no icon
-// library. Each is a plain 24x24 stroke drawing in currentColor so it
+// library. Redrawn for Slice 16 (direct feedback: "change the icons... I
+// don't like them") with a thin engraved-medallion ring built into every
+// glyph — a restrained nod to a Roman coin/seal, the one small "Latin
+// touch" applied here rather than reviving the deleted full Roman
+// identity. Each is a plain 24x24 stroke drawing in currentColor so it
 // inherits whatever color the caller sets (usually a --genre-N token), and
-// carries its own <title> so genre identity never rests on color alone even
-// before the text label next to it is considered.
+// carries its own <title> so genre identity never rests on color alone
+// even before the text label next to it is considered.
 
 const SHARED = {
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.9,
+  strokeWidth: 1.6,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
 
+// The medallion ring every glyph sits inside, drawn once per icon rather
+// than factored into a wrapper element, so it's part of the artwork
+// itself (the same "coin" a caller's color tints, not a separate frame).
+function Ring() {
+  return <circle cx="12" cy="12" r="9.5" {...SHARED} strokeWidth={1.1} opacity={0.55} />;
+}
+
 function Action() {
   return (
     <>
-      <circle cx="12" cy="12" r="7.5" {...SHARED} />
-      <circle cx="12" cy="12" r="2.4" {...SHARED} />
-      <path d="M12 3.2v3M12 17.8v3M3.2 12h3M17.8 12h3" {...SHARED} />
+      <Ring />
+      <circle cx="12" cy="12" r="4.6" {...SHARED} />
+      <path d="M12 4.8v2.4M12 16.8v2.4M4.8 12h2.4M16.8 12h2.4" {...SHARED} />
     </>
   );
 }
@@ -25,26 +36,26 @@ function Action() {
 function Adventure() {
   return (
     <>
-      <circle cx="12" cy="12" r="8" {...SHARED} />
-      <path d="M15.2 8.8 13 13l-4.2 2.2L11 11z" {...SHARED} strokeLinejoin="round" />
+      <Ring />
+      <path d="M12 5.5 8.3 15.2l3.7-2.1 3.7 2.1Z" {...SHARED} strokeLinejoin="round" />
     </>
   );
 }
 
 function Indie() {
   return (
-    <path
-      d="M12 19.5s-6.8-4.15-6.8-9.1A3.9 3.9 0 0 1 12 7.9a3.9 3.9 0 0 1 6.8 2.5c0 4.95-6.8 9.1-6.8 9.1Z"
-      {...SHARED}
-    />
+    <>
+      <Ring />
+      <path d="M12 5.5 13.4 10.4 18 12 13.4 13.6 12 18.5 10.6 13.6 6 12 10.6 10.4Z" {...SHARED} strokeLinejoin="round" />
+    </>
   );
 }
 
 function RPG() {
   return (
     <>
-      <path d="M12 3.5 20 8v8l-8 4.5L4 16V8Z" {...SHARED} />
-      <path d="M4 8l8 4.5 8-4.5M12 12.5v8" {...SHARED} />
+      <Ring />
+      <path d="M12 5.2 16.5 7v4.3c0 3.4-2 5.6-4.5 6.9-2.5-1.3-4.5-3.5-4.5-6.9V7Z" {...SHARED} strokeLinejoin="round" />
     </>
   );
 }
@@ -52,9 +63,10 @@ function RPG() {
 function Simulation() {
   return (
     <>
-      <circle cx="12" cy="12" r="3" {...SHARED} />
+      <Ring />
+      <circle cx="12" cy="12" r="2.6" {...SHARED} />
       <path
-        d="M12 4.6v2.3M12 17.1v2.3M19.4 12h-2.3M6.9 12H4.6M17.4 6.6l-1.6 1.6M8.2 15.8l-1.6 1.6M17.4 17.4l-1.6-1.6M8.2 8.2 6.6 6.6"
+        d="M12 6.3v1.9M12 15.8v1.9M17.7 12h-1.9M8.2 12H6.3M15.9 8.1l-1.3 1.3M9.4 14.5l-1.3 1.3M15.9 15.9l-1.3-1.3M9.4 9.5 8.1 8.2"
         {...SHARED}
       />
     </>
@@ -64,10 +76,11 @@ function Simulation() {
 function MMO() {
   return (
     <>
-      <circle cx="6" cy="7" r="2.1" {...SHARED} />
-      <circle cx="18" cy="7" r="2.1" {...SHARED} />
-      <circle cx="12" cy="17.5" r="2.1" {...SHARED} />
-      <path d="M7.6 8.4 10.6 16M16.4 8.4 13.4 16M8.1 7h7.8" {...SHARED} />
+      <Ring />
+      <circle cx="8.3" cy="9.3" r="1.7" {...SHARED} />
+      <circle cx="15.7" cy="9.3" r="1.7" {...SHARED} />
+      <circle cx="12" cy="16.2" r="1.7" {...SHARED} />
+      <path d="M9.3 10.6 11.2 14.7M14.7 10.6 12.8 14.7M9.9 9.3h4.2" {...SHARED} />
     </>
   );
 }
@@ -75,8 +88,9 @@ function MMO() {
 function Strategy() {
   return (
     <>
-      <rect x="4" y="4" width="16" height="16" rx="1.5" {...SHARED} />
-      <path d="M4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16" {...SHARED} strokeWidth={1.2} />
+      <Ring />
+      <path d="M12 5.5 17.3 8.4v6.6L12 18.5 6.7 15V8.4Z" {...SHARED} strokeLinejoin="round" />
+      <path d="M6.7 8.4 12 11.3l5.3-2.9M12 11.3v7.2" {...SHARED} strokeWidth={1} />
     </>
   );
 }
@@ -84,9 +98,10 @@ function Strategy() {
 function Casual() {
   return (
     <>
-      <rect x="4.5" y="4.5" width="15" height="15" rx="5" {...SHARED} />
-      <path d="M9 10.2h.01M15 10.2h.01" {...SHARED} strokeWidth={2.4} />
-      <path d="M8.7 14.3c.9 1.15 2 1.75 3.3 1.75s2.4-.6 3.3-1.75" {...SHARED} />
+      <Ring />
+      <circle cx="9" cy="10.5" r="0.9" {...SHARED} strokeWidth={2.2} />
+      <circle cx="15" cy="10.5" r="0.9" {...SHARED} strokeWidth={2.2} />
+      <path d="M8.5 14.2c1 1.15 2.1 1.75 3.5 1.75s2.5-.6 3.5-1.75" {...SHARED} />
     </>
   );
 }
@@ -94,11 +109,9 @@ function Casual() {
 function Sports() {
   return (
     <>
-      <circle cx="12" cy="12" r="8" {...SHARED} />
-      <path
-        d="M12 4v16M4.6 8.5h14.8M4.6 15.5h14.8M12 4a11 11 0 0 1 0 16 11 11 0 0 1 0-16Z"
-        {...SHARED}
-      />
+      <Ring />
+      <circle cx="12" cy="12" r="5.5" {...SHARED} />
+      <path d="M12 6.5v11M6.5 12h11" {...SHARED} strokeWidth={1.1} />
     </>
   );
 }
@@ -106,13 +119,10 @@ function Sports() {
 function Racing() {
   return (
     <>
-      <path d="M5 4v16" {...SHARED} />
-      <path
-        d="M5 4h6.5l-1.5 2.5L13 9H5.5"
-        {...SHARED}
-        strokeLinejoin="round"
-      />
-      <path d="M5 9h5l1.5 2.5L10 14H5" {...SHARED} strokeLinejoin="round" />
+      <Ring />
+      <path d="M7 6.5v11" {...SHARED} />
+      <path d="M7 6.5h6l-1.3 2.2L14 11H7.5" {...SHARED} strokeLinejoin="round" />
+      <path d="M7 11h4.3l1.3 2.2L11.3 15.4H7" {...SHARED} strokeLinejoin="round" />
     </>
   );
 }
@@ -124,9 +134,10 @@ function Racing() {
 function Generic() {
   return (
     <>
-      <rect x="3.5" y="8.5" width="17" height="9" rx="4.5" {...SHARED} />
-      <path d="M8 11v4M6 13h4" {...SHARED} />
-      <path d="M15.2 12.3h.01M17.6 14.3h.01" {...SHARED} strokeWidth={2.4} />
+      <Ring />
+      <rect x="6.5" y="9.5" width="11" height="6.5" rx="3" {...SHARED} />
+      <path d="M9.3 11.5v2.5M8 12.75h2.5" {...SHARED} strokeWidth={1.2} />
+      <path d="M14.3 11.9h.01M15.9 13.3h.01" {...SHARED} strokeWidth={2} />
     </>
   );
 }

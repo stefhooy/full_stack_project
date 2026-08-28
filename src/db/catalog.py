@@ -23,6 +23,7 @@ import duckdb
 from src.config import settings
 
 _CATALOG_COLUMNS = [
+    "appid",
     "name",
     "developer",
     "publisher",

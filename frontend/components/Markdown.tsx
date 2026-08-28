@@ -35,7 +35,7 @@ export default function Markdown({ children }: { children: string }) {
         ),
         li: ({ children }) => (
           <li className="flex gap-2">
-            <span className="text-[var(--accent)] leading-relaxed">–</span>
+            <span className="leading-relaxed text-[var(--muted)]">•</span>
             <span className="flex-1">{children}</span>
           </li>
         ),

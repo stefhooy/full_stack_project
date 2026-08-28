@@ -17,13 +17,15 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 ## What's here
 
-"Roman Intelligence" (Slice 13): a light, warm-ivory premium-SaaS identity
-with a restrained classical accent — see DOCEXP.md's Slice 13 entry for
-why this replaced the near-black dev-tool identity (Slice 9g) and the
-turquoise-on-black pass that briefly followed it (Slice 12b). The Roman
-motifs are two small hand-drawn SVGs (a laurel sprig, one faint line-drawn
-arch), never photographic imagery — consistent with this app's standing
-no-external-asset discipline.
+Slice 16, after Slice 15's stricter zero-accent monochrome pass got
+direct "I dont like it" feedback. See DOCEXP.md for the full history
+(Slice 9g's near-black dev-tool look, Slice 12b's turquoise pass, Slice
+13's light "Roman Intelligence" re-skin, Slice 14/14b/14c's dark
+illustrated-then-photographic Roman statue, Slice 15's monochrome-plus-
+live-data-scatter restart). This pass: a dark, green-tinted background,
+a muted bronze `--accent` back in every piece of chrome, and two small,
+specific Latin/Roman touches (the film strip's frame, the genre icons'
+medallion ring) rather than reviving the deleted full identity.
 
 - `app/page.tsx` — the whole UI: hero (headline + `HeroPreview`, a real
   verified answer shown in a floating panel), ask console, example
@@ -34,12 +36,29 @@ no-external-asset discipline.
   paginate over all 1,000 games, `GET /catalog`, no LLM call). `page.tsx`
   is a thin server wrapper (for a real per-route `<title>`) around the
   actual `"use client"` component, `CatalogClient.tsx`.
-- `app/globals.css` — one committed light palette (no light/dark split for
+- `app/globals.css` — one committed dark palette (no light/dark split for
   chrome tokens — a deliberate exception carried over from Slice 9d, see
   DOCEXP.md; this class of product routinely ships one committed marketing
-  theme), `--accent` a royal blue, and the `.panel` floating-card surface
-  (white, thin warm-stone border, soft two-layer shadow) every card/result
-  panel uses.
+  theme). `--accent` is a muted antique bronze/gold (Slice 16, reversing
+  Slice 15's zero-accent experiment). The genre categorical palette was
+  re-picked and run through the dataviz skill's validator against this
+  app's own dark-green background — the reference default and an earlier
+  earth-tone draft both failed the adjacent-CVD-separation check; the
+  passing set spreads across the full hue wheel instead (see DOCEXP.md's
+  Slice 16 entry for why hue clustering can't pass no matter the order).
+  The `.panel` flat hairline-bordered dark surface every card/result
+  panel uses is unchanged.
+- `components/FilmStrip.tsx` — the hero's visual (Slice 16, replacing
+  Slice 15's live data scatter): real cover art for real games, hotlinked
+  from Steam's own CDN (`library_600x900.jpg`, the same asset each game's
+  store page uses — verified reachable with a live curl before wiring
+  this up), sliding in an infinite loop inside a frame with real film
+  sprocket holes (a tiled `repeating radial-gradient`, not extra DOM
+  elements) and a double-rule bronze border. Needs `appid` on
+  `CatalogGame` (added to `src/db/catalog.py`'s columns) and a
+  `remotePatterns` entry in `next.config.ts` for Steam's CDN, the one
+  remote-image source in this app. A cover that fails to load drops out
+  of the strip via `onError` rather than showing broken.
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
   `/ask/stream` endpoint.
@@ -64,30 +83,24 @@ no-external-asset discipline.
   markdown lives on the backend, not here — see `src/agent/prompts.py`'s
   formatting rule.
 - `components/GenreIcon.tsx` — 10 hand-authored line-art SVG glyphs + a
-  generic fallback (no icon library dependency).
-- `components/GenreShowcase.tsx` — flat cards (icon + label + count), not
-  a decorative shape (an earlier pass used a Game Boy cartridge silhouette
-  — dropped in Slice 9g along with the rest of the retro skin). Fetches
-  `GET /genres` on mount (loading skeleton + graceful hide-on-failure);
-  clicking a card fetches `GET /games` for that genre (deterministic, no
-  LLM call) and shows a leaderboard of the real games in it, with a
-  secondary link that still bridges into asking the agent about that genre
-  through `/ask/stream`.
-- `components/HeroPreview.tsx` — the hero's product visual: a static
-  floating panel showing a real, previously-verified Ludo answer, styled
-  identically to the app's actual result panel. Replaced an earlier React
-  Three Fiber 3D scene (Slice 9g, retired in Slice 13) once the visual
-  identity moved from dark/saturated to light/restrained and the shapes
-  stopped fitting — see DOCEXP.md's Slice 13 entry.
+  generic fallback (no icon library dependency), redrawn in Slice 16 with
+  a thin engraved-medallion ring built into every glyph itself (a coin/
+  seal touch, the second small Latin/Roman accent this slice added).
+- `components/GenreShowcase.tsx` — flat cards (icon + label + count).
+  Fetches `GET /genres` on mount (loading skeleton + graceful
+  hide-on-failure); clicking a card fetches `GET /games` for that genre
+  (deterministic, no LLM call) and shows a leaderboard of the real games
+  in it, with a secondary link that still bridges into asking the agent
+  about that genre through `/ask/stream`.
+- `components/HeroPreview.tsx` — a static floating panel below the hero
+  showing a real, previously-verified Ludo answer, styled identically to
+  the app's actual result panel.
 - `components/MeetLudo.tsx` — three real capabilities (Ask / Investigate /
   Show the work, mapped to the actual agent graph in `ARCHITECTURE.md`,
   not a decorative visual) plus example questions exercising the Slice 11
   fields (Metacritic, platforms, release date, categories).
-- `components/Nav.tsx`, `components/icons/{Laurel,Medallion}.tsx`,
-  `components/RomanArch.tsx` — the shared nav and this re-skin's two
-  hand-drawn Roman motifs (a mirrored laurel-sprig pair flanking the hero
-  eyebrow / dividing sections, one faint line-drawn arch in the hero
-  background, an abstract ring-and-ticks medallion as the nav logomark).
+- `components/Nav.tsx` — the shared nav: a plain text wordmark and two
+  links, no icon.
 - `components/TraceSteps.tsx` — turns streamed progress events into a
   node-by-node animated trace (router → schema → think → query → chart),
   the same visual language as the root `ARCHITECTURE.md` agent-trace
@@ -99,14 +112,25 @@ no-external-asset discipline.
   `prefers-reduced-motion` automatically.
 - Animation: [Motion](https://motion.dev) for every state-driven UI
   transition (hero entrance, card hover, `AnimatePresence`, the blur
-  transitions between panels). No WebGL/3D in this app as of Slice 13 —
-  React Three Fiber (Slice 9g's hero scene) was removed once the visual
-  identity moved to the light re-skin; the previous entries in this file's
-  history cover why it existed and what replaced it.
-- Type: Instrument Serif (display headlines only — the one Slice 13
-  addition) + [Geist](https://vercel.com/font) (UI/body — real typographic
-  hierarchy carries everything that isn't a headline) + IBM Plex Mono
-  (data/code, same face ARCHITECTURE.md's trace artifact uses).
+  transitions between panels, `FilmStrip`'s infinite sliding loop). No
+  WebGL/3D, no fixed animated background layer.
+- Type: Geist only, at every scale from the hero headline (light weight,
+  large, tight tracking) down to a button label, plus IBM Plex Mono for
+  data/code (same face ARCHITECTURE.md's trace artifact uses). One
+  family carrying the whole range, no second display face.
+
+## A hard site-wide rule: no em dashes, no en dashes
+
+Set directly by the user, applies to every page. Every hardcoded UI
+string is grep-verified dash-free (`grep -rn` for U+2014/U+2013 across
+`app/`, `components/`, `lib/` should only ever match code comments, never
+rendered strings). The harder part isn't this app's own copy though —
+it's the agent's own generated answer text, which a small fast LLM will
+drift back to em dashes in even with a system-prompt rule telling it not
+to (confirmed for real, not hypothesized). That's fixed on the backend,
+not here: see `src/agent/graph.py`'s `_strip_dashes()` and the root
+README's note on it. If you add new hardcoded copy to this app, run the
+same grep before considering it done.
 
 ## Deploy
 

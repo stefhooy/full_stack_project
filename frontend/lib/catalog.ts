@@ -4,6 +4,7 @@
 import { API_BASE_URL } from "@/lib/api";
 
 export interface CatalogGame {
+  appid: number;
   name: string;
   developer: string | null;
   publisher: string | null;

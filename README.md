@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 13** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 16** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -46,6 +46,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   projection the moment enough real snapshots accumulate — see DOCEXP.md)
 - A deterministic (non-LLM) chart-spec generator that infers a bar/scatter
   spec from a successful query's shape
+- Every answer's text is guaranteed em-dash/en-dash-free — the system
+  prompt asks the model not to use them, but that's a request, not a
+  guarantee (confirmed: a real answer came back with one anyway), so
+  `_strip_dashes()` in `src/agent/graph.py` deterministically fixes it up
+  before the answer ever leaves the graph, on the one path every caller
+  (API, MCP server, evals) already shares
 - A FastAPI `POST /ask` endpoint wiring it all together, returning the
   answer, the SQL or stats query that was actually run, the raw rows or
   stats result, a chart spec, the route classification, and which schema
@@ -53,17 +59,20 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
-- A Next.js frontend (`frontend/`) — "Roman Intelligence" (Slice 13): a
-  light, warm-ivory premium-SaaS identity (Framer/Linear/Stripe-adjacent)
-  with a restrained classical accent — Instrument Serif for display
-  headlines, Geist for UI/body, one royal-blue accent, two hand-drawn
-  Roman motifs (a laurel sprig, a faint line-drawn arch — no photographic
-  imagery, consistent with this project's no-external-asset discipline),
-  Motion for the animated node-by-node progress trace, a genre picker
-  (flat cards) that browses the real games behind each genre (`GET
-  /games`, no LLM call, counts/labels fetched live from `GET /genres`),
-  markdown-rendered answers, charts, and a "Show the work" panel — see
-  `frontend/README.md`
+- A Next.js frontend (`frontend/`) — a dark, near-black/green identity
+  with a muted bronze accent (Slice 16, after Slice 15's stricter
+  zero-accent monochrome pass didn't land). The hero is a real film strip
+  (`components/FilmStrip.tsx`) of real game cover art hotlinked live from
+  Steam's own CDN, sliding past inside a frame with real film sprocket
+  holes and a double-rule bronze border — the one restrained Latin/Roman
+  touch in an otherwise modern page. Genre icons carry a matching thin
+  engraved-medallion ring, and the genre categorical palette was re-picked
+  and validated against this app's own background with the dataviz
+  skill's validator. Motion for the animated node-by-node progress trace,
+  a genre picker (flat cards) that browses the real games behind each
+  genre (`GET /games`, no LLM call, counts/labels fetched live from
+  `GET /genres`), markdown-rendered answers, charts, and a "Show the
+  work" panel — see `frontend/README.md`
 - The agent is named **Ludo** (Latin *ludus*, "game, play") — introduced
   in the hero (a real, previously-verified Ludo answer shown in a floating
   preview panel, not a mockup) and a "Meet Ludo" section: three real

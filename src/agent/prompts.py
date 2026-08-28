@@ -62,6 +62,8 @@ suggestion):
   but only with each `- item` on its own line, never chained on one line with `*`.
 - Never use `---`/`***` as a decorative divider in prose; only use it as an actual markdown
   table's header separator.
+- Never use an em dash or en dash anywhere in the answer. Use a period, comma, or "to" (for a
+  range) instead. A plain hyphen in a compound word (like "self-collected") is fine.
 {tool_guidance}"""
 
 ANALYSIS_TOOL_GUIDANCE = """

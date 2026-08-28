@@ -3,12 +3,11 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
+import FilmStrip from "@/components/FilmStrip";
 import GenreShowcase from "@/components/GenreShowcase";
 import HeroPreview from "@/components/HeroPreview";
-import Laurel from "@/components/icons/Laurel";
 import Markdown from "@/components/Markdown";
 import MeetLudo from "@/components/MeetLudo";
-import RomanArch from "@/components/RomanArch";
 import TraceSteps from "@/components/TraceSteps";
 import {
   streamAsk,
@@ -19,7 +18,7 @@ import {
 } from "@/lib/api";
 
 const EXAMPLE_QUESTIONS = [
-  "What are the 5 highest-rated games with more than 1000 positive reviews?",
+  "What are the 5 highest rated games with more than 1000 positive reviews?",
   "Is the price difference between Action games and other games statistically significant?",
   "Are there any games with an unusually high number of concurrent players compared to the rest?",
   "How many players will this game have next year?",
@@ -101,7 +100,7 @@ function StatsResultView({ stats }: { stats: StatsResult }) {
         <ul className="space-y-0.5">
           {s.outliers.map((o) => (
             <li key={o.label}>
-              <span className="font-semibold">{o.label}</span> — {o.value.toLocaleString()}{" "}
+              <span className="font-semibold">{o.label}</span>: {o.value.toLocaleString()}{" "}
               (z = {o.z_score.toFixed(2)})
             </li>
           ))}
@@ -196,10 +195,6 @@ function ResultTable({ columns, rows }: { columns: string[]; rows: unknown[][] }
   );
 }
 
-const heroContainer = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08 } },
-};
 const heroItem = {
   hidden: { opacity: 0, y: 10 },
   show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const } },
@@ -253,53 +248,69 @@ export default function Home() {
 
   return (
     <div className="min-h-screen font-sans">
-      {/* Hero: wider column, text + product preview side by side on desktop */}
-      <div className="relative overflow-hidden">
-        <RomanArch
-          className="pointer-events-none absolute -right-16 top-0 h-[480px] w-auto text-[var(--border-strong)] opacity-40 hidden md:block"
-          aria-hidden="true"
-        />
-        <div className="relative max-w-5xl mx-auto px-6 pt-14 pb-4 grid md:grid-cols-2 gap-10 items-center">
-          <motion.div variants={heroContainer} initial="hidden" animate="show">
-            <motion.div variants={heroItem} className="flex items-center gap-2 mb-5 text-[var(--muted)]">
-              <Laurel className="h-3.5 w-7" />
-              <span className="font-mono text-[11px] tracking-wide uppercase">
-                AI for the game market
-              </span>
-              <Laurel className="h-3.5 w-7" flip />
-            </motion.div>
-            <motion.h1
-              variants={heroItem}
-              className="font-serif text-5xl sm:text-6xl font-normal leading-[1.05] mb-3 text-balance"
-            >
-              Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
-            </motion.h1>
-            <motion.p variants={heroItem} className="italic font-serif text-lg text-[var(--muted)] mb-5">
-              Ludo — from the Latin <em>ludus</em>, &ldquo;game, play.&rdquo;
-            </motion.p>
-            <motion.p variants={heroItem} className="text-[var(--muted)] text-base leading-relaxed max-w-md">
-              A tool-using agent writes real SQL, runs real statistics, and
-              projects real trends against a self-collected game-market
-              dataset — no guessing, no canned answers.
-            </motion.p>
-          </motion.div>
-
-          <div className="relative">
-            <HeroPreview />
-          </div>
+      {/* Hero: headline first, then the film strip of real catalog covers
+          as its own framed visual band right below it. */}
+      <section className="relative border-b border-[var(--border)]">
+        <div className="relative max-w-2xl mx-auto px-6 pt-20 pb-10 text-center">
+          <motion.p
+            initial="hidden"
+            animate="show"
+            variants={heroItem}
+            className="font-mono text-[11px] tracking-wide uppercase text-[var(--muted)] mb-5"
+          >
+            AI for the game market
+          </motion.p>
+          <motion.h1
+            initial="hidden"
+            animate="show"
+            variants={heroItem}
+            className="text-6xl sm:text-7xl font-light tracking-tight leading-[0.98] mb-4 text-balance"
+          >
+            Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
+          </motion.h1>
+          <motion.p
+            initial="hidden"
+            animate="show"
+            variants={heroItem}
+            className="italic text-sm text-[var(--muted)] mb-5"
+          >
+            Ludo comes from the Latin <em>ludus</em>. Game, play.
+          </motion.p>
+          <motion.p
+            initial="hidden"
+            animate="show"
+            variants={heroItem}
+            transition={{ delay: 0.1 }}
+            className="text-[var(--muted)] text-base leading-relaxed max-w-md mx-auto"
+          >
+            A tool using agent that writes real SQL, runs real statistics, and projects real
+            trends against a self collected game market dataset. No guessing, no canned answers.
+          </motion.p>
         </div>
-      </div>
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+          className="max-w-4xl mx-auto px-6 pb-16"
+        >
+          <FilmStrip />
+        </motion.div>
+      </section>
 
-      <div className="max-w-2xl mx-auto px-6 pb-14">
+      <div className="max-w-2xl mx-auto px-6 py-14">
+        <div className="mb-10">
+          <HeroPreview />
+        </div>
+
         <motion.form
-          variants={heroItem}
           initial="hidden"
           animate="show"
+          variants={heroItem}
           onSubmit={(e) => {
             e.preventDefault();
             ask(question);
           }}
-          className="mb-3 mt-4"
+          className="mb-3"
         >
           <div className="panel flex items-center gap-2 rounded-lg px-3 py-1 transition-colors focus-within:border-[var(--border-strong)]">
             <input
@@ -322,12 +333,7 @@ export default function Home() {
           </div>
         </motion.form>
 
-        <motion.div
-          variants={heroItem}
-          initial="hidden"
-          animate="show"
-          className="flex flex-wrap gap-1.5 mb-12"
-        >
+        <motion.div initial="hidden" animate="show" variants={heroItem} className="flex flex-wrap gap-1.5">
           {EXAMPLE_QUESTIONS.map((q) => (
             <motion.button
               key={q}
@@ -346,7 +352,7 @@ export default function Home() {
 
       <MeetLudo onPick={ask} disabled={loading} />
 
-      <div className="max-w-2xl mx-auto px-6 pb-14">
+      <div className="max-w-2xl mx-auto px-6 py-14">
         <div className="mb-12">
           <GenreShowcase onPick={ask} disabled={loading} />
         </div>

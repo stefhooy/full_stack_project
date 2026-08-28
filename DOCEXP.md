@@ -2706,3 +2706,639 @@ of Slice 12b's leftover-server mishap by not spawning new servers at all.
   border used everywhere else) — intentional restraint, but worth a
   second look if a reviewer says the three columns don't read as
   separated at a glance.
+
+---
+
+## Slice 14 — Reverting fast, illustrating for real
+
+**Date:** 2026-08-28
+
+Direct rejection, no hedging: "I dont like this design at all." Paired
+with four concrete new asks in the same message — a dark animated black/
+green/turquoise background, a bolder "Apple style" font, a hand-
+illustrated classical figure with gaming headphones holding a controller,
+and Roman-styled genre icons. Unlike the PlayerLens brief two slices ago,
+these were concrete and internally consistent enough to execute directly
+rather than ask more clarifying questions — the user had already been
+asked twice this session (Slice 12b's scope, Slice 13's re-skin-vs-craft
+question), and a third round of questions on a message this specific
+would have read as stalling rather than diligence.
+
+### Reverting the mechanism, not just the values
+
+Slice 13's light theme used a flat ivory background and a two-layer white
+drop-shadow on every panel — neither survives a straight color swap back
+to dark. A `box-shadow: 0 12px 28px rgba(...)` reads as "premium" against
+flat ivory and reads as nothing (or a faint artifact) against a moving
+dark gradient; dropped the shadow layer from `.panel` entirely and went
+back to the flat hairline-bordered dark surface Slices 9g/12b already
+proved out, rather than trying to make the light-theme mechanism work
+with dark values plugged in.
+
+### One fixed background layer, not a per-section effect
+
+"Make the background animated" reads as a whole-site property, not one
+section's decoration — the honest way to build that is one fixed,
+full-viewport layer behind everything (`AuroraBackground.tsx`), not a
+duplicated effect re-mounted in the hero and `MeetLudo` and anywhere else
+separately. Made `body`'s own background transparent so the fixed layer
+shows through in the gaps; content panels (the nav bar, `.panel` result
+cards, the catalog table) keep their own opaque fills on top for
+legibility, so a moving background never fights actually reading a data
+table. `MeetLudo`'s own opaque section background (added in Slice 13)
+came out for the same reason — it was blocking the aurora exactly where
+the user would expect to see it keep going.
+
+`lib/useReducedMotion.ts` — deleted three slices ago once nothing used
+it — came back the moment AuroraBackground needed the identical hook.
+Worth naming as real churn rather than smoothing it into the log: the
+underlying need (something in this app wants to freeze under reduced
+motion) is stable across redesigns even though which component needs it
+keeps changing with every visual pass.
+
+### The illustration, and a real layout mistake caught by looking
+
+`RomanGamerBust.tsx` is the biggest new asset this slice: a hand-
+authored SVG bust, not a fetched illustration or photo — the same
+discipline every visual element in this app has followed since Slice 9g,
+applied to something considerably more ambitious than a primitive shape
+or a line-drawn arch. Chose a profile (cameo) pose deliberately over a
+frontal face: a side silhouette is achievable with a handful of bezier
+points and reads as intentional, where a frontal face attempted from
+primitive shapes needs eyes/nose/mouth or it looks unfinished or eerie —
+picking the pose that a modest set of hand-drawn curves can actually pull
+off convincingly, rather than the pose that was asked for most literally.
+
+First composition attempt overlapped the illustration behind the
+`HeroPreview` real-answer card, offsetting the card only slightly. Real
+mistake, caught by actually rendering and screenshotting it rather than
+trusting the JSX: the card ended up covering almost the entire bust,
+including the controller — the one detail the user had specifically
+named. Fixed by stacking the two vertically instead of overlapping them,
+which also sidesteps needing to tune two elements' relative z-order and
+offsets to avoid occlusion on every future edit to either one.
+
+### Genre icons: one consistent treatment, not ten bespoke redraws
+
+"Make the icons more Roman style" could have meant redesigning all 10
+hand-drawn glyphs in `GenreIcon.tsx` from scratch. Chose the cheaper,
+more consistent option instead: wrapped each existing glyph in a circular
+ring-bordered chip with an inset highlight (a coin/medallion frame)
+rather than reinventing what each glyph depicts. This reads as a real
+stylistic shift applied uniformly, and avoids the risk of some bespoke
+Roman reinterpretation of "RPG" or "Simulation" losing the at-a-glance
+legibility the current glyphs already have.
+
+### A concrete "scroll" answer instead of another on-mount fade
+
+Every animation in this app up to this slice was either an on-mount
+stagger or a `whileInView` trigger — real, but not actually driven by
+scroll position. Added genuine scroll-linked parallax (Motion's
+`useScroll`/`useTransform` against the hero's own scroll progress) for
+the arch line-art and the bust, drifting at different rates so they read
+as sitting at different depths rather than moving as one flat layer —
+the concrete version of "add transitions when you scroll down," not
+another entrance animation.
+
+### Verification
+
+Same bar as every prior frontend slice: `npm run lint`, `tsc --noEmit`,
+`npm run build` all clean; Playwright against both routes, desktop and
+mobile, zero console errors, zero horizontal overflow, one full `/ask`
+round trip screenshotted to confirm the new dark theme and turquoise
+accent actually reach the live result view. Backend's 76 tests re-run as
+a sanity check, unaffected by a frontend-only slice. Verified against the
+user's own already-running dev servers again rather than starting a
+competing pair.
+
+### Open questions (new)
+
+- **This is the fourth distinct visual identity this project has shipped**
+  (Slice 9g's dark dev-tool look, Slice 12b's turquoise variant, Slice
+  13's light Roman-marble pass, this dark-again illustrated one). Worth
+  watching whether the next round of feedback converges on refining this
+  one or triggers a fifth full pass — if it's the latter, worth explicitly
+  asking what specifically isn't working before rebuilding again, since
+  four full re-skins in one session is a real signal that something about
+  how direction gets set (not the execution quality of any single pass)
+  might be worth addressing directly.
+- **`RomanGamerBust.tsx`'s facial profile detail (brow/nose/chin) is
+  subtle at the rendered size** — visible on close inspection but reads
+  mostly as a smooth silhouette at a glance. Superseded by Slice 14b's
+  `RomanGamerStatue.tsx` (a front-facing figure, not a profile), so this
+  specific concern no longer applies to the current illustration, but the
+  underlying lesson (hand-typed bezier coordinates for a face read as
+  "acceptable" more than "polished") carries forward to any future
+  illustration work.
+
+---
+
+## Slice 14b — A real hydration bug, and building toward a real reference
+
+**Date:** 2026-08-28
+
+Two unrelated things arrived in one message: a genuine console error from
+the user's own browser, and a reference photo with "let's use this
+statue." Worth treating them as the different kinds of problems they
+actually were — one a bug to fix correctly, the other a design direction
+to interpret honestly.
+
+### The hydration error: fixing the class of bug, not the instance
+
+`Uncaught Error: Target ref is defined but not hydrated` from Motion's
+`useScroll({ target: heroRef })`, added in Slice 14 for the hero's
+scroll-linked parallax. Checked Motion's own troubleshooting page before
+guessing at a fix: the documented cause is exactly "ref isn't properly
+connected to a DOM element" at the moment `useScroll` needs it — and the
+code here already looked like the documented-correct pattern (`heroRef`
+attached directly to a plain `<div ref={heroRef}>`, no wrapper component
+swallowing the ref). That's the tell that this is a timing race in how
+Next.js App Router client components hydrate relative to when Motion's
+internal effect fires, not a straightforward misuse the docs' checklist
+would catch.
+
+Rather than chase the exact race condition (client-only guard flags,
+delaying the `useScroll` call until after a mount effect, etc.), switched
+to the ref-free form of `useScroll()` entirely — it tracks raw
+`window.scrollY` instead of a ref-relative scroll range, which structurally
+cannot hit this class of error since there's no target ref to be hydrated
+or not. Rewrote both parallax transforms against pixel scroll position
+(`useTransform(scrollY, [0, 700], ...)`) instead of scroll progress
+(0 to 1) relative to the hero's own bounding box — a small semantic
+change (the parallax range is now a fixed pixel distance rather than
+"across the hero's own height"), traded deliberately for removing an
+entire category of hydration bug rather than patching one occurrence of
+it. Verified with a fresh (non-HMR) Playwright page load plus repeated
+programmatic scroll events, specifically because the original bug report
+came from a live session that had been through many rapid HMR updates —
+worth ruling out that as a contributing factor by testing a clean load.
+
+### The statue: honoring the reference without embedding it
+
+The shared photo was a real, specific classical marble statue — someone
+else's photograph of a museum piece, copyrighted regardless of how it's
+being used here. Two independent reasons not to embed it directly: this
+project's standing rule (every visual asset in this app has been
+hand-authored code since Slice 9g, no exception made yet for anything,
+including a user-supplied reference image) and the more general point
+that redistributing someone else's photograph inside a shipped product
+isn't something to do on a user's behalf without them separately sourcing
+usage rights for it. Said this plainly rather than silently either
+embedding it or silently ignoring the request.
+
+What did change for real: the illustration's whole composition. The
+previous version (`RomanGamerBust.tsx`) was a shoulders-up profile bust —
+reasonable, but nothing like what the reference actually showed (a full
+standing figure, one arm raised holding a scepter aloft, a bold diagonal
+gold drape, fuller curled hair). Rebuilt as `RomanGamerStatue.tsx` with
+those same structural choices, translated to what the controller-holding
+premise needs: the raised arm now holds the controller aloft instead of
+a scepter, the gold drape is still gold and still diagonal (the
+reference's one strong color note against white marble, kept rather than
+forced into the site's turquoise to match chrome), and the hair is fuller
+and curlier than the previous version's minimal treatment.
+
+### A real geometry bug, caught by looking at the actual render
+
+First draft of the raised arm used two independently-rotated rect
+segments (upper arm + forearm) with two different, uncoordinated
+rotation pivots. The math for each rotation was correct in isolation, but
+the forearm's pivot didn't correspond to where the upper arm's rotation
+had actually put its own endpoint — so the two segments didn't connect,
+and the controller (positioned relative to the forearm's assumed end
+point) rendered floating disconnected above the hand, not held in it.
+Found by screenshotting the render, not by re-deriving the trigonometry
+on paper — the same "verify against the actual output" discipline this
+whole project applies to SQL results and stats computations applied here
+to hand-drawn geometry instead. Fixed by simplifying to one rotated
+segment for the whole raised arm, actually working out the rotation
+trigonometry by hand for that single segment (pivot at the shoulder,
+solved for the rotation angle that lands the far end at a target point
+within the canvas), then placing the hand ellipse and the controller
+group at that computed endpoint rather than an eyeballed one. One simple,
+correctly-computed segment beat two more detailed but disconnected ones.
+
+### Verification
+
+`npm run lint`, `tsc --noEmit`, `npm run build` all clean. Playwright:
+the fresh-load-plus-scroll check specifically targeting the reported
+error (confirmed gone), plus the usual full pass (both routes, desktop +
+mobile, zero console errors, zero horizontal overflow). Backend untouched,
+76 tests still green.
+
+### Open questions (new)
+
+- **The bent (non-raised) arm in `RomanGamerStatue.tsx` reads as fairly
+  subtle against the torso** — superseded by Slice 14c, which replaced
+  the whole hand-drawn illustration with a real photo; no longer
+  applicable, kept here only as a record of what the hand-drawn version's
+  known rough edge was.
+- **The parallax range change (pixel-based vs. hero-height-relative) means
+  the exact drift distance is no longer proportional to the hero's actual
+  rendered height** — fine at the viewport sizes this was checked at
+  (1440×900 and 390×844), but an unusually tall or short hero rendering
+  (e.g. a very wide ultrawide monitor, or a font-scaling accessibility
+  setting that changes hero height substantially) could make the parallax
+  feel slightly under- or over-scaled relative to how far you've actually
+  scrolled past the hero. Not verified at other viewport sizes.
+
+---
+
+## Slice 14c — The first photographic asset, verified before use
+
+**Date:** 2026-08-28
+
+Two things arrived together, worth treating separately: a request to
+connect Claude Code to Framer (a genuine research question, answered by
+actually looking up what Framer's current external-agent feature does
+rather than guessing from training-data-era knowledge), and then a
+follow-up that reframed the real goal — "an agent that will help me
+design an actual good website" — which named the real problem with this
+whole session honestly: four full re-skins from me hand-writing CSS
+blind is a worse loop than a tool with an actual visual canvas. Answered
+that plainly rather than oversell what I can do without one.
+
+Then, separately: "let's use Claude Design... add more realism with the
+Roman statue... let's use a realistic statue of Apollo." Worth being
+precise about what "Claude Design" actually is before acting on it —
+looked it up rather than assumed: a real Anthropic research-preview
+product at claude.ai/design, a separate browser surface I can't drive
+from Claude Code, not a tool call available here. Said so directly. The
+"realistic Apollo statue" part was the real, actionable request.
+
+### Why a hand-drawn SVG can't do this, and what that implies
+
+"Realistic" is a real requirement a hand-typed bezier path structurally
+cannot satisfy — Slice 14b's `RomanGamerStatue.tsx` was already pushing
+the ceiling of what primitive-shape illustration can achieve, and more
+iteration on that ceiling wouldn't produce photorealism, just a more
+polished non-photorealistic illustration. That's a different kind of
+constraint than the ones this project has been solving with more careful
+code (a sorting bug, a hydration race) — no amount of correct trigonometry
+turns rectangles into marble. Said this directly rather than attempting
+another SVG pass and hoping it read as more real than the last one.
+
+### Scoping the real fork before touching anything
+
+Three genuinely different ways to get a real photo exist, with different
+costs: I find and verify a public-domain photo myself (breaks this
+project's hand-authored-only rule, needs real license diligence on my
+part); the user sources/generates one themselves and hands it to me
+(sidesteps me making licensing judgment calls on their behalf); or stay
+fully hand-drawn and accept the ceiling. Asked which, rather than picking
+one — this is exactly the kind of fork where a wrong guess is expensive
+(a licensing misstep isn't something to walk back quietly) and the
+user's own risk tolerance is the actual deciding factor, not something I
+can infer from the conversation so far.
+
+### Verifying a license on the actual file, not the search summary
+
+Found the Apollo Belvedere on Wikimedia Commons via search, but the
+aggregated search summary just asserted "public domain photographs are
+available" without naming which specific file or what license actually
+applies to it — photographs of 3D public-domain objects are not
+automatically public domain themselves (the photographer's framing,
+lighting, and composition choices are their own copyrightable work,
+unlike a straight photographic reproduction of a 2D public-domain
+painting). Fetched the specific file's own Commons page directly and
+confirmed CC BY 2.5, attributed to Marie-Lan Nguyen — a real, well-known
+Wikimedia photographer of museum statuary — before downloading anything.
+Attribution is a real license term, not a nicety, so it's rendered as a
+visible caption under the image linking to the license text, not buried
+in a code comment where only a reader of this repo would ever see it.
+
+### Looking at the source before deciding how to use it
+
+Downloaded the actual full photo and looked at it rather than assuming
+"statue photo" meant "usable as-is." It's full nudity — normal and
+expected for classical statuary, not appropriate for a product hero
+image. Cropped to head/shoulders/extended-arm, which conveniently also
+happens to be exactly the region needed anyway (the raised/extended hand
+holding whatever will become the controller) — the crop decision served
+two real constraints at once rather than being purely a workaround.
+
+### Compositing with Pillow, and two more real bugs caught by looking
+
+Built `frontend/scripts/compose-apollo-hero.py` (checked into the repo,
+not left in scratch) to draw the headphones and controller directly onto
+the photo with Pillow's `ImageDraw`, rather than trying to align live
+HTML/CSS overlay elements against a photo's pixel coordinates across
+every breakpoint — baking the composite into one static asset is far
+more robust than keeping the alignment problem live in the browser.
+
+Two real bugs, both caught by rendering and inspecting the actual output,
+not by re-reading the script:
+
+1. The controller rendered clipped off the right edge of the frame — the
+   hand sits near the original photo's own right edge, and the rotated
+   controller needed more canvas than that edge left available. Fixed by
+   padding the canvas with transparent space before compositing anything
+   onto it, rather than shrinking the controller to fit an edge that
+   shouldn't have been the constraint in the first place.
+2. After fixing that, a large solid black rectangle appeared where the
+   transparent padding should have been. The fade-mask code computed a
+   soft-edge gradient and then assigned it as the image's *entire* new
+   alpha channel — silently discarding the padding's own alpha=0
+   transparency and replacing it with the fade mask's default opaque
+   value everywhere the fade gradient hadn't explicitly touched. Fixed by
+   combining the fade mask with the pre-existing alpha channel via
+   `ImageChops.darker` (a per-pixel minimum) instead of overwriting it —
+   verified afterward with actual pixel-value checks (`getpixel` at
+   several coordinates in the padding region), not just a visual glance,
+   since the first "it looks transparent now" impression could easily
+   have been the image viewer's own transparency rendering rather than
+   confirmation the file was actually correct.
+
+### Reproducibility over a one-off script
+
+The compositing script downloads its own source photo on demand and
+caches it gitignored rather than committing a ~5MB JPEG to the repo, and
+lives in `frontend/scripts/` rather than a session-local scratch
+directory — re-run from a clean checkout, it produces a byte-identical
+`public/apollo-hero.webp`, verified for real by deleting the cached
+download and re-running before calling this done.
+
+### Verification
+
+`npm run lint`, `tsc --noEmit`, `npm run build` all clean; Playwright
+confirms zero console errors and zero horizontal overflow on both routes,
+desktop and mobile, plus a real `/ask` round trip. Backend untouched, 76
+tests still green.
+
+### Open questions (new)
+
+- **This is the first and only photographic asset in the app.** Superseded
+  by Slice 15: the photo, and the whole identity around it, was deleted
+  outright a few turns later on direct instruction to start over. Kept
+  here as the real record of a decision that turned out to be temporary,
+  not a mistake to erase from the log.
+- **No `next.config.ts` image domain/remotePatterns change was needed**
+  since the asset lives in `public/` rather than being loaded from a
+  remote URL at runtime — moot now that the asset is gone, kept for the
+  same reason as above.
+
+---
+
+## Slice 15 — The catalog is the identity, and a real bug in an LLM's own prose
+
+**Date:** 2026-08-28
+
+Two unrelated things landed back to back: the user installed a batch of
+newly available Claude Code skills (superpowers, frontend-design, and
+others), then immediately asked for a full landing page rebuild. Worth
+treating that sequencing as real: this was the first task run through
+`superpowers:using-superpowers` -> `superpowers:brainstorming` ->
+`example-skills:frontend-design`, not because a skill happened to exist
+for it, but because the rule those skills state plainly ("if a skill
+might apply, invoke it, before any response") leaves no room to skip the
+process just because six full re-skins already happened this session
+without one.
+
+### What the brainstorming gate actually bought
+
+Classified the request as Bounded (an existing page's presentation, not a
+new subsystem) and asked exactly one question before proposing anything:
+does "completely new" mean rebuild the execution around the current
+identity, or discard it and start over. The answer ("start over") is the
+kind of fork that's expensive to guess wrong on after four prior re-skins
+already spent that exact goodwill; asking once, concretely, cost nothing
+and removed the single biggest risk in the whole task before any code
+was written.
+
+### The concept: stop illustrating the product, show it
+
+Every prior direction (3D shapes, gradient blobs, a Roman statue) put a
+decorative visual in front of Ludo rather than using anything Ludo
+actually has. The frontend-design skill's own calibration section names
+exactly the trap this session kept finding on its own the hard way:
+AI-generated design defaults cluster around a few looks regardless of
+subject. The fix here was to ground the hero in the one thing genuinely
+specific to this product: its own real catalog. `CatalogField.tsx` plots
+100 real games, live, fetched from the same endpoint the browse page
+already uses, colored by real genre, sized by real popularity. Paired
+with a real, named aesthetic risk: zero decorative accent color anywhere
+in the chrome, so the only color on the entire site is real data. That's
+the kind of choice the frontend-design skill calls "spend your boldness
+in one place" made concrete rather than aspirational.
+
+### A real Motion bug, caught immediately by the fresh Playwright pass
+
+First render of `CatalogField` threw `<circle> attribute cy: Expected
+length, "undefined"` on every single point. Root cause: `cy={p.y}` as a
+plain JSX attribute alongside `cy: [...]` inside Motion's `animate`
+object gave Motion nothing to interpolate from at the start of the
+animation. Same family of bug as Slice 14b's controller-in-the-wrong-
+place issue: something that looks structurally fine (a value defined
+twice, once statically and once animated) actually leaves an undefined
+gap Motion can't fill in. Fixed by letting Motion own `cy` completely,
+defined in both `initial` and every branch of `animate`, never as a bare
+prop.
+
+Second, more interesting problem, found by looking at the actual render
+rather than the code: a lot of real games share an exact price ($0,
+$19.99), so the first working version showed hard vertical stripes of
+stacked circles instead of a scatter. Fixed with a deterministic hash of
+each game's own name for jitter, specifically not `Math.random()` during
+render, a rule this project has held since Slice 9g's React-Compiler-era
+fixes, and specifically stable across re-renders rather than reshuffling
+positions every time.
+
+### The dash constraint, and where it actually needed to be fixed
+
+"No em dashes or en dashes" arrived as a hard constraint mid-slice. Fixed
+every hardcoded string across the frontend, grep-verified rather than
+spot-checked. But the real discovery came from actually running the
+`/ask` flow after the rebuild: the live model's own answer came back with
+a genuine em dash ("Aseprite – review score...") despite a new rule added
+to the system prompt asking it not to use one. Worth stating plainly,
+since it's a real, generalizable lesson: an instruction to an LLM changes
+the distribution of what it outputs, it does not guarantee any specific
+output. A constraint that has to hold for every response needs a
+deterministic check on the output, not just a request in the prompt.
+
+`_strip_dashes()` in `src/agent/graph.py` is that deterministic check,
+applied on the one code path both `run_agent()` and `stream_agent()`
+already funnel every route through, so the guarantee covers the API, the
+MCP server, and evals without needing three copies of the same rule.
+Found and fixed a real bug in this function before it shipped, the same
+day it was written: the first regex (`\s*[—–]\s*`) matched a dash with
+*zero* surrounding whitespace just as readily as one with real spaces
+around it, so a tight numeric range like "10–20" was silently turned into
+"10, 20", a list of two numbers instead of a range, changing what the
+text actually meant. Caught by testing the fix against a real range
+string, not just the original spaced-dash bug report, before considering
+it done. Fixed by requiring real whitespace (`\s+`) before treating a
+dash as a parenthetical aside; a bare dash falls through to a plain
+hyphen instead, which preserves the range's meaning.
+
+While verifying the live fix against the actual running backend, found a
+third, related character in the same real response: U+2011, a
+"non-breaking hyphen" that renders identically to a normal hyphen but is
+a distinct Unicode codepoint, in "highest‑rated". Not literally an em or
+en dash, and the user never named it, but it's the identical class of
+problem: the model reaching for an unusual punctuation mark instead of
+the plain ASCII one. Normalized it too, on the reasoning that the user's
+actual intent ("plain, ordinary punctuation, not typographic LLM tics")
+extends past the two examples they happened to name.
+
+### Verification, run through superpowers' own gate
+
+Invoked `superpowers:verification-before-completion` before making any
+claim of done, which is stricter than this project's own established
+habit of checking before wrapping up: every command (lint, `tsc`, build,
+pytest, the dash grep, Playwright, a live curl against the running
+backend) was re-run fresh in the same turn as the completion claim, not
+reused from an earlier check in the conversation. All green: lint and
+`tsc` clean, build exits successfully with both routes prerendering,
+83 backend tests passing (6 new, covering `_strip_dashes()` directly,
+including the range-preservation case and the non-breaking-hyphen case),
+zero dash characters anywhere in rendered frontend strings, zero console
+errors or horizontal overflow on both routes at both viewport sizes, and
+a live model response confirmed to contain none of the three dash
+characters.
+
+### Open questions (new)
+
+- **The hero's real-data scatter is sampled, not exhaustive.** It plots
+  100 games (the top 100 by peak concurrent players, the same query the
+  catalog page's default sort already uses), not all 1,000. That's a
+  deliberate performance/legibility tradeoff, not an oversight, but it
+  does mean the visual skews toward already-popular games rather than a
+  uniform random sample of the whole catalog. Superseded by Slice 16:
+  the scatter itself was replaced with a film strip of cover art a few
+  turns later on direct "I dont like it" feedback, so this specific
+  concern no longer applies, kept here as the real record.
+- **Checked, not just assumed: `stream_agent()`'s progress events are
+  node-completion markers (`stream_mode="updates"`), never token-level
+  answer text.** The first draft of this entry claimed the sanitizer
+  might momentarily miss a raw dash during live streaming; re-read the
+  actual generator before leaving that claim in and it's not true, the
+  frontend never sees the answer text until the one final, already-
+  sanitized `AgentResult`. No real gap here, worth having verified rather
+  than guessed.
+
+---
+
+## Slice 16 — Real feedback, real questions, a real palette lesson
+
+**Date:** 2026-08-28
+
+"I dont like it," aimed squarely at Slice 15's strict monochrome-plus-
+live-data-scatter identity, arrived with four concrete replacement asks
+bundled into one message: a Latin/Roman touch, a dark green background,
+a sliding film-strip animation of real game covers, and different genre
+icons and colors. Worth taking the rejection at face value rather than
+defending the previous pass's reasoning: the scatter plot's honesty
+(real data, no decoration) didn't matter if the result read as sparse
+and cold rather than considered.
+
+### Three questions, not four guesses
+
+Ran this through `superpowers:brainstorming` again, the second time this
+session the newly installed skill governed a design task, and asked
+three targeted questions before touching any code: hotlink real Steam
+cover art or fall back to placeholders, does the film strip replace the
+scatter as the hero or run alongside it, and how far should "Roman
+touch" go now that the full identity (aurora, statue, laurel icons) was
+deleted outright one slice ago. All three of the biggest open forks in
+this request got resolved with a nod each rather than an assumption,
+which mattered more here than usual: getting "how much Roman" wrong in
+either direction (too little reads as ignoring the feedback, too much
+re-imports the exact system that was deliberately deleted last round)
+would have wasted the whole turn.
+
+### Real cover art, sourced the same way the Apollo photo was
+
+Steam serves each game's own official cover art from a predictable CDN
+path (`library_600x900.jpg`, the same asset the game's own store page
+uses). Verified the URL was actually live with a plain curl before
+writing any code that depended on it, the same discipline applied to
+the Apollo photo's license two slices ago: check the actual thing
+works, don't assume a URL pattern remembered from training data is still
+current. This is the first *remote* image this app has ever loaded
+(the Apollo photo was downloaded and committed; this one is hotlinked
+live), which is a genuinely different reliability posture, if Steam
+changes this path the strip degrades rather than breaks outright, since
+each cover's `onError` handler drops it from the strip instead of
+showing a broken image.
+
+Getting the real cover art required a small, honest addition to the
+data layer: `appid` wasn't previously exposed by `GET /catalog` because
+nothing needed it yet. Added it to `_CATALOG_COLUMNS` rather than
+building a separate endpoint, since the catalog page's existing rows
+already carry everything else the film strip needs (name, for the
+title attribute).
+
+### The film strip's frame, built from real film mechanics
+
+The sprocket-hole border isn't a repeated set of DOM elements, it's a
+single `repeating radial-gradient` background tuned to the actual
+spacing of real 35mm film perforations, which tiles automatically
+regardless of the strip's rendered width. The double-rule bronze border
+is the one Roman-adjacent touch on the frame; the genre icons' new
+engraved-medallion ring (see below) is the other, deliberately two
+small, specific accents rather than a reintroduction of the whole
+system.
+
+### A real, generalizable lesson from the categorical palette redo
+
+The user asked directly for different genre colors, so this couldn't be
+the existing validated default carried forward. Drafted an "earthy,
+antique" 8-hue set first (rust, teal, gold, wine, olive, and similar)
+to match the Roman mood the rest of this slice was reaching for, ran it
+through the dataviz skill's actual validator against this app's own new
+dark-green background rather than eyeballing it, and it failed
+repeatedly. Reordering the same eight hues to separate the worst
+adjacent pairs just moved the failure to a different pair. The real
+lesson, worth generalizing past this one palette: eight hues clustered
+in a narrow slice of the hue wheel structurally cannot clear adjacent-
+pair separation floors no matter how they're ordered, because ordering
+only changes *which* pairs are adjacent, not how close together the
+hues are to begin with. Fixed by spreading the eight hues across the
+full wheel (one blue, one orange, one teal, one gold, one magenta, one
+green, one violet, one red) the same structural shape the dataviz
+skill's own reference palette uses, just with different specific shades
+so it reads as genuinely new rather than the same defaults restored.
+That set passed every check on the first real attempt once the
+structural constraint was respected instead of fought.
+
+### Bringing the accent back, named as a reversal
+
+Slice 15's "zero decorative accent color" was a real, deliberate risk
+that didn't pay off. Reversing it isn't a quiet value swap: every
+component that had been flattened to pure monochrome (the Ask button,
+route/cached pills, the forecast's projected number, markdown bold and
+links, the trace stepper) needed its accent usage restored individually,
+since Slice 15 had rewritten each one to read foreground/muted directly
+rather than through a variable that could be redefined once. Worth
+naming that cost plainly: a "no accent" design choice isn't free to
+reverse later if it was implemented by replacing every accent reference
+rather than pointing them all at a token that happened to equal the
+background at the time.
+
+### Verification
+
+Same fresh-in-this-turn bar as Slice 15's own close: `npm run lint`,
+`tsc --noEmit`, `npm run build` all clean; backend's 83 tests untouched
+and green; the dash grep re-run and still zero hits outside comments;
+Playwright confirms zero console errors (including from the 80 remote
+image requests the film strip's duplicated loop makes) and zero
+horizontal overflow on both routes, desktop and mobile; a real `/ask`
+round trip confirms the restored accent actually reaches the live
+result view.
+
+### Open questions (new)
+
+- **The film strip's 80 image requests (40 real games, duplicated for
+  the seamless loop) all fire on mount with no `priority` staggering.**
+  No console errors or warnings surfaced from this in testing, but it
+  hasn't been checked under a throttled/slow network condition, where a
+  visible pop-in as covers load could look rougher than on a fast local
+  connection.
+- **Steam's CDN path for cover art isn't officially documented as a
+  stable public API** — it's the same path the store page's own
+  frontend uses, verified live before wiring this up, but Valve could
+  change it without notice. No fallback exists beyond the per-cover
+  `onError` drop; a Steam-side path change would just thin out the
+  strip, not break the page, but worth knowing this dependency exists
+  outside this project's own control.

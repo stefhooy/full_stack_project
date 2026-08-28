@@ -692,6 +692,297 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       pytest tests re-run as a sanity check (untouched by this frontend-
       only slice, still green)
 
+## Slice 14 — Dark again, illustrated, and louder about it
+- [x] Direct rejection of Slice 13's light re-skin ("I dont like this
+      design at all") plus four concrete new asks in one message: a dark
+      animated black/green/turquoise background, a bolder "Apple style"
+      font, a hand-illustrated classical figure wearing gaming headphones
+      and holding a controller, and Roman-styled genre icons. Executed
+      directly rather than re-asking — the asks were concrete enough this
+      time, and the user had already been asked twice this session
+- [x] `components/AuroraBackground.tsx` (new) — one fixed, full-viewport
+      layer (not per-section) with a solid dark base fill plus 3-4 large
+      blurred blobs (deep green + one brighter turquoise highlight)
+      drifting slowly via Motion, `prefers-reduced-motion`-aware. Mounted
+      once in `layout.tsx`; `body`'s own background is now transparent so
+      the fixed layer shows through everywhere a `.panel`/nav/table
+      doesn't already cover it with its own opaque fill
+- [x] Recreated `lib/useReducedMotion.ts` (deleted at the end of Slice 13
+      once nothing used it) — AuroraBackground needed the same hook again,
+      real churn worth naming rather than hiding
+- [x] `globals.css` back to a dark palette (reverting the mechanism, not
+      just swapping color values — the light theme's floating-shadow-card
+      look doesn't translate, so `.panel` dropped the shadow layer and
+      went back to a flat hairline-bordered dark surface). `--accent` back
+      to turquoise, named directly by the user again alongside the
+      background hue
+- [x] Font rebalanced rather than reverted: the hero H1 moved from
+      Instrument Serif to bold, tight-tracked Geist ("more Apple style" —
+      Apple's own marketing headlines are unambiguously sans, not serif).
+      Instrument Serif demoted to the italic etymology caption and section
+      sub-headings only — the one place a classical touch survives without
+      fighting the hero's new boldness
+- [x] `components/RomanGamerBust.tsx` (new) — a hand-authored SVG
+      illustration: a classical profile-bust silhouette (a coin-cameo
+      pose, chosen over a frontal face specifically because a profile is
+      achievable convincingly with primitive bezier shapes and a frontal
+      face isn't), a laurel wreath, over-ear gaming headphones, and a
+      controller held at chest height with simplified rounded "hand"
+      shapes. No external illustration/photo — same hand-authored-only
+      discipline every visual asset in this app has followed since Slice
+      9g. First layout attempt (bust behind, `HeroPreview` card overlapping
+      it) hid almost the entire illustration including the controller —
+      caught by actually looking at the screenshot, fixed by stacking the
+      two vertically instead of overlapping
+- [x] Genre icons given a "Roman medallion" treatment
+      (`GenreShowcase.tsx`): circular (not square) icon chips with a
+      colored ring border and an inset highlight, reading as a coin/
+      medallion rather than redesigning each of the 10 hand-drawn glyphs
+      individually — a consistent, cheap upgrade applied uniformly instead
+      of 10 bespoke Roman-specific icons that risked losing
+      legibility
+- [x] Scroll-linked parallax added for real (not just on-mount fades):
+      the hero's arch line-art and the bust illustration drift upward at
+      different rates as the hero scrolls past, using Motion's
+      `useScroll`/`useTransform` against the hero's own scroll progress —
+      the concrete version of "add transitions when you scroll down."
+      `MeetLudo`'s opaque section background also removed so the aurora
+      shows through there too, not just in the hero
+- [x] Full re-verification: `npm run lint`, `tsc --noEmit`, `npm run
+      build` all clean; Playwright against both routes (desktop + mobile,
+      the user's own already-running dev servers again, not new ones) —
+      zero console errors, zero horizontal overflow, a real `/ask` round
+      trip screenshotted; backend's 76 tests re-run, still green
+      (untouched by this frontend-only slice)
+
+## Slice 14b — A real hydration bug, and a statue instead of a bust
+- [x] User hit a real, reproducible console error: Motion's "Target ref
+      is defined but not hydrated" from `useScroll({ target: heroRef })`
+      — a documented Motion/Next.js App Router hydration-timing class of
+      bug, not something specific to a typo in this code. Fixed by
+      dropping the ref-target form entirely rather than chasing the exact
+      timing race: switched to `useScroll()` with no target (tracks raw
+      `window.scrollY`) and rewrote the two parallax transforms
+      (`useTransform(scrollY, [0, 700], ...)`) against pixel scroll
+      position instead of ref-relative scroll progress. Verified fixed
+      with a fresh (non-HMR) Playwright load plus repeated programmatic
+      scroll events — zero console errors
+- [x] User shared a real reference photo of a classical marble statue
+      (raised arm, gold-draped cloth, curly hair) and asked to use it.
+      Did not embed the photo — it's someone else's copyrighted
+      photograph of a specific museum statue, and this app hand-authors
+      every visual asset as code regardless (no exception for a
+      user-supplied reference either) — but rebuilt the illustration to
+      genuinely take its composition cues: `RomanGamerBust.tsx` (a
+      shoulders-up profile) replaced by `RomanGamerStatue.tsx`, a
+      front-facing standing figure with one arm raised holding the
+      controller aloft (echoing the raised scepter), a diagonal gold
+      drape across the torso, and fuller curled hair. Built from simple
+      primitives (rects, ellipses, one rotated-rect arm with the rotation
+      math worked out by hand) rather than freehand paths
+- [x] Found and fixed a real first-draft bug in the new illustration by
+      looking at the render, not by re-reading the transform math: the
+      first version used two separately-rotated arm segments (upper arm +
+      forearm) whose pivots didn't agree with each other, so the
+      controller ended up floating disconnected above the hand instead of
+      held in it. Fixed by simplifying to one rotated arm segment with
+      the pivot/endpoint math actually computed (not guessed), then
+      positioning the hand and controller at that computed endpoint —
+      simpler geometry that's actually correct beat more detailed
+      geometry that wasn't
+- [x] Re-verified: `npm run lint`, `tsc --noEmit`, `npm run build` all
+      clean; Playwright fresh-load + scroll check confirms the hydration
+      error is gone; desktop + mobile screenshots confirm the controller
+      now visibly connects to the raised hand
+
+## Slice 14c — A real photo, verified and licensed, not a hand-drawn stand-in
+- [x] User asked for genuine photographic realism ("a realistic statue of
+      Apollo"), which a hand-drawn SVG structurally cannot deliver.
+      Scoped with one question first, since the answer changes the whole
+      approach: use a real, properly-licensed public-domain/CC photo
+      (verified per-file, not assumed) vs. the user sourcing an image
+      themselves vs. staying fully hand-drawn. User chose the first —
+      breaking this project's hand-authored-only asset rule (held since
+      Slice 9g) for the first time, deliberately and with the tradeoff
+      named up front, not silently
+- [x] Sourced the Apollo Belvedere (Vatican Museums) via Wikimedia
+      Commons, but verified the *specific file's* license page directly
+      before using it rather than trusting a search-result summary —
+      confirmed CC BY 2.5, attributed to photographer Marie-Lan Nguyen,
+      requiring attribution wherever the derived image is shown
+- [x] Downloaded the actual image and looked at it before deciding how to
+      use it (not assumed suitable sight-unseen): the source photo is
+      full nudity, standard for classical statuary but not what a product
+      hero image should show. Cropped to head/shoulders/extended-arm only
+      — the same bust/torso framing convention already used for this
+      app's own reference imagery — which also happens to keep the
+      extended arm and hand (needed for the controller) in frame
+- [x] `frontend/scripts/compose-apollo-hero.py` (new, checked into the
+      repo — not a throwaway scratch script): downloads the source photo
+      fresh, crops it, draws gaming headphones (ear cup + bezier-curve
+      band) and a controller directly onto the photo with Pillow
+      (`ImageDraw`/`alpha_composite`), adds a soft edge fade so the photo
+      blends into `AuroraBackground` instead of showing a hard rectangle,
+      downscales for web, and exports `public/apollo-hero.webp`. Source
+      JPEG isn't committed (re-downloaded on demand, gitignored) — only
+      the final derived asset is tracked
+- [x] Found and fixed two real bugs by looking at the actual render, not
+      by re-reading the code: (1) the controller, positioned near the
+      photo's original right edge, rendered clipped off-frame — fixed by
+      padding the canvas with transparent space before compositing;
+      (2) the fade-mask logic then assigned the fade as the *entire* new
+      alpha channel, which silently turned that same transparent padding
+      back into opaque black — fixed by combining the fade with the
+      pre-existing alpha channel via `ImageChops.darker` (per-pixel min)
+      instead of replacing it outright
+- [x] Replaced `RomanGamerStatue.tsx` (the hand-drawn illustration from
+      Slice 14b) in the hero with the real photo via `next/image`
+      (`priority`, real descriptive alt text — this is meaningful content
+      now, not decorative), plus a small visible attribution caption
+      under the image linking to the CC BY 2.5 license text, satisfying
+      the license's actual requirement rather than treating attribution
+      as optional. Deleted the now-unused component outright, consistent
+      with this project's standing "no half-removed dead code" rule
+- [x] Re-verified: `npm run lint`, `tsc --noEmit`, `npm run build` all
+      clean; Playwright confirms zero console errors/overflow on both
+      routes, desktop + mobile, plus a real `/ask` round trip; backend's
+      76 tests untouched and still green. Also re-ran
+      `compose-apollo-hero.py` standalone (fresh download, not the cached
+      scratch copy) to confirm the script is actually reproducible from
+      the repo, not just correct once in a temp directory — byte-identical
+      output confirmed
+
+## Slice 15 — Full restart: the real catalog is the identity, not a motif
+- [x] Direct instruction to rebuild the landing page from scratch, remove
+      the small laurel "eyelash" flourish, and pick whatever direction is
+      most fitting. Ran this through the newly installed superpowers
+      brainstorming skill: classified as Bounded (reshapes an existing
+      page, not a new subsystem), asked one clarifying question that
+      mattered (keep the Roman/aurora/statue identity and rebuild the
+      execution, or start over with a different concept), got "start
+      over" back before writing any code
+- [x] The concept: the product's own real 1,000-game catalog, plotted
+      live, is the hero visual, not a decorative motif on top of the
+      product. `components/CatalogField.tsx` (new) fetches 100 real
+      games from the same `GET /catalog` endpoint the browse page uses,
+      plots price against review score, sizes each point by real peak
+      concurrent players (log-scaled), and colors it by the game's real
+      genre via the existing categorical palette
+- [x] Paired with a real aesthetic risk taken deliberately: zero
+      decorative accent color anywhere in UI chrome (`globals.css`
+      dropped `--accent`/`--accent-contrast`/`--accent-glow` entirely) so
+      the genre palette on real data points is the only color on the
+      whole site. Every consuming component (buttons, pills, links, the
+      trace stepper, markdown bold/links) rebuilt to a plain near-black/
+      off-white monochrome instead
+- [x] Deleted outright, once nothing referenced them: `AuroraBackground.tsx`,
+      `RomanArch.tsx`, `icons/Laurel.tsx`, `icons/Medallion.tsx`,
+      `public/apollo-hero.webp`, `scripts/compose-apollo-hero.py` (and its
+      gitignore entry) — the whole Roman/aurora/statue identity from
+      Slices 13 to 14c, gone in one turn on direct instruction, not
+      trimmed or kept half-referenced
+- [x] Two real bugs caught by looking at the actual render, not the code:
+      (1) `CatalogField`'s dots threw `<circle> attribute cy: Expected
+      length, "undefined"` on every point — mixing a static `cy` JSX
+      attribute with an animated `cy` inside Motion's `animate` object
+      left no defined starting value for Motion to interpolate from;
+      fixed by moving `cy` fully into `initial`/`animate` and removing
+      the static prop entirely. (2) The initial scatter showed hard
+      vertical stripes of stacked dots because many real games share an
+      exact price ($0, $19.99); fixed with a deterministic per-point
+      jitter hashed from each game's own name (not `Math.random()` during
+      render, consistent with this project's standing rule), stable
+      across re-renders instead of reshuffling on every one
+- [x] New explicit constraint mid-slice: no em dashes or en dashes
+      anywhere on the site. Fixed every hardcoded UI string across the
+      whole frontend (grep-verified, not spot-checked), but the real find
+      was that the agent's own LLM-generated answer text came back with a
+      live em dash despite a new system-prompt rule asking it not to
+      ("Aseprite – review score...") — a prompt instruction to an LLM is
+      a request, not a guarantee. Added a deterministic sanitizer,
+      `_strip_dashes()` in `src/agent/graph.py`, applied on the one path
+      both `run_agent()` and `stream_agent()` funnel through so every
+      caller (API, MCP server, evals) gets the same guarantee. Found and
+      fixed a real bug in the sanitizer itself before shipping it (a
+      tight numeric range like "10–20" was being turned into "10, 20," a
+      list instead of a range, because the regex's `\s*` matched
+      zero-width gaps too) by requiring real whitespace (`\s+`) around a
+      dash before treating it as a parenthetical aside. Also found and
+      fixed a related, distinct character while checking the live
+      output: U+2011 (a "non-breaking hyphen," not literally an em or en
+      dash but the same class of problem), normalized to a plain hyphen
+      too. Six new tests in `tests/test_graph_dash_stripping.py`
+- [x] Verified via superpowers' verification-before-completion skill: `npm
+      run lint`, `tsc --noEmit`, `npm run build` all run fresh in the same
+      turn as the completion claim (not assumed from an earlier run);
+      backend's now-83 tests fresh and green; a grep across the whole
+      frontend for all three dash characters confirms zero hits outside
+      code comments; Playwright fresh-run confirms zero console errors
+      and zero horizontal overflow on both routes, desktop and mobile;
+      a live curl against the running backend confirms the actual model
+      output now contains none of the three dash characters
+
+## Slice 16 — Direct feedback on Slice 15, run through the new skills for real
+- [x] "I dont like it" on Slice 15's strict monochrome/data-scatter
+      identity, plus four concrete asks in one message: a Latin/Roman
+      touch, a dark green background, a sliding film-strip animation of
+      real game covers, and different genre icons/colors. Ran this
+      through `superpowers:brainstorming` again (classified Bounded),
+      and asked three targeted questions before writing code rather than
+      guessing on all four at once: hotlink real Steam cover art or use
+      placeholders, does the film strip replace the data scatter as hero
+      or sit alongside it, and how far should "Roman touch" go this
+      time given the full identity was deleted last round. All three
+      came back as the recommended option
+- [x] `components/FilmStrip.tsx` (new): real Steam cover art (the actual
+      `library_600x900.jpg` asset each game's own store page uses),
+      hotlinked live from Steam's CDN, verified reachable with a live
+      curl before wiring anything up. Fetches 40 real games from the
+      existing `GET /catalog` endpoint, slides them in an infinite loop
+      (list duplicated once, `translateX` to -50%), framed with real
+      film-strip sprocket holes (a repeating radial-gradient background,
+      not a CSS/JS hack) and a double-rule bronze border, the one
+      restrained "Latin touch" applied here rather than reviving the
+      deleted aurora/statue/laurel system. `next.config.ts` gained a
+      `remotePatterns` entry for Steam's CDN, the one remote-image
+      source in this app (added `appid` to `src/db/catalog.py`'s
+      `_CATALOG_COLUMNS` and the `/catalog` response to make this
+      possible); a cover that fails to load drops out of the strip
+      instead of showing broken
+- [x] Deleted `components/CatalogField.tsx` outright once the film strip
+      replaced it in the hero and nothing referenced it anymore
+- [x] Brought back a real accent color (`--accent`, a muted antique
+      bronze/gold), reversing Slice 15's "zero decorative accent"
+      experiment after direct feedback that it didn't land. Restored
+      accent usage across every component that had been flattened to
+      monochrome: the Ask button, route/cached pills, forecast's
+      projected number, markdown bold/links, the trace stepper's dots
+      and connecting lines, and `MeetLudo`'s capability icons
+- [x] Re-picked the genre categorical palette (the user asked directly
+      for different genre colors) using the dataviz skill's actual
+      validator rather than eyeballing hex values, against this app's
+      new dark-green background (`#0a0f0b`) specifically, not the
+      skill's generic dark chart surface. First draft (rust, teal, gold,
+      wine, olive, and other earth tones) failed the validator
+      repeatedly no matter how it was reordered, hues that close in
+      angle can't clear the adjacent-pair floors. Fixed by spreading
+      across the full hue wheel instead (a real, generalizable lesson
+      about categorical palette design, not just this palette); the
+      final 8-hue set passes every check (lightness band, chroma floor,
+      adjacent CVD separation, the normal-vision floor, contrast)
+- [x] Redrew all 10 genre icon glyphs in `GenreIcon.tsx` (the user
+      disliked the old ones directly) with a thin engraved-medallion
+      ring built into every glyph, a second, smaller "Latin touch"
+      alongside the film strip's frame, rather than a separate wrapper
+      element around each icon
+- [x] Re-verified fresh: `npm run lint`, `tsc --noEmit`, `npm run build`
+      all clean; backend's 83 tests still green (untouched by this
+      frontend-only slice); the dash grep from Slice 15 re-run and still
+      zero hits outside comments; Playwright confirms zero console
+      errors and zero horizontal overflow on both routes, desktop and
+      mobile; a real `/ask` round trip screenshotted with the restored
+      accent visible in the actual result view
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

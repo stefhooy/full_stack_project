@@ -52,6 +52,7 @@ default.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
@@ -290,6 +291,32 @@ def _initial_state(question: str) -> AgentState:
     }
 
 
+def _strip_dashes(text: str) -> str:
+    """The system prompt tells the model never to use an em dash or en
+    dash, but that's a request, not a guarantee -- LLMs (especially a
+    small, fast model like this project's Groq default) drift back to
+    them anyway, confirmed by a real answer that came back with "Aseprite
+    -- review score..." style dashes despite the instruction. This is the
+    actual guarantee: a spaced dash ("word -- word", the common
+    parenthetical-aside style an LLM reaches for) becomes a comma, since
+    that's what the aside almost always means; a bare dash with no
+    surrounding space (a tight numeric range like "10-20") becomes a
+    plain hyphen instead, which is allowed. Also normalizes U+2011 (a
+    "non-breaking hyphen" -- visually a hyphen but a distinct codepoint,
+    found in the same live response that motivated this function, in
+    "highest‑rated") to a plain ASCII hyphen: not literally an em or en
+    dash, but the same class of "LLM reached for an unusual punctuation
+    mark" problem, and a real one found by inspecting actual output, not
+    hypothesized. Applied once, here, on the one path both run_agent() and
+    stream_agent() funnel through, so every caller (the API, the MCP
+    server, evals) gets the same guarantee without each needing its own
+    copy of this rule.
+    """
+    text = re.sub(r"\s+[—–]\s+", ", ", text)
+    text = text.replace("—", "-").replace("–", "-")
+    return text.replace("‑", "-")
+
+
 def _result_from_state(final_state: dict) -> AgentResult:
     final_message = final_state["messages"][-1]
     answer = (
@@ -297,6 +324,7 @@ def _result_from_state(final_state: dict) -> AgentResult:
         if isinstance(final_message.content, str)
         else str(final_message.content)
     )
+    answer = _strip_dashes(answer)
     return AgentResult(
         answer=answer,
         sql=final_state.get("last_successful_sql"),

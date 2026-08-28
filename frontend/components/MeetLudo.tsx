@@ -1,20 +1,16 @@
 "use client";
 
 import { motion } from "motion/react";
-import Laurel from "@/components/icons/Laurel";
 
-// Slice 13's re-skin replaced the turquoise gradient-blob background
-// (Slice 12b) with a plain, spacious capabilities row — closer to what
-// the "Roman Intelligence" brief actually asks for here ("prefer a
-// horizontal editorial row separated by thin vertical rules," not another
-// ambient visual effect) and honest about what's real: three capabilities
-// Ludo genuinely has (ARCHITECTURE.md's router → retrieve_schema → agent →
-// execute_tools graph), not a fourth invented one just to round out a
-// template.
+// Slice 15's capabilities row: plain, monochrome, no icon-in-a-colored-
+// circle treatment (that colored-chip look died with the site's one
+// accent color). Three real capabilities, mapped to the actual agent
+// graph in ARCHITECTURE.md (router, retrieve_schema, agent, execute_tools),
+// not a fourth invented one just to round out a template.
 const ICON_PROPS = {
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.6,
+  strokeWidth: 1.5,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
@@ -47,7 +43,7 @@ const CAPABILITIES = [
   {
     Icon: AskIcon,
     title: "Ask",
-    text: "Ask a plain-English question about the game market — no query language to learn.",
+    text: "Ask a plain English question about the game market. No query language to learn.",
   },
   {
     Icon: InvestigateIcon,
@@ -57,13 +53,13 @@ const CAPABILITIES = [
   {
     Icon: ShowWorkIcon,
     title: "Show the work",
-    text: "Every answer comes with the exact SQL that ran and the rows it returned — never a number without its source.",
+    text: "Every answer comes with the exact SQL that ran and the rows it returned. Never a number without its source.",
   },
 ];
 
 const NEW_CAPABILITY_QUESTIONS = [
-  "What are the highest Metacritic-scored games released in 2023?",
-  "Which free-to-play games support online co-op?",
+  "What are the highest Metacritic scored games released in 2023?",
+  "Which free to play games support online co-op?",
   "What's the average price of games with a Metacritic score above 90?",
   "Which games support Linux and have Steam Workshop support?",
 ];
@@ -85,7 +81,7 @@ export default function MeetLudo({
   disabled: boolean;
 }) {
   return (
-    <section className="py-24 border-y border-[var(--border)] bg-[var(--surface)]">
+    <section className="py-24 border-y border-[var(--border)]">
       <motion.div
         variants={container}
         initial="hidden"
@@ -94,13 +90,13 @@ export default function MeetLudo({
         className="max-w-5xl mx-auto px-6"
       >
         <motion.div variants={item} className="text-center max-w-2xl mx-auto mb-14">
-          <h2 className="font-serif text-3xl sm:text-4xl font-normal mb-3 text-balance">
+          <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight mb-3 text-balance">
             What can you ask Ludo?
           </h2>
           <p className="text-[var(--muted)] text-base leading-relaxed">
-            Ludo reads a 1,000-game catalog collected from SteamSpy and
-            Steam&apos;s own storefront — reviews, price, ownership, playtime,
-            release date, Metacritic score, platforms, and feature tags.
+            Ludo reads a 1,000 game catalog collected from SteamSpy and Steam&apos;s own
+            storefront. Reviews, price, ownership, playtime, release date, Metacritic score,
+            platforms, and feature tags.
           </p>
         </motion.div>
 
@@ -110,20 +106,13 @@ export default function MeetLudo({
         >
           {CAPABILITIES.map(({ Icon, title, text }) => (
             <div key={title} className="px-0 sm:px-8 py-6 sm:py-0 first:pt-0 sm:first:pl-0 last:pl-8">
-              <div
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full mb-3"
-                style={{ color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 10%, transparent)" }}
-              >
+              <div className="text-[var(--accent)] mb-3">
                 <Icon />
               </div>
               <h3 className="font-medium text-sm mb-1.5">{title}</h3>
               <p className="text-sm text-[var(--muted)] leading-relaxed">{text}</p>
             </div>
           ))}
-        </motion.div>
-
-        <motion.div variants={item} className="flex justify-center mb-6 text-[var(--border-strong)]">
-          <Laurel className="h-4 w-8" />
         </motion.div>
 
         <motion.div variants={item} className="flex flex-wrap justify-center gap-1.5">
@@ -135,7 +124,7 @@ export default function MeetLudo({
               whileHover={disabled ? undefined : { y: -1 }}
               whileTap={disabled ? undefined : { scale: 0.97 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="rounded-full text-xs px-3 py-1.5 border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)] disabled:opacity-40 transition-colors"
+              className="rounded-full text-xs px-3 py-1.5 border border-[var(--border)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)] disabled:opacity-40 transition-colors"
             >
               {q}
             </motion.button>

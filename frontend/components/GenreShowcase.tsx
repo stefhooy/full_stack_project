@@ -13,8 +13,8 @@ const container = {
 };
 
 const card = {
-  hidden: { opacity: 0, y: 10 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const } },
+  hidden: { opacity: 0, y: 22, scale: 0.96 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] as const } },
 };
 
 function CardSkeleton() {
@@ -93,13 +93,13 @@ function GamesLeaderboard({
                 </span>
                 <span className="flex-1 truncate">{game.name}</span>
                 <span className="text-[var(--muted)] shrink-0 w-14 text-right tabular-nums">
-                  {game.price_usd == null ? "—" : game.price_usd === 0 ? "free" : `$${game.price_usd.toFixed(2)}`}
+                  {game.price_usd == null ? "n/a" : game.price_usd === 0 ? "free" : `$${game.price_usd.toFixed(2)}`}
                 </span>
                 <span className="text-[var(--muted)] shrink-0 w-12 text-right tabular-nums">
-                  {game.review_score == null ? "—" : `${Math.round(game.review_score * 100)}%`}
+                  {game.review_score == null ? "n/a" : `${Math.round(game.review_score * 100)}%`}
                 </span>
                 <span className="text-[var(--muted)] shrink-0 w-24 text-right hidden sm:inline tabular-nums">
-                  {game.peak_ccu == null ? "—" : `peak ${game.peak_ccu.toLocaleString()}`}
+                  {game.peak_ccu == null ? "n/a" : `peak ${game.peak_ccu.toLocaleString()}`}
                 </span>
               </li>
             ))}

@@ -19,9 +19,9 @@ const SORT_OPTIONS: { value: CatalogSort; label: string }[] = [
 ];
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "n/a";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "n/a";
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
@@ -32,17 +32,17 @@ function formatCount(n: number): string {
 }
 
 function formatOwners(low: number | null, high: number | null): string {
-  if (low == null || high == null) return "—";
-  return `${formatCount(low)}–${formatCount(high)}`;
+  if (low == null || high == null) return "n/a";
+  return `${formatCount(low)} to ${formatCount(high)}`;
 }
 
 function formatPrice(price: number | null): string {
-  if (price == null) return "—";
+  if (price == null) return "n/a";
   return price === 0 ? "Free" : `$${price.toFixed(2)}`;
 }
 
 function PlatformBadges({ platforms }: { platforms: string | null }) {
-  if (!platforms) return <span className="text-[var(--muted)]">—</span>;
+  if (!platforms) return <span className="text-[var(--muted)]">n/a</span>;
   const labels: Record<string, string> = { windows: "Win", mac: "Mac", linux: "Linux" };
   const list = platforms.split(",").map((p) => labels[p.trim()] ?? p.trim());
   return <span>{list.join(" · ")}</span>;
@@ -226,26 +226,26 @@ export default function CatalogClient() {
                     <tr key={g.name}>
                       <td className="py-2 px-3 truncate max-w-[220px] font-sans">{g.name}</td>
                       <td className="py-2 px-3 hidden md:table-cell text-[var(--muted)] truncate max-w-[160px]">
-                        {g.genre ?? "—"}
+                        {g.genre ?? "n/a"}
                       </td>
                       <td className="py-2 px-3 hidden sm:table-cell text-[var(--muted)] whitespace-nowrap">
                         {formatDate(g.release_date)}
                       </td>
                       <td className="py-2 px-3 text-right tabular-nums">
-                        {g.metacritic_score ?? "—"}
+                        {g.metacritic_score ?? "n/a"}
                       </td>
                       <td className="py-2 px-3 hidden lg:table-cell text-[var(--muted)]">
                         <PlatformBadges platforms={g.platforms} />
                       </td>
                       <td className="py-2 px-3 text-right tabular-nums">{formatPrice(g.price_usd)}</td>
                       <td className="py-2 px-3 hidden sm:table-cell text-right tabular-nums">
-                        {g.review_score == null ? "—" : `${Math.round(g.review_score * 100)}%`}
+                        {g.review_score == null ? "n/a" : `${Math.round(g.review_score * 100)}%`}
                       </td>
                       <td className="py-2 px-3 hidden md:table-cell text-right tabular-nums text-[var(--muted)]">
                         {formatOwners(g.owners_low, g.owners_high)}
                       </td>
                       <td className="py-2 px-3 text-right tabular-nums">
-                        {g.peak_ccu == null ? "—" : g.peak_ccu.toLocaleString()}
+                        {g.peak_ccu == null ? "n/a" : g.peak_ccu.toLocaleString()}
                       </td>
                     </tr>
                   ))}

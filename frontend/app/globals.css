@@ -1,32 +1,28 @@
 @import "tailwindcss";
 
-/* Brand tokens — Slice 13's "Roman Intelligence" re-skin: a light, warm-
-   ivory premium-SaaS identity (Framer/Linear/Stripe-adjacent) with a
-   restrained classical accent — a serif display face, one royal-blue
-   accent, and a couple of hand-drawn architectural motifs, never literal
-   Roman imagery (no Colosseum photos, no statue renders — this project's
-   standing no-external-asset discipline applies here too, and the
-   direction's own brief argues for restraint over literalism anyway:
-   "architectural texture, not a hero photograph"). Replaces Slice 9g's
-   near-black dev-tool identity and Slice 12b's turquoise-on-black pass —
-   the one thing carried through all three is the same discipline: one
-   confident accent, real typographic hierarchy, no decoration for its own
-   sake. The genre categorical palette below is untouched across all of
-   these — it's load-bearing (which color means which genre), not a brand
-   choice, so a theme change has no reason to touch it. */
+/* Brand tokens, Slice 16: direct feedback that Slice 15's strict "zero
+   accent, monochrome everywhere" identity didn't land ("I dont like it").
+   This pass brings back a real accent color plus a dark-green background
+   and a restrained Latin/Roman touch (the film strip's double-rule
+   frame in components/FilmStrip.tsx), without reviving the FULL Roman
+   identity Slice 15 deleted (no aurora background, no statue, no laurel
+   icons everywhere) -- a small, specific accent, not the whole system
+   back. --accent is a muted antique bronze/gold: warm, restrained, not
+   the bright saturated hue any of the genre slots use, so it never gets
+   confused with genre identity. */
 :root {
-  --background: #f8f7f3;
-  --surface: #f1efe9;
-  --surface-raised: #ffffff;
-  --foreground: #10131a;
-  --muted: #6b6f78;
-  --border: #e5e3de;
-  --border-strong: #d5d2c8;
-  --accent: #1957ff;
-  --accent-contrast: #ffffff;
-  --accent-glow: rgba(25, 87, 255, 0.16);
-  --danger: #c9403f;
-  --danger-bg: rgba(201, 64, 63, 0.08);
+  --background: #0a0f0b;
+  --surface: #101610;
+  --surface-raised: #151c15;
+  --foreground: #f4f3ee;
+  --muted: #8b9086;
+  --border: rgba(244, 243, 238, 0.09);
+  --border-strong: rgba(244, 243, 238, 0.18);
+  --accent: #c9a05c;
+  --accent-contrast: #241a08;
+  --accent-glow: rgba(201, 160, 92, 0.25);
+  --danger: #ff8a80;
+  --danger-bg: rgba(255, 138, 128, 0.1);
 }
 
 @theme inline {
@@ -43,27 +39,28 @@
   --color-danger-bg: var(--danger-bg);
   --font-sans: var(--font-display);
   --font-display: var(--font-display);
-  --font-serif: var(--font-serif-display);
   --font-mono: var(--font-data-mono);
-  --radius-lg: 0.875rem;
-  --radius-xl: 1.375rem;
 }
 
-/* Genre identity palette — unchanged from the dataviz skill's validated
-   default 8-slot categorical palette, assigned in real-data prevalence
-   order at render time (see lib/genres.ts / GET /genres). The one place
-   in the UI with more than one color in play, and it's load-bearing (which
-   genre is which), not decorative — kept structurally separate from
-   --accent so chrome and genre identity never compete for meaning. */
+/* Genre identity palette, re-picked for Slice 16 (the user asked
+   directly for different genre colors and icons) -- a fresh 8-hue
+   categorical set, run through the dataviz skill's validator against
+   this app's actual dark-green background (`#0a0f0b`), not eyeballed:
+   all six checks pass (lightness band, chroma floor, adjacent CVD
+   separation, the normal-vision floor, and contrast). Spread across the
+   full hue wheel on purpose -- an earlier all-earth-tone draft (rust,
+   ochre, olive, wine) failed the validator repeatedly because those
+   hues cluster too close together in hue-angle to clear the adjacent-
+   pair floors no matter how they're ordered. */
 :root {
-  --genre-1: #3987e5;
-  --genre-2: #d95926;
-  --genre-3: #199e70;
-  --genre-4: #c98500;
-  --genre-5: #d55181;
-  --genre-6: #1fae1f;
-  --genre-7: #9085e9;
-  --genre-8: #e66767;
+  --genre-1: #4a6fd4;
+  --genre-2: #d0692c;
+  --genre-3: #189277;
+  --genre-4: #b8890f;
+  --genre-5: #e0529e;
+  --genre-6: #4a9e3a;
+  --genre-7: #8862d9;
+  --genre-8: #d9483f;
 }
 
 body {
@@ -72,26 +69,19 @@ body {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
-/* The floating-panel look the whole re-skin leans on: a white card, thin
-   warm-stone border, soft diffuse shadow (two layers — a tight contact
-   shadow plus a wider ambient one — rather than one flat drop-shadow,
-   which is what makes it read as "premium" instead of "boxed"). Every
-   panel in the app uses this. */
+/* A flat, hairline-bordered surface for genuinely functional UI (the ask
+   box, the result card, the catalog table) -- not for editorial copy
+   sections, which use plain whitespace and type hierarchy instead of a
+   bordered box around every group of text. */
 .panel {
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  box-shadow:
-    0 1px 2px rgba(16, 19, 26, 0.04),
-    0 12px 28px rgba(16, 19, 26, 0.06);
 }
 
-/* Chart tokens (validated default palette — see the dataviz skill's
-   references/palette.md). Already a light "paper" surface from Slice 9g,
-   so this needed no change for the light re-skin — it was already the
-   odd one out on purpose (a chart reads as data on a controlled ground,
-   independent of whatever theme the surrounding chrome is in). Single-hue
-   charts only in this app (one series per question), so only the
-   sequential/series-1 slot is needed, not the full categorical order. */
+/* Chart tokens (validated default palette, see the dataviz skill's
+   references/palette.md). Its own light "paper" surface, independent of
+   whatever theme the surrounding chrome is in -- unchanged across every
+   redesign this app has been through. */
 .viz-root {
   color-scheme: light;
   --viz-surface: #fcfcfb;
