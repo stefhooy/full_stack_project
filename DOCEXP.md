@@ -3329,12 +3329,12 @@ result view.
 
 ### Open questions (new)
 
-- **The film strip's 80 image requests (40 real games, duplicated for
-  the seamless loop) all fire on mount with no `priority` staggering.**
-  No console errors or warnings surfaced from this in testing, but it
-  hasn't been checked under a throttled/slow network condition, where a
-  visible pop-in as covers load could look rougher than on a fast local
-  connection.
+- **The film strip's image requests (now 120: 60 real games, doubled for
+  the seamless loop, up from 40/80 in the first draft) all fire on mount
+  with no `priority` staggering.** No console errors or warnings
+  surfaced from this in testing, but it hasn't been checked under a
+  throttled/slow network condition, where a visible pop-in as covers
+  load could look rougher than on a fast local connection.
 - **Steam's CDN path for cover art isn't officially documented as a
   stable public API** — it's the same path the store page's own
   frontend uses, verified live before wiring this up, but Valve could
@@ -3342,3 +3342,93 @@ result view.
   `onError` drop; a Steam-side path change would just thin out the
   strip, not break the page, but worth knowing this dependency exists
   outside this project's own control.
+
+---
+
+## Slice 17 — A pausable marquee, done the boring reliable way
+
+**Date:** 2026-08-29
+
+Direct, unambiguous positive feedback on Slice 16 for the first time in a
+while ("this a much bigger improvement thank you!"), followed immediately
+by four concrete refinements rather than a rejection: widen the film
+strip to full-bleed, a new font ("professional but also gamer like"), a
+neon green hue, and a hover animation on the strip. Worth noting the
+tone shift plainly: this is the first round this whole redesign arc
+where the starting point was "keep this, make it better" rather than
+"start over."
+
+### Choosing Rajdhani for a specific, checkable reason
+
+"Professional but also gamer like" is a real brief, not a vibe: it rules
+out both a generic corporate sans (not gamer enough) and a novelty
+pixel/display face (not professional enough, and this project has
+rejected exactly that category of choice since Slice 9g). Rajdhani sits
+in the specific middle this brief describes: squarish, technical
+letterforms with real lineage in esports and gaming-HUD branding, but
+regular/medium weights clean enough to still read as body copy rather
+than a logo. Swapped in as the only sans face (still one face, no second
+display font, the discipline Slice 15 settled on), not layered alongside
+the existing one.
+
+### The hover-pause, and why it's plain CSS instead of Motion
+
+A sliding infinite loop needs to pause on hover so a viewer can actually
+look at a cover, otherwise "hover animation" would just mean a bigger
+visual jump when the mouse arrives. The film strip's slide was already
+implemented with Motion's `animate` prop driving a repeating keyframe
+tween. Stopping and restarting that same tween on hover risks a visible
+jump: calling `.start()` again on a stopped keyframe animation
+re-interpolates from the current value toward the *same keyframe list*,
+which is not guaranteed to read as "frozen, then resumed," depending on
+how Motion re-anchors the timeline. Rather than fight that, moved the
+slide itself to a native CSS `@keyframes` animation
+(`.filmstrip-track` in globals.css) specifically because
+`animation-play-state: paused` is a browser primitive built exactly for
+this: freeze in place, resume from the exact frozen position, no
+interpolation math required. Verified this wasn't just a plausible
+theory: read the track's own computed `transform` before, during, and
+after a hover, and confirmed it changes while unhovered, stays bit-for-
+bit identical for the whole hover duration, and `animationPlayState`
+reads `paused` the entire time.
+
+The per-cover scale-and-glow effect layered on top *is* Motion
+(`whileHover` on each individual cover), and the two don't conflict:
+the parent's CSS `transform: translateX` and each child's independently-
+computed Motion `transform: scale(...)` apply at different points in the
+CSS cascade/composition and don't fight for the same property on the
+same element.
+
+### Neon green, picked with the collision already in mind
+
+The genre categorical palette already has a green (slot 6, a muted
+olive-green, picked in Slice 16's validator pass). Making the site's one
+UI accent *also* green risks the two reading as the same color doing two
+different jobs, chrome versus data identity, coincidentally colliding.
+Picked the neon accent (`#39ff88`) deliberately far more saturated and
+bright than genre slot 6 rather than checking after the fact, so a
+"glowing neon accent" and a "muted natural green data point" stay
+visually distinct in the same view.
+
+### Verification
+
+Same bar as every prior slice: `npm run lint`, `tsc --noEmit`, `npm run
+build` all clean; backend's 83 tests untouched and green; Playwright
+confirms zero console errors and zero horizontal overflow on both
+routes, desktop and mobile; a real `/ask` round trip stayed clean. The
+hover-pause claim specifically got the programmatic check described
+above, not just a screenshot that happened to show a scaled cover.
+
+### Open questions (new)
+
+- **Rajdhani's condensed, geometric letterforms haven't been checked
+  against very long real answer text at small sizes** (the actual
+  `/ask` result panel's body copy) — the hero headline and short UI
+  labels read fine, but a long multi-sentence LLM answer at `text-sm` in
+  a squarer face than Geist hasn't had a dedicated legibility pass beyond
+  "it built and rendered without errors."
+- **Neon green at full saturation on every accent use (buttons, links,
+  the trace stepper, markdown bold) hasn't been checked for eye strain
+  over extended reading** — fine for short labels and single words, not
+  yet judged for a long markdown answer where multiple bolded terms in
+  one paragraph would all carry the same bright accent.

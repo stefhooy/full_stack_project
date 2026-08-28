@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Rajdhani } from "next/font/google";
 import MotionProvider from "@/components/MotionProvider";
 import Nav from "@/components/Nav";
 import "./globals.css";
 
-// Two faces, back to the simplest version of this system yet (Slice 15
-// dropped the serif entirely, along with everything else decorative):
-//   - Geist: every piece of UI copy, from the hero headline down to a
-//     button label. Vercel's own font, genuinely associated with serious
-//     dev tooling, carrying the whole typographic range on its own now
-//     that there is no second display face splitting the job.
+// Two faces:
+//   - Rajdhani (Slice 17, replacing Geist directly on request for
+//     "professional but also gamer like"): a squarish, technical sans
+//     with real esports/gaming-HUD lineage, but clean enough weights
+//     (400/500/600) to stay legible as body copy, not just a headline
+//     flourish. Carries the whole UI range, same "one sans face, no
+//     second display font" discipline Slice 15 settled on.
 //   - IBM Plex Mono: data/code readouts (SQL, stats, trace labels, the
 //     catalog table). Same face ARCHITECTURE.md's agent-trace artifact
 //     already uses, the one thread of typographic continuity kept
 //     through every visual rebuild this project has gone through.
-const geist = Geist({
+const rajdhani = Rajdhani({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
@@ -34,7 +35,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geist.variable} ${plexMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${rajdhani.variable} ${plexMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <MotionProvider>
           <Nav />

@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 16** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 17** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -60,15 +60,18 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   with ground truth computed live from the DB, deterministic checks, and
   an LLM-as-judge pass, runnable as a regression check with a real exit code
 - A Next.js frontend (`frontend/`) — a dark, near-black/green identity
-  with a muted bronze accent (Slice 16, after Slice 15's stricter
-  zero-accent monochrome pass didn't land). The hero is a real film strip
-  (`components/FilmStrip.tsx`) of real game cover art hotlinked live from
-  Steam's own CDN, sliding past inside a frame with real film sprocket
-  holes and a double-rule bronze border — the one restrained Latin/Roman
-  touch in an otherwise modern page. Genre icons carry a matching thin
-  engraved-medallion ring, and the genre categorical palette was re-picked
-  and validated against this app's own background with the dataviz
-  skill's validator. Motion for the animated node-by-node progress trace,
+  with a neon-green accent (Slice 17) and Rajdhani, a technical
+  gaming-adjacent sans, as the site's one type face. The hero is a real,
+  full-bleed film strip (`components/FilmStrip.tsx`) of real game cover
+  art hotlinked live from Steam's own CDN, sliding past inside a frame
+  with real film sprocket holes and a double-rule accent border (a
+  restrained Latin/Roman touch), pausable on hover via a native CSS
+  `animation-play-state` (verified to freeze and resume exactly in
+  place, not a Motion-driven tween). Genre icons carry a matching thin
+  engraved-medallion ring, and the genre categorical palette was
+  re-picked and validated against this app's own background with the
+  dataviz skill's validator. Motion for the animated node-by-node
+  progress trace,
   a genre picker (flat cards) that browses the real games behind each
   genre (`GET /games`, no LLM call, counts/labels fetched live from
   `GET /genres`), markdown-rendered answers, charts, and a "Show the

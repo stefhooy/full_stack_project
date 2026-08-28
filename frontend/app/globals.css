@@ -1,15 +1,11 @@
 @import "tailwindcss";
 
-/* Brand tokens, Slice 16: direct feedback that Slice 15's strict "zero
-   accent, monochrome everywhere" identity didn't land ("I dont like it").
-   This pass brings back a real accent color plus a dark-green background
-   and a restrained Latin/Roman touch (the film strip's double-rule
-   frame in components/FilmStrip.tsx), without reviving the FULL Roman
-   identity Slice 15 deleted (no aurora background, no statue, no laurel
-   icons everywhere) -- a small, specific accent, not the whole system
-   back. --accent is a muted antique bronze/gold: warm, restrained, not
-   the bright saturated hue any of the genre slots use, so it never gets
-   confused with genre identity. */
+/* Brand tokens. Slice 16 brought a real accent color back (a muted
+   bronze) after Slice 15's zero-accent pass didn't land; Slice 17 swaps
+   that bronze for a neon green on direct request -- picked distinctly
+   brighter/more saturated than genre slot 6's muted green (below) so
+   chrome and genre identity still read as two different things, not a
+   coincidence. */
 :root {
   --background: #0a0f0b;
   --surface: #101610;
@@ -18,9 +14,9 @@
   --muted: #8b9086;
   --border: rgba(244, 243, 238, 0.09);
   --border-strong: rgba(244, 243, 238, 0.18);
-  --accent: #c9a05c;
-  --accent-contrast: #241a08;
-  --accent-glow: rgba(201, 160, 92, 0.25);
+  --accent: #39ff88;
+  --accent-contrast: #04140a;
+  --accent-glow: rgba(57, 255, 136, 0.28);
   --danger: #ff8a80;
   --danger-bg: rgba(255, 138, 128, 0.1);
 }
@@ -76,6 +72,33 @@ body {
 .panel {
   background: var(--surface-raised);
   border: 1px solid var(--border);
+}
+
+/* FilmStrip's sliding track: a native CSS keyframe animation rather than
+   a Motion-driven one specifically so hovering can pause it with
+   `animation-play-state`, which freezes and resumes exactly in place --
+   a Motion keyframe tween stopped and restarted this way risks a visible
+   jump, since restarting re-interpolates from the current value toward
+   the same keyframe list rather than truly pausing. Duration is set
+   per-instance via an inline `animationDuration` style (depends on how
+   many real games are in the strip). */
+@keyframes filmstrip-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.filmstrip-track {
+  animation-name: filmstrip-scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.filmstrip-track:hover {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .filmstrip-track {
+    animation: none;
+  }
 }
 
 /* Chart tokens (validated default palette, see the dataviz skill's

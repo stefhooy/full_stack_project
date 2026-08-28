@@ -17,15 +17,17 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 ## What's here
 
-Slice 16, after Slice 15's stricter zero-accent monochrome pass got
-direct "I dont like it" feedback. See DOCEXP.md for the full history
+Slice 17, refining Slice 16 on real positive feedback for the first time
+in this project's redesign history. See DOCEXP.md for the full history
 (Slice 9g's near-black dev-tool look, Slice 12b's turquoise pass, Slice
 13's light "Roman Intelligence" re-skin, Slice 14/14b/14c's dark
 illustrated-then-photographic Roman statue, Slice 15's monochrome-plus-
-live-data-scatter restart). This pass: a dark, green-tinted background,
-a muted bronze `--accent` back in every piece of chrome, and two small,
-specific Latin/Roman touches (the film strip's frame, the genre icons'
-medallion ring) rather than reviving the deleted full identity.
+live-data-scatter restart, Slice 16's film-strip-plus-bronze-accent
+rebuild). Current identity: a dark, green-tinted background, a neon
+green `--accent`, Rajdhani (a technical, gaming-adjacent sans) as the
+one type face, and two small, specific Latin/Roman touches (the film
+strip's frame, the genre icons' medallion ring) rather than reviving the
+deleted full Roman identity.
 
 - `app/page.tsx` — the whole UI: hero (headline + `HeroPreview`, a real
   verified answer shown in a floating panel), ask console, example
@@ -39,26 +41,34 @@ medallion ring) rather than reviving the deleted full identity.
 - `app/globals.css` — one committed dark palette (no light/dark split for
   chrome tokens — a deliberate exception carried over from Slice 9d, see
   DOCEXP.md; this class of product routinely ships one committed marketing
-  theme). `--accent` is a muted antique bronze/gold (Slice 16, reversing
-  Slice 15's zero-accent experiment). The genre categorical palette was
-  re-picked and run through the dataviz skill's validator against this
-  app's own dark-green background — the reference default and an earlier
-  earth-tone draft both failed the adjacent-CVD-separation check; the
-  passing set spreads across the full hue wheel instead (see DOCEXP.md's
-  Slice 16 entry for why hue clustering can't pass no matter the order).
-  The `.panel` flat hairline-bordered dark surface every card/result
-  panel uses is unchanged.
-- `components/FilmStrip.tsx` — the hero's visual (Slice 16, replacing
-  Slice 15's live data scatter): real cover art for real games, hotlinked
-  from Steam's own CDN (`library_600x900.jpg`, the same asset each game's
-  store page uses — verified reachable with a live curl before wiring
-  this up), sliding in an infinite loop inside a frame with real film
-  sprocket holes (a tiled `repeating radial-gradient`, not extra DOM
-  elements) and a double-rule bronze border. Needs `appid` on
-  `CatalogGame` (added to `src/db/catalog.py`'s columns) and a
-  `remotePatterns` entry in `next.config.ts` for Steam's CDN, the one
-  remote-image source in this app. A cover that fails to load drops out
-  of the strip via `onError` rather than showing broken.
+  theme). `--accent` is neon green as of Slice 17 (deliberately picked
+  brighter/more saturated than genre slot 6's own muted green, so the two
+  don't read as a coincidental collision). The genre categorical palette
+  was re-picked and run through the dataviz skill's validator against
+  this app's own dark-green background — the reference default and an
+  earlier earth-tone draft both failed the adjacent-CVD-separation check;
+  the passing set spreads across the full hue wheel instead (see
+  DOCEXP.md's Slice 16 entry for why hue clustering can't pass no matter
+  the order). Also defines `.filmstrip-track`, the film strip's native
+  CSS keyframe slide (see below for why it's plain CSS, not Motion). The
+  `.panel` flat hairline-bordered dark surface every card/result panel
+  uses is unchanged.
+- `components/FilmStrip.tsx` — the hero's visual: real cover art for real
+  games, hotlinked from Steam's own CDN (`library_600x900.jpg`, the same
+  asset each game's store page uses — verified reachable with a live curl
+  before wiring this up), sliding in a full-bleed infinite loop inside a
+  frame with real film sprocket holes (a tiled `repeating radial-
+  gradient`, not extra DOM elements) and a double-rule accent border.
+  The slide is a native CSS keyframe animation (`.filmstrip-track`) so
+  hovering can pause it with `animation-play-state` and resume exactly
+  in place — a Motion-driven keyframe tween stopped and restarted the
+  same way risks a visible jump (see DOCEXP.md's Slice 17 entry, verified
+  programmatically, not just visually). Each cover also gets an
+  independent Motion `whileHover` (scale + accent glow) layered on top.
+  Needs `appid` on `CatalogGame` (added to `src/db/catalog.py`'s columns)
+  and a `remotePatterns` entry in `next.config.ts` for Steam's CDN, the
+  one remote-image source in this app. A cover that fails to load drops
+  out of the strip via `onError` rather than showing broken.
 - `lib/api.ts` — hand-rolled SSE parsing over `fetch` (not `EventSource`,
   which can't send the POST body the question needs) against the backend's
   `/ask/stream` endpoint.
@@ -114,10 +124,13 @@ medallion ring) rather than reviving the deleted full identity.
   transition (hero entrance, card hover, `AnimatePresence`, the blur
   transitions between panels, `FilmStrip`'s infinite sliding loop). No
   WebGL/3D, no fixed animated background layer.
-- Type: Geist only, at every scale from the hero headline (light weight,
-  large, tight tracking) down to a button label, plus IBM Plex Mono for
-  data/code (same face ARCHITECTURE.md's trace artifact uses). One
-  family carrying the whole range, no second display face.
+- Type: Rajdhani (Slice 17, replacing Geist directly on request for
+  "professional but also gamer like" — a technical, esports/gaming-HUD-
+  adjacent sans with clean enough weights to still work as body copy)
+  at every scale from the hero headline down to a button label, plus IBM
+  Plex Mono for data/code (same face ARCHITECTURE.md's trace artifact
+  uses). One sans family carrying the whole range, no second display
+  face.
 
 ## A hard site-wide rule: no em dashes, no en dashes
 

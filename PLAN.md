@@ -983,6 +983,41 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       mobile; a real `/ask` round trip screenshotted with the restored
       accent visible in the actual result view
 
+## Slice 17 — Bigger, faster, neon: refining Slice 16 on real approval
+- [x] Direct positive feedback on Slice 16 ("much bigger improvement")
+      plus four concrete refinements: a full edge-to-edge film strip, a
+      new "professional but also gamer like" font, a neon green hue, and
+      a hover animation on the film strip
+- [x] `FilmStrip` widened to true full-bleed (`w-full`, no `max-w`/`px`
+      wrapper) instead of the `max-w-4xl` container from Slice 16, and
+      the fetched sample bumped from 40 to 60 real games so a wide
+      viewport doesn't show an obviously short loop
+- [x] Swapped the whole site's sans face from Geist to Rajdhani (Google
+      Fonts) — a squarish, technical face with real esports/gaming-HUD
+      lineage but clean enough mid weights to still work as body copy,
+      not just a headline flourish. Kept IBM Plex Mono for data, kept the
+      "one sans face, no second display font" rule from Slice 15
+- [x] `--accent` swapped from Slice 16's bronze to a neon green
+      (`#39ff88`), picked distinctly more saturated/bright than genre
+      slot 6's muted green so chrome and genre identity stay visually
+      distinct rather than coincidentally the same color
+- [x] Real hover interaction on the film strip, done as a native CSS
+      keyframe (`.filmstrip-track` in globals.css) rather than a
+      Motion-driven animation specifically so hovering could pause it
+      with `animation-play-state` and resume exactly in place — a Motion
+      keyframe tween stopped and restarted the same way risks a visible
+      jump, since restarting re-interpolates toward the same keyframe
+      list rather than truly freezing. Verified programmatically (not
+      just visually): confirmed the track's computed `transform` changes
+      before hover, stays frozen for the whole hover duration, and
+      `animationPlayState` reads `paused`. Added a per-cover Motion
+      `whileHover` (scale + accent glow) on top of the pause, independent
+      transforms on different DOM layers composing without conflict
+- [x] Re-verified fresh: `npm run lint`, `tsc --noEmit`, `npm run build`
+      all clean; backend's 83 tests untouched and green; Playwright
+      confirms zero console errors and zero horizontal overflow on both
+      routes, desktop and mobile; a real `/ask` round trip still clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
