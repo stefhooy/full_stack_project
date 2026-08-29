@@ -1391,6 +1391,50 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       found (the root README has never been subject to the frontend's
       no-dash rule, same as every prior slice's docs work)
 
+## Slice 26 — Token/cost logging, closed out for real on the live request path
+- [x] Slice 24 wired real token/cost tracking into `run_evals.py`
+      only — a real `/ask`/`/ask/stream` request still reported
+      neither. Closed the actual gap rather than considering it done
+      because the eval harness had it
+- [x] Extracted the pricing constant and cost formula (previously
+      living only inside `run_evals.py`) into a new shared
+      `src/agent/pricing.py`, so the eval harness and the live agent
+      compute cost identically from one source of truth instead of two
+      copies that could quietly drift apart
+- [x] `run_agent()`/`stream_agent()` (`src/agent/graph.py`) now wrap
+      the graph invocation in `get_usage_metadata_callback()` — the
+      exact mechanism Slice 24 verified against a real call before
+      trusting it — and `AgentResult` carries real `total_tokens`/
+      `estimated_cost_usd` for that one question, flowing through to
+      `AskResponse` (visible per-request at `/docs`) same as
+      `attempts`/`tool_errors` did in Slice 23
+- [x] `RunStats` (`src/api/run_stats.py`) extended to also accumulate
+      real cumulative tokens/cost across real (non-cached) runs,
+      surfaced as a new `usage` block in `/health` alongside the
+      existing `self_correction` block — `avg_cost_per_question_usd`
+      now updates live from genuine production traffic, not just a
+      Slice 24 one-off eval measurement
+- [x] Added the actual log line the task asked for by name ("token/cost
+      **logging** per request") — every real run now logs
+      `usage: route=... total_tokens=... estimated_cost_usd=...`,
+      unconditional (not gated on an error, unlike the self-correction
+      log line, since cost is worth seeing on every request, not just
+      failures)
+- [x] Verified live end to end on both request paths: a real `/ask`
+      call and a real `/ask/stream` call both returned correct
+      `total_tokens`/`estimated_cost_usd` (cross-checked against Slice
+      24's per-question cost range, consistent); `/health`'s new
+      `usage` block correctly aggregated across a real request; the
+      log line confirmed firing with real values by reading the
+      backend's own log output, not assumed from the code
+- [x] Re-ran the real eval suite after the `pricing.py` extraction
+      (judge skipped to avoid unnecessary Groq spend on a refactor
+      check) — same 5/6 deterministic result, same real failure
+      reproduced again, confirming the refactor didn't change behavior
+- [x] `ruff check`, `mypy src/`, and the full pytest suite (88 tests,
+      unchanged — this was a refactor plus new production
+      instrumentation, no new test file) all clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

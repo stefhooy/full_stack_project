@@ -1,8 +1,12 @@
 """In-memory aggregate stats over real (non-cached) agent runs: how often
-the agent's self-correction loop actually gets exercised, and how often it
-still produces a real answer versus running out of retry budget. Surfaced
-via /health so this is a real, quotable number instead of something only
-visible per-request in logs.
+the agent's self-correction loop actually gets exercised, how often it
+still produces a real answer versus running out of retry budget, and real
+cumulative token usage/cost. Surfaced via /health so these are real,
+quotable numbers instead of something only visible per-request in logs
+or, for cost, only visible by running the eval suite by hand (Slice 24's
+`run_evals.py` instrumentation; this class is Slice 26's live-request
+equivalent of the same measurement, sharing the same pricing source,
+src/agent/pricing.py).
 
 Same in-memory, single-process pattern as cache.py and rate_limit.py --
 correct for this deployment (a single long-running process, see DOCEXP.md's
@@ -43,6 +47,13 @@ class RunStats:
     # that happens to also hit the attempts cap) sneaking into the wrong
     # bucket.
     runs_with_tool_error_that_hit_the_attempts_cap: int = 0
+    total_tokens: int = 0
+    # Sum of only the runs with a known price (estimated_cost_usd is not
+    # None) -- kept alongside a separate count of *how many* runs had a
+    # known price, so an average never silently divides by the wrong
+    # denominator if a future model swap ever leaves some runs unpriced.
+    total_cost_usd: float = 0.0
+    runs_with_known_cost: int = 0
 
     def record(self, result: AgentResult) -> None:
         self.total_runs += 1
@@ -51,6 +62,28 @@ class RunStats:
             self.runs_with_tool_error += 1
             if result.attempts >= settings.sql_max_retries:
                 self.runs_with_tool_error_that_hit_the_attempts_cap += 1
+        self.total_tokens += result.total_tokens
+        if result.estimated_cost_usd is not None:
+            self.total_cost_usd += result.estimated_cost_usd
+            self.runs_with_known_cost += 1
+
+    def usage_as_dict(self) -> dict:
+        if self.total_runs == 0:
+            return {
+                "total_tokens": 0,
+                "avg_tokens_per_question": None,
+                "total_cost_usd": 0.0,
+                "avg_cost_per_question_usd": None,
+            }
+        avg_cost = (
+            self.total_cost_usd / self.runs_with_known_cost if self.runs_with_known_cost else None
+        )
+        return {
+            "total_tokens": self.total_tokens,
+            "avg_tokens_per_question": round(self.total_tokens / self.total_runs, 1),
+            "total_cost_usd": round(self.total_cost_usd, 5),
+            "avg_cost_per_question_usd": round(avg_cost, 5) if avg_cost is not None else None,
+        }
 
     def as_dict(self) -> dict:
         if self.total_runs == 0:

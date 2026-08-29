@@ -4399,3 +4399,68 @@ consistency check against existing practice, not a new constraint.
   portfolio project doesn't need production-grade uptime monitoring,
   but it's worth knowing this failure mode has no visibility outside of
   someone happening to hit it.
+
+## Slice 26 — Finishing token/cost logging on the actual request path
+
+**Date:** 2026-08-29
+
+Closing out the last item from the AI-Engineer audit surfaced something
+worth naming honestly: Slice 24's token/cost work only touched
+`run_evals.py`. A real `/ask` or `/ask/stream` call still reported
+neither — the eval harness had the instrumentation, production didn't.
+Declaring the audit item done because the eval harness had it would have
+been technically defensible but not actually true to what was asked
+("token/cost logging *per request*"), so this slice finishes it on the
+path that matters.
+
+### One pricing source, not two
+
+Rather than copy Slice 24's `GROQ_PRICING_USD_PER_MILLION_TOKENS` dict
+and cost formula into `graph.py` as a second copy, pulled both out into
+a new `src/agent/pricing.py` that `run_evals.py` and the live agent now
+both import. Two independently-maintained pricing tables is exactly the
+kind of thing that quietly drifts — someone updates the eval harness
+after a Groq price change and forgets the production copy, and now the
+"measured results" in the README and the numbers a real user's request
+actually reports disagree for no reason anyone would notice quickly.
+
+### The same verified mechanism, applied to the path that actually matters
+
+`get_usage_metadata_callback()` was already proven correct against a
+real `run_agent()` call in Slice 24. Wrapping `run_agent()` and
+`stream_agent()` themselves in it (rather than only wrapping calls made
+from `run_evals.py`) was the direct, minimal way to make every real
+request carry the same real numbers. `AgentResult` grew `total_tokens`/
+`estimated_cost_usd`, following exactly the same shape Slice 23 already
+established for `attempts`/`tool_errors`: computed once in
+`_result_from_state`, threaded through `AskResponse` so it's visible
+per-request at `/docs`, and aggregated in `RunStats` for a live,
+production-derived average at `/health` — not just Slice 24's one-off
+eval-run snapshot.
+
+### The log line the task actually asked for
+
+The original ask was "token/cost *logging*," and until this slice
+nothing was actually logged — only returned in the API response and
+folded into an aggregate. Added an explicit `usage: route=...
+total_tokens=... estimated_cost_usd=...` log line in
+`_record_real_run()`, deliberately unconditional (unlike the
+self-correction log line, which only fires when `tool_errors > 0`):
+cost is worth a visible trail on every request, not just failures.
+
+### Verification
+
+Ran the exact same live checks Slice 23 used for `attempts`/
+`tool_errors`, extended to the new fields: a real `/ask` call and a
+real `/ask/stream` call both returned correct `total_tokens`/
+`estimated_cost_usd` (in the same range Slice 24 measured — a useful
+cross-check that nothing about the refactor silently changed the
+number), `/health`'s new `usage` block aggregated correctly after a
+real request, and the log line's actual output was read from the
+running backend's log file, not assumed from reading the code. Also
+re-ran the real eval suite (judge skipped, to avoid spending Groq
+quota on what was fundamentally a refactor check) after moving the
+pricing constant into its own module — same 5/6 deterministic result,
+the same real failure reproduced identically, confirming
+`pricing.py`'s extraction didn't change behavior anywhere. `ruff
+check`, `mypy src/`, and the full 88-test suite all clean throughout.

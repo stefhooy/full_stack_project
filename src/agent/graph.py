@@ -56,11 +56,13 @@ from dataclasses import dataclass
 from typing import Annotated, TypedDict, cast
 
 import duckdb
+from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from src.agent.llm_provider import get_llm
+from src.agent.pricing import estimate_cost_usd
 from src.agent.prompts import ANALYSIS_TOOL_GUIDANCE, FORECAST_TOOL_GUIDANCE, build_system_prompt
 from src.agent.rag.schema_index import assemble_schema_text, get_schema_index
 from src.agent.router import classify_question
@@ -295,6 +297,15 @@ class AgentResult:
     the API response, logs, and /health can report real self-correction
     activity instead of it being invisible outside a debugger -- see
     DOCEXP.md's Slice 23 entry for why this was worth adding."""
+    total_tokens: int
+    estimated_cost_usd: float | None
+    """Real token usage/cost for this one question's router+agent LLM
+    calls, captured via get_usage_metadata_callback() around the graph
+    invocation in run_agent()/stream_agent() -- the same mechanism and the
+    same pricing source (src/agent/pricing.py) Slice 24 used to measure
+    the numbers in README.md's "Measured results", now live on every real
+    request instead of only visible when someone runs the eval suite by
+    hand. See DOCEXP.md's Slice 26 entry."""
 
 
 def _initial_state(question: str) -> AgentState:
@@ -343,7 +354,7 @@ def _strip_dashes(text: str) -> str:
     return text.replace("‑", "-")
 
 
-def _result_from_state(final_state: dict) -> AgentResult:
+def _result_from_state(final_state: dict, usage_by_model: dict) -> AgentResult:
     final_message = final_state["messages"][-1]
     answer = (
         final_message.content
@@ -351,6 +362,7 @@ def _result_from_state(final_state: dict) -> AgentResult:
         else str(final_message.content)
     )
     answer = _strip_dashes(answer)
+    total_tokens = sum(u.get("total_tokens", 0) for u in usage_by_model.values())
     return AgentResult(
         answer=answer,
         sql=final_state.get("last_successful_sql"),
@@ -365,6 +377,8 @@ def _result_from_state(final_state: dict) -> AgentResult:
         chart_spec=final_state.get("chart_spec"),
         attempts=final_state.get("attempts", 0),
         tool_errors=final_state.get("tool_errors", 0),
+        total_tokens=total_tokens,
+        estimated_cost_usd=estimate_cost_usd(usage_by_model),
     )
 
 
@@ -381,21 +395,23 @@ async def stream_agent(question: str):
     """
     initial_state = _initial_state(question)
     final_state: dict = dict(initial_state)
-    async for update in _compiled_graph.astream(
-        initial_state, stream_mode="updates", config={"run_name": "ask"}
-    ):
-        for node_name, node_update in update.items():
-            final_state.update(node_update)
-            if node_name in ("messages",):
-                continue
-            message = NODE_PROGRESS_MESSAGES.get(node_name, node_name)
-            yield {"type": "progress", "node": node_name, "message": message}
+    with get_usage_metadata_callback() as cb:
+        async for update in _compiled_graph.astream(
+            initial_state, stream_mode="updates", config={"run_name": "ask"}
+        ):
+            for node_name, node_update in update.items():
+                final_state.update(node_update)
+                if node_name in ("messages",):
+                    continue
+                message = NODE_PROGRESS_MESSAGES.get(node_name, node_name)
+                yield {"type": "progress", "node": node_name, "message": message}
 
-    result = _result_from_state(final_state)
+        result = _result_from_state(final_state, cb.usage_metadata)
     yield {"type": "final", "result": result}
 
 
 def run_agent(question: str) -> AgentResult:
     initial_state = _initial_state(question)
-    final_state = _compiled_graph.invoke(initial_state, config={"run_name": "ask"})
-    return _result_from_state(final_state)
+    with get_usage_metadata_callback() as cb:
+        final_state = _compiled_graph.invoke(initial_state, config={"run_name": "ask"})
+        return _result_from_state(final_state, cb.usage_metadata)

@@ -34,36 +34,10 @@ from dataclasses import dataclass
 from langchain_core.callbacks import get_usage_metadata_callback
 
 from src.agent.graph import AgentResult, run_agent
+from src.agent.pricing import estimate_cost_usd
 from src.evals.checks import CheckResult
 from src.evals.golden_questions import GoldenQuestion, build_golden_questions
 from src.evals.judge import JudgeVerdict, judge_answer
-
-# $/million tokens, Groq's on-demand tier, verified live against Groq's own
-# pricing (not assumed from training data) on 2026-08-29 -- see DOCEXP.md's
-# Slice 24 entry. Keyed by model name since get_usage_metadata_callback()
-# reports usage per-model, and a future MODEL_PROVIDER/GROQ_MODEL change
-# would otherwise silently price against the wrong rate. Deliberately
-# doesn't account for Groq's cheaper cached-input rate (real input tokens
-# sometimes get served from Groq's own prompt cache at a discount) -- using
-# the plain non-cached rate for every input token is a simpler number to
-# state and a conservative one: it can only overstate real cost, never
-# understate it.
-GROQ_PRICING_USD_PER_MILLION_TOKENS = {
-    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.60},
-}
-
-
-def _estimate_cost_usd(usage_by_model: dict) -> float | None:
-    total = 0.0
-    known_pricing = True
-    for model, usage in usage_by_model.items():
-        pricing = GROQ_PRICING_USD_PER_MILLION_TOKENS.get(model)
-        if pricing is None:
-            known_pricing = False
-            continue
-        total += usage.get("input_tokens", 0) * pricing["input"] / 1_000_000
-        total += usage.get("output_tokens", 0) * pricing["output"] / 1_000_000
-    return total if known_pricing else None
 
 
 @dataclass
@@ -98,7 +72,7 @@ def run_evals(use_judge: bool = True) -> list[EvalRunResult]:
             if use_judge
             else None
         )
-        cost = _estimate_cost_usd(cb.usage_metadata)
+        cost = estimate_cost_usd(cb.usage_metadata)
         results.append(
             EvalRunResult(
                 gq, agent_result, check_result, judge_verdict, latency, cb.usage_metadata, cost

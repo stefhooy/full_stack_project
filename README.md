@@ -18,7 +18,7 @@ itself — not a fixed dashboard, not a chatbot answering from memory.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 25** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 26** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -57,7 +57,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   separately from legitimate multi-step tool use, surfaced per-request in
   the API response and aggregated live at `/health` as `self_correction`
   — real numbers for how often self-correction fires and how often it
-  actually recovers, not just an architecture description
+  actually recovers, not just an architecture description. Real token
+  usage and cost (Groq's actual on-demand pricing, verified live — see
+  `src/agent/pricing.py`) are tracked the same way (Slice 26): every
+  `/ask`/`/ask/stream` response reports its own `total_tokens`/
+  `estimated_cost_usd`, logged per request and aggregated live at
+  `/health` as `usage`
 - Three tools: `run_sql` (bound for every routable question), `run_stats`
   (bound only for `analysis`-routed questions) — real statistics via scipy:
   a Welch's t-test with a p-value for group comparisons, z-score outlier

@@ -69,6 +69,7 @@ def health() -> dict:
         "model_provider": settings.model_provider,
         "cache_entries": len(_cache),
         "self_correction": _run_stats.as_dict(),
+        "usage": _run_stats.usage_as_dict(),
     }
 
 
@@ -140,6 +141,8 @@ def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
         cached=cached,
         attempts=result.attempts,
         tool_errors=result.tool_errors,
+        total_tokens=result.total_tokens,
+        estimated_cost_usd=result.estimated_cost_usd,
     )
 
 
@@ -156,6 +159,12 @@ def _record_real_run(result: AgentResult) -> None:
             result.attempts,
             result.tool_errors,
         )
+    logger.info(
+        "usage: route=%s total_tokens=%d estimated_cost_usd=%s",
+        result.route,
+        result.total_tokens,
+        f"{result.estimated_cost_usd:.5f}" if result.estimated_cost_usd is not None else "unknown",
+    )
 
 
 def _run_with_cache(question: str) -> tuple[AgentResult, bool]:

@@ -27,3 +27,10 @@ class AskResponse(BaseModel):
     tool_errors: int = 0
     """How many of those tool calls actually failed and had to be
     self-corrected. 0 means the model got it right first try every time."""
+    total_tokens: int = 0
+    estimated_cost_usd: float | None = None
+    """Real token usage/cost for this question's LLM calls (Groq on-demand
+    list price, not including any provider prompt-caching discount -- see
+    src/agent/pricing.py). None only if the configured model has no known
+    price entry there, not if this was a cache hit (a cache hit still
+    replays the real cost the original run incurred)."""
