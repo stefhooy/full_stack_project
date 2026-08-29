@@ -4464,3 +4464,112 @@ pricing constant into its own module — same 5/6 deterministic result,
 the same real failure reproduced identically, confirming
 `pricing.py`'s extraction didn't change behavior anywhere. `ruff
 check`, `mypy src/`, and the full 88-test suite all clean throughout.
+
+## Slice 27 — Finishing what Slice 21 actually started: `run_evals.py` in CI
+
+**Date:** 2026-08-29
+
+Doing a status check surfaced something worth being honest about: the
+original plan (Slice 21) was "ruff/mypy → automate `run_evals.py` →
+README hook." Ruff/mypy happened. The README hook happened, eventually.
+In between, the RAG retrieval eval (Slice 22) got built and *did* land
+in CI — but it's a different eval, checking retrieval quality, not
+final-answer quality. Slice 24 ran the real `run_evals.py` suite, but
+manually, once, to gather numbers. It would have been easy to count
+either of those as "the eval automation is done" and move on; neither
+one actually was. Worth naming this directly rather than letting it
+quietly not happen: reprioritizing mid-project is fine and happened
+for good reasons each time, but an item that keeps getting implicitly
+superseded by adjacent work still needs to actually get done, or
+explicitly dropped — not just forgotten.
+
+### The forecast question: cut, not fixed, and the tradeoff stated plainly
+
+Slice 24 found `forecast_not_supported`'s `reference_facts` were stale.
+Asked directly whether to fix it or cut it, given this project's
+explicit AI-Engineer-only positioning (Data Scientist/Analyst-facing
+work already dropped in an earlier slice for the same reason):
+removed the golden question entirely rather than write an accurate
+replacement. The honest cost of that choice: the eval suite now has
+zero dedicated coverage of the `forecast` route. That's a real
+reduction in eval coverage, not a neutral cleanup — recorded here
+plainly rather than let the checklist entry imply nothing was lost.
+
+### Why scheduled, not gate-every-push
+
+`run_evals.py`'s own docstring already states the intent: "Exit code
+is 0 only if every question's route AND deterministic check passed —
+that's the part meant to gate CI later." Gating every push directly
+would mean a real Groq API call (router + agent + judge, per golden
+question) on every commit. Groq's free tier is rate-limited per
+minute, not just billed by the dollar, and this repo has had genuine
+multi-commit development days — gating every push risks a
+CI failure from a rate limit, not from an actual regression, which
+would train the habit of ignoring red X's here. A daily schedule
+(plus `workflow_dispatch` for on-demand runs) is enough to catch a
+real regression from a prompt edit or dependency bump without that
+risk. A red X on this specific workflow on a given day is still
+informative rather than embarrassing, by design: the one deterministic
+check that's actually failed throughout this whole project's history
+is a real, LLM-driven behavior (the free-to-play mislabeling), not a
+CI bug — an occasional failure here is the harness doing its job, the
+same conclusion Slice 24 reached about the manual run.
+
+### The ephemeral-runner problem, solved the same way `golden_questions.py` was designed to allow
+
+GitHub Actions runners start empty every time, and `data/db/*.duckdb`
+is gitignored on purpose (a 1000-game catalog isn't something to
+commit). Rather than reach for a cached artifact or restructure
+anything, used the property `golden_questions.py` was already built
+with back in Slice 5: `build_golden_questions()` queries the *real,
+current* DB for its ground truth at eval time, rather than hardcoding
+expected values. That means a small, fast, self-consistent catalog
+(`--count 100`, built fresh by the workflow itself) is exactly as
+valid a target for this suite as the real 1000-game one — the suite is
+checking whether the agent reasons correctly over whatever data
+exists, not whether this specific dataset matches some fixed
+expectation. A larger ingestion would only have cost more CI minutes
+for no additional signal.
+
+### Verification
+
+Didn't just write the YAML and trust it. Ran the identical two steps
+the workflow runs — a small ingestion, then the real eval suite —
+locally, with `DUCKDB_PATH` redirected to a throwaway location
+(`/tmp/eval_verify`) specifically so the real local 1000-game catalog
+this whole project's local testing depends on was never at risk of
+being silently overwritten by a 100-game rebuild. Confirmed 5/5 route
+accuracy and 4/5 deterministic checks — the free-to-play mislabeling
+bug caught a third time now, across a third distinct catalog (the real
+1000-game one in Slice 24, a second 100-game one earlier in this same
+slice's exploration, and this one), which is real, accumulating
+evidence that it's a genuine, consistent model behavior tied to how
+the prompt guides comparison queries, not an artifact of one
+particular dataset's contents. Confirmed the real local DB's row count
+(1000) afterward to prove it was untouched. Validated the workflow
+YAML parses correctly. `ruff check`, `mypy src/`, and the full 88-test
+suite all clean (no new test file — this slice changed a golden
+question and added a workflow, not application code with new
+behavior to unit-test).
+
+### What still needs the user's action
+
+This workflow cannot run at all without a `GROQ_API_KEY` repository
+secret — something only the user can add (Settings → Secrets and
+variables → Actions), same as `DEPLOY_HOOK_URL` earlier. Until it's
+added, the workflow will trigger on schedule and fail cleanly on the
+eval step with a clear missing-key error, not silently do nothing and
+not do anything destructive either.
+
+### Open questions (new)
+
+- **Zero eval coverage for the `forecast` route now.** A deliberate,
+  stated tradeoff, not an oversight — but if forecast quality ever
+  needs to be demonstrated again (a future job application emphasizing
+  time-series work, say), this is the first gap to fill, with a golden
+  question that matches the tool's real current honest-degradation
+  behavior instead of the stale one that got removed.
+- **The daily schedule has not yet been observed actually firing.**
+  Verified the mechanism thoroughly by hand; the first real scheduled
+  run (and whether the `GROQ_API_KEY` secret has been added by then)
+  is still unconfirmed.

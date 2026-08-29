@@ -133,16 +133,6 @@ def build_golden_questions() -> list[GoldenQuestion]:
             ),
         ),
         GoldenQuestion(
-            id="forecast_not_supported",
-            question="How many players will this game have next year?",
-            expected_route="forecast",
-            check=all_of(route_is("forecast"), no_data_fabricated()),
-            reference_facts=(
-                "This system has no forecasting tool or time-series data. The correct answer "
-                "is an honest 'not supported yet', not a fabricated projection."
-            ),
-        ),
-        GoldenQuestion(
             id="needs_clarification_ambiguous",
             question="Is this game good?",
             expected_route="needs_clarification",

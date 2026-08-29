@@ -107,8 +107,10 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       (0 only if every route + deterministic check passes; judge score is informational)
 - [x] Validated against Ollama: 5/6 deterministic, 6/6 route accuracy, 4.3/5 avg judge score —
       the one failure is the known Slice 4 bug, caught identically by both signals
-- [ ] Re-run against Groq once a key is available — open question from Slice 4 this was
-      built to answer
+- [x] ~~Re-run against Groq once a key is available~~ — superseded: Groq has
+      been the active default provider for every slice since Slice 6, and
+      Slice 24/27 both re-ran and published this exact eval against Groq
+      for real (5/6 deterministic, the same known bug caught live again)
 
 ## Slice 6 — Frontend + deploy
 - [x] Resolved the hosting decision (open since Slice 1): Vercel for the frontend,
@@ -131,7 +133,8 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified in a real browser (Playwright-driven, incl. dark mode) — found and
       fixed a real streaming/SSE parsing path end-to-end; diagnosed (not a bug) a
       subpixel-antialiasing screenshot artifact on small text, see DOCEXP.md
-- [ ] Actual live deployment — user's to do manually (per their preference)
+- [x] ~~Actual live deployment~~ — done for real in Slice 19, see README's
+      "Deploying" section for the live URLs
 
 ## Slice 7 — Live player-count time series
 - [x] Steam Web API `GetNumberOfCurrentPlayers` client (src/ingestion/steam_web_client.py) —
@@ -427,12 +430,12 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       that the mobile experience has had the same design attention as
       desktop (touch target sizing, the cartridge grid's 2-column density,
       genre-leaderboard readability on narrow screens)
-- [ ] Deploy for real: Vercel (frontend) + Render or Fly.io (backend) —
-      already the resolved plan since Slice 6 (see README's "Deploying"
-      section for the concrete steps); this slice is actually doing it, not
-      re-deciding it. User's to execute (account creation, secrets) per
-      their standing preference to handle external/billing-adjacent actions
-      themselves
+- [x] ~~Deploy for real~~ — done in Slice 19 (Render, not Fly.io — see
+      that slice's entry for why); this was the resolved plan since Slice
+      6 (see README's "Deploying" section for the concrete steps),
+      executed by the user themselves (account creation, secrets) per
+      their standing preference to handle external/billing-adjacent
+      actions themselves
 
 ## Slice 11 — Steam storefront API enrichment + test suite
 - [x] Investigated the "SteamSpy feels limited, should we switch APIs?"
@@ -1203,8 +1206,7 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       of the fixes (the API key wrapper, an SSE-yielding helper
       extracted to fix a duplicated long line) touched real request
       paths
-- [ ] `run_evals.py` (the real answer-quality regression check) still
-      never runs automatically, CLI-only
+- [x] `run_evals.py` now runs automatically (Slice 27) — see below
 - [x] README hook added (Slice 25) — see below
 - [x] Quantified results gathered and published (Slice 24) — see below
 
@@ -1434,6 +1436,52 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] `ruff check`, `mypy src/`, and the full pytest suite (88 tests,
       unchanged — this was a refactor plus new production
       instrumentation, no new test file) all clean
+
+## Slice 27 — `run_evals.py` actually running automatically, and a stale golden question retired
+- [x] Clarified a real gap before fixing it: Slice 22 automated a
+      *different* eval (RAG retrieval recall@k) in CI; Slice 24 only ran
+      `run_evals.py` manually, once, to publish numbers. The actual
+      golden-question answer-quality suite had never been wired into
+      anything automatic — closed that gap directly rather than
+      counting adjacent work as covering it
+- [x] Removed the `forecast_not_supported` golden question instead of
+      fixing its stale `reference_facts` (flagged in Slice 24) —
+      forecasting depth isn't this project's focus for an AI-Engineer-
+      targeted portfolio, and the honest tradeoff is real: the eval
+      suite now has no dedicated `forecast`-route regression check.
+      Recorded plainly, not glossed over
+- [x] `.github/workflows/run_evals.yml`: scheduled daily (+
+      `workflow_dispatch` for on-demand runs), deliberately not on every
+      push/PR — this hits real Groq API calls per golden question, and
+      Groq's free tier is rate-limited per-minute, not just billed;
+      gating every commit during a multi-commit development day risks
+      flaky rate-limit failures, not real regression signal
+- [x] Builds its own small (`--count 100`) evaluation catalog first,
+      since GitHub Actions runners are ephemeral and `data/db/*.duckdb`
+      is gitignored — valid for this purpose specifically because
+      `golden_questions.py` computes ground truth live from whatever DB
+      exists at eval time (by design, since Slice 5), so a smaller,
+      faster, self-consistent catalog checks the agent's reasoning
+      exactly as validly as the real 1000-game one would
+- [x] Verified the whole pipeline for real before trusting the
+      workflow file: ran the identical two steps (small ingestion, then
+      `run_evals.py`) locally against a throwaway `DUCKDB_PATH`
+      (`/tmp/eval_verify`, never the real local catalog) — confirmed
+      5/5 route accuracy, 4/5 deterministic (the same real mislabeling
+      bug caught a third time, now across three different catalogs —
+      strong evidence it's a genuine, consistent model behavior, not a
+      dataset-specific fluke), and confirmed the real local 1000-game
+      `data/db/games.duckdb` was untouched afterward
+- [x] `ruff check`, `mypy src/`, full pytest suite (88 tests, unchanged
+      — no new test file, this was a workflow + eval-data change), and
+      a YAML syntax check on the new workflow file, all clean
+- [x] Cleaned up three stale unchecked boxes from Slices 4/6/10 that
+      pre-dated actual deployment and were never marked resolved once
+      Slice 19 superseded them
+- **Needs a `GROQ_API_KEY` repository secret to actually run** — add it
+  under Settings → Secrets and variables → Actions, same place
+  `DEPLOY_HOOK_URL` went. Without it, this workflow will run and fail
+  cleanly on the eval step (not silently), not do anything worse.
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

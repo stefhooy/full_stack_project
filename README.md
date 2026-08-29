@@ -18,7 +18,7 @@ itself — not a fixed dashboard, not a chatbot answering from memory.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 26** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 27** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -86,7 +86,11 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   chunks were retrieved
 - An eval harness (`python -m src.evals.run_evals`) — a golden question set
   with ground truth computed live from the DB, deterministic checks, and
-  an LLM-as-judge pass, runnable as a regression check with a real exit code
+  an LLM-as-judge pass, runnable as a regression check with a real exit
+  code; runs daily on its own via `.github/workflows/run_evals.yml`
+  (Slice 27, against a small catalog the workflow builds fresh each
+  time, scheduled rather than gated on every push since it makes real
+  Groq calls)
 - A Next.js frontend (`frontend/`) — a dark, near-black/green identity
   with a neon-green accent (Slice 17) and Rajdhani, a technical
   gaming-adjacent sans, as the site's one type face. The hero is a real,
@@ -147,25 +151,32 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 Real numbers from a real run of `python -m src.evals.run_evals`
 (2026-08-29) against the golden question set, real Groq token usage,
 and Groq's actual current on-demand pricing (verified live, not
-assumed) — published as they came out, not re-run until clean. See
-DOCEXP.md's Slice 24 entry for full methodology and caveats.
+assumed) — published as they came out, not re-run until clean. This
+suite now also runs automatically, daily, in
+`.github/workflows/run_evals.yml` (Slice 27). See DOCEXP.md's Slice
+24/27 entries for full methodology and caveats.
 
 | Metric | Result |
 |---|---|
-| Route accuracy | 6/6 |
-| Deterministic checks | 5/6 (one real, honest failure — see below) |
-| Avg LLM-judge score | 4.2/5 |
-| Avg `/ask` latency | 15.5s (n=6, range 3.2s-37.1s) |
-| Avg cost per question | $0.00057 (Groq on-demand list price) |
+| Route accuracy | 5/5 |
+| Deterministic checks | 4/5 (one real, honest failure — see below) |
+| Avg LLM-judge score | 4.6/5 |
+| Avg `/ask` latency | 14.4s (n=5, range 3.5s-36.2s) |
+| Avg cost per question | $0.00059 (Groq on-demand list price) |
 | RAG retrieval recall@8 | 1.000 (15 hand-labeled questions, Slice 22) |
 
 The one deterministic failure is worth naming rather than hiding: it's
 the exact free-to-play group-mislabeling regression check Slice 4 built
 after a real bug (a group claiming to be "free-to-play" without
 actually being filtered to `price_usd = 0`) — and on this real run, it
-caught a live instance of that same failure class again. That's the
-eval harness doing its job, not a result to explain away; a suspiciously
-clean 6/6 would have been less informative and less honest.
+caught a live instance of that same failure class again — reproduced
+independently four separate times now across three different catalogs
+(the real 1000-game one twice, two different smaller ones used for CI
+verification), which is real evidence it's a consistent model behavior
+tied to how the prompt guides comparison queries, not a one-off fluke.
+That's the eval harness doing its job, not a result to explain away; a
+suspiciously clean 5/5 would have been less informative and less
+honest.
 
 Cache hit behavior was checked directly against a live backend rather
 than assumed: a genuinely different question correctly missed, a

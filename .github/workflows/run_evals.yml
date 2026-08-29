@@ -1,0 +1,50 @@
+name: Answer-Quality Evals
+
+# Runs the real golden-question eval suite (src/evals/run_evals.py) --
+# the one that produced the honest 5/6 result published in README.md's
+# "Measured results" (Slice 24). Deliberately scheduled, not on every
+# push/PR like test.yml: this hits real Groq API calls (a router + agent
+# call per golden question, plus an LLM-judge call), and Groq's free tier
+# is rate-limited per minute, not just billed by the dollar -- gating
+# every commit during an active development burst (this repo has had
+# multi-commit days) risks flaky failures from rate limits, not real
+# regressions. Daily is enough to catch a genuine regression (a prompt
+# edit, a dependency bump) without needing to gate every push. Also
+# runnable on demand via workflow_dispatch.
+#
+# Needs its own small evaluation catalog first: GitHub Actions runners are
+# ephemeral and data/db/*.duckdb is gitignored, so there's no catalog here
+# unless this job builds one. Uses --count 100, not the real 1000-game
+# production catalog -- golden_questions.py computes its ground truth live
+# from whatever DB exists at eval time (see its own docstring), so a
+# smaller, faster, self-consistent catalog is exactly as valid for this
+# purpose as the real one: this suite checks the agent's reasoning against
+# its own data, not this specific dataset's real-world accuracy. Needs the
+# "agent" extra (not just base + dev), unlike test.yml's pytest job, since
+# run_evals.py exercises the real LLM/LangGraph stack, not pure functions.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily, 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra agent --extra dev
+
+      - name: Build a small evaluation catalog
+        run: uv run python -m src.ingestion.ingest --count 100
+
+      - name: Run the eval suite
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: uv run python -m src.evals.run_evals
