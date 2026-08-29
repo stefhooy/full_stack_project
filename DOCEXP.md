@@ -5281,3 +5281,88 @@ in its mocked form.
   3m45s" sense Groq's own error reported, or only at a calendar-day
   boundary.** Not verified either way yet; matters for deciding when a
   clean `run_evals.yml` run is worth attempting again.
+
+## Slice 34 — "Frontend CI has no runs" turned into a real bug hunt
+
+**Date:** 2026-08-30
+
+Noticed while looking at the Actions tab: `frontend-ci.yml` showed zero
+runs, ever. Checked before assuming anything was wrong: the workflow
+was registered and `active` (GitHub's own Actions API), correctly
+scoped to `paths: [frontend/**]` — it had simply never had a matching
+commit since it was added. `git log` confirmed it precisely: the last
+commit touching `frontend/**` landed at 15:20:19, the workflow itself
+was added at 15:27:50, seven minutes later. Not a misconfiguration —
+there had been nothing for it to react to yet.
+
+### Proving it works, instead of asserting it
+
+The honest way to confirm a never-run workflow actually works is to
+give it a real trigger, not to read the YAML and declare it correct.
+Added a small, genuinely-informative comment to `next.config.ts`
+(documenting exactly why the file was being touched) and had the user
+commit and push it.
+
+It failed. For real, and usefully:
+
+```text
+app/layout.tsx(36,50): error TS2304: Cannot find name 'LayoutProps'.
+```
+
+### Diagnosing instead of patching around it
+
+`LayoutProps<"/">` is not an import — it's a Next.js-generated ambient
+type (the typed-routes feature), written to `.next/types` only after
+`next dev`, `next build`, or `next typegen` has actually run. This
+project's own local `tsc --noEmit` had been run dozens of times this
+session and always came back clean, which made the CI failure
+confusing for a moment — until realizing why: every one of those local
+runs happened in a working directory that already had a `.next/`
+directory left over from an earlier `npm run build` or `npm run dev`.
+Local `tsc` was silently riding on stale build artifacts every single
+time; nothing had ever actually exercised a genuinely clean checkout's
+type-check step before this workflow's first real run did.
+
+Confirmed the diagnosis by reproducing it locally rather than trusting
+the theory: `rm -rf .next`, then `npx tsc --noEmit` — the exact same
+`Cannot find name 'LayoutProps'` error, on this machine, on demand.
+`frontend-ci.yml`'s own step order made it worse: Type check runs
+*before* Build, so even CI's own later build step (which would have
+generated the type) never gets a chance to save it.
+
+### The fix, verified before trusting it
+
+Next.js 16 ships `next typegen` specifically for this: generates only
+the route/page/layout ambient types, no full build. Verified directly:
+`rm -rf .next` again, `npx next typegen`, then `npx tsc --noEmit` —
+clean. Added a "Generate route types" step to `frontend-ci.yml` between
+Lint and Type check, with a comment explaining why it's there (the
+"why," not just the "what" — the next person reading this workflow
+shouldn't have to rediscover the stale-`.next/`-artifact trap to
+understand the step's purpose).
+
+Verified the whole corrected sequence end to end afterward, not just
+the one step that had failed: `rm -rf .next` once more, then lint →
+typegen → type check → build in the exact order `frontend-ci.yml` now
+runs them, all four green.
+
+### Why this matters beyond the one bug
+
+This is a second real instance (after Slice 30's eval-check discovery)
+of this project's own local verification silently passing for a reason
+that had nothing to do with correctness — stale build artifacts masking
+a real gap, the same way a wrongly-designed check masked a real bug
+fix earlier. `npm run lint`/`npx tsc --noEmit`/`npm run build`, run by
+hand after nearly every frontend slice this whole project, had never
+once caught this, because none of those runs ever started from a truly
+clean checkout. A workflow's first real run against a genuinely fresh
+environment is exactly the kind of check this project's own "automate
+the answer-quality suite" and "automate the RAG eval" slices were
+chasing — this is the frontend getting the equivalent for free, the
+moment it actually ran.
+
+### Verification
+
+Full corrected sequence reproduced locally from a clean `.next/` state:
+lint, `next typegen`, `tsc --noEmit`, and `npm run build` all clean, in
+the same order the workflow now runs them.

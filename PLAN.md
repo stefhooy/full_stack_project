@@ -1747,6 +1747,34 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       full suite could be re-run safely. `ruff check`, `mypy src/`
       (44 files), and `pytest -q` (88/88) all clean
 
+## Slice 34 — Frontend CI's first real run found a real bug, in the CI config itself
+- [x] "Frontend CI" (`frontend-ci.yml`) had zero runs since being added
+      — not a bug, just no commit to `frontend/**` had landed since it
+      was created. Made a real, deliberate trigger (a comment in
+      `next.config.ts`) instead of just asserting it would work, and it
+      failed for real: `app/layout.tsx(36,50): error TS2304: Cannot find
+      name 'LayoutProps'`
+- [x] Root cause, confirmed by reproducing it locally rather than
+      guessing: `LayoutProps<"/">` is a Next.js-generated ambient type
+      (typed routes), written to `.next/types` only after `next dev`,
+      `next build`, or `next typegen` has run at least once. Every local
+      `tsc --noEmit` this project ever ran had stale `.next/` artifacts
+      already sitting on disk from a prior dev/build session, silently
+      masking this. `frontend-ci.yml`'s job order (install → lint → type
+      check → build) runs type check *before* the build step that would
+      have generated it — a genuinely fresh checkout has no `.next/` dir
+      yet when type check runs
+- [x] Verified the fix before applying it: `rm -rf .next` locally
+      reproduced the exact CI error; `npx next typegen` (a real Next.js
+      16 command, generates only the route/page/layout ambient types,
+      no full build) followed by `tsc --noEmit` succeeded clean. Added a
+      "Generate route types" step to `frontend-ci.yml` between Lint and
+      Type check
+- [x] Verified the corrected sequence end to end from a clean state, not
+      just the one failing step in isolation: `rm -rf .next`, then lint
+      → typegen → type check → build, all four green, matching exactly
+      what CI now runs
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

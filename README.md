@@ -18,7 +18,7 @@ itself — not a fixed dashboard, not a chatbot answering from memory.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 33** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 34** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 

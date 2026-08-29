@@ -39,6 +39,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # RootLayout's `LayoutProps<"/">` (and any PageProps/route param
+      # types elsewhere) are ambient types Next.js generates itself into
+      # .next/types -- they don't exist on a fresh checkout until
+      # something asks Next to generate them. Every local `tsc --noEmit`
+      # this project ever ran had already run `next dev`/`next build` at
+      # least once beforehand, so this was invisible locally: the first
+      # real CI run (no prior .next/ dir) failed with "Cannot find name
+      # 'LayoutProps'" until this step was added. `next typegen` does
+      # only that generation step, without a full build.
+      - name: Generate route types
+        run: npx next typegen
+
       - name: Type check
         run: npx tsc --noEmit
 
