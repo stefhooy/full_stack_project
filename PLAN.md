@@ -1775,6 +1775,25 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       → typegen → type check → build, all four green, matching exactly
       what CI now runs
 
+## Slice 35 — Fix confirmed, but the confirmation attempt itself hit a GitHub Actions gotcha
+- [x] User clicked "Re-run jobs" on the failing run to check the Slice 34
+      fix — it failed identically, same missing-`LayoutProps` error, with
+      no "Generate route types" step anywhere in the log. Not a failed
+      fix: GitHub Actions pins a `push`-triggered run's workflow-file
+      content to the commit that originally triggered it. "Re-run" was
+      replaying the pre-fix commit's snapshot of `frontend-ci.yml`, not
+      the corrected one already sitting on `master`
+- [x] A second, compounding issue found in the same breath: the fix
+      commit itself only touched `.github/workflows/frontend-ci.yml`
+      plus docs, nothing under `frontend/**` — so even a fresh push of it
+      would never have self-triggered this `paths`-filtered workflow
+- [x] Added `workflow_dispatch: {}` to `frontend-ci.yml`, matching the
+      manual-trigger pattern the other two workflows already use, so a
+      workflow-file-only fix can be verified on demand instead of
+      depending on an unrelated frontend edit. Verified the YAML still
+      parses correctly (`yaml.safe_load`) and re-ran the full clean-state
+      sequence (`rm -rf .next`; lint, typegen, `tsc --noEmit`) once more
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

@@ -5366,3 +5366,41 @@ moment it actually ran.
 Full corrected sequence reproduced locally from a clean `.next/` state:
 lint, `next typegen`, `tsc --noEmit`, and `npm run build` all clean, in
 the same order the workflow now runs them.
+
+## Slice 35 — The fix worked; confirming it hit one more GitHub Actions surprise
+
+**Date:** 2026-08-30
+
+The user's own instinct to actually verify the Slice 34 fix, rather than
+trust a green write-up, surfaced one more real thing worth knowing.
+Clicked "Re-run jobs" on the failing run — it failed identically, same
+`Cannot find name 'LayoutProps'`, and critically, the log showed no
+"Generate route types" step at all, meaning the fix genuinely hadn't
+run, not that it had run and failed anyway.
+
+Diagnosed rather than assumed the fix was wrong: GitHub Actions pins a
+`push`-triggered run's workflow *definition* to the commit SHA that
+originally triggered it. "Re-run jobs" replays that same pinned
+snapshot — it does not pick up whatever is currently on `master`, even
+when the fix has already been pushed. `git log`/`git status` confirmed
+the fix commit was in fact already on `origin/master`; it had simply
+never had a run of its own yet.
+
+A second, compounding reason it hadn't: the fix commit only touched
+`.github/workflows/frontend-ci.yml` plus docs, nothing under
+`frontend/**` — so even a fresh push of it would never have satisfied
+this workflow's own `paths` filter and self-triggered.
+
+Fixed the actual gap rather than working around it with another
+throwaway frontend edit: added `workflow_dispatch: {}` to
+`frontend-ci.yml`, the same manual-trigger pattern `poll_player_counts.yml`
+and `refresh_catalog.yml` already use. Verified the YAML still parses
+(`yaml.safe_load`) and re-ran the clean-state lint/typegen/`tsc` sequence
+once more before handing it back.
+
+### Verification
+
+`yaml.safe_load` confirmed `workflow_dispatch: {}` parses correctly
+alongside the existing `push`/`pull_request` triggers. Clean-state
+sequence (`rm -rf .next`; lint, `next typegen`, `tsc --noEmit`) reran
+green.

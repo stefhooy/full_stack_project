@@ -17,6 +17,9 @@ on:
     paths: [frontend/**]
   pull_request:
     paths: [frontend/**]
+  workflow_dispatch: {} # manual runs from the Actions tab -- e.g. to
+    # re-verify a workflow-file-only fix, which the paths filter above
+    # wouldn't otherwise pick up on its own (see DOCEXP.md's Slice 34)
 
 jobs:
   build:
