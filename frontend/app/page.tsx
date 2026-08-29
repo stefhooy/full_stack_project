@@ -207,6 +207,14 @@ export default function Home() {
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Always mounted (not just while loading) so ask() can scroll to it the
+  // instant a question fires, regardless of which entry point triggered it
+  // (the main bar, a Meet Ludo example, or a genre-showcase leaderboard
+  // pick further down the page) -- see DOCEXP.md's Slice 20 entry for why
+  // this exists: the trace/result used to render below two whole sections
+  // (Meet Ludo, the genre showcase) with nothing near the input itself
+  // indicating a question was even running.
+  const resultAnchorRef = useRef<HTMLDivElement | null>(null);
 
   async function ask(q: string) {
     if (!q.trim() || loading) return;
@@ -219,6 +227,11 @@ export default function Home() {
     setProgress([]);
     setResult(null);
     setError(null);
+    // Scroll after the DOM reflects loading=true, so the (now-visible)
+    // trace panel is what scrolls into view, not empty space.
+    requestAnimationFrame(() => {
+      resultAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
 
     try {
       await streamAsk(
@@ -348,83 +361,91 @@ export default function Home() {
             </motion.button>
           ))}
         </motion.div>
+
+        {/* Anchored right under the ask bar, not below Meet Ludo/genre
+            showcase, and scrolled into view from ask() regardless of which
+            entry point fired the question -- see the ref's comment above. */}
+        <div ref={resultAnchorRef} className="scroll-mt-6">
+          <AnimatePresence mode="wait">
+            {(loading || progress.length > 0) && !result && (
+              <motion.div
+                key="progress"
+                initial={{ opacity: 0, filter: "blur(4px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, filter: "blur(4px)" }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="panel mt-6 rounded-xl px-4 py-4"
+              >
+                <div className="mb-3 text-xs font-mono text-[var(--muted)]">
+                  Ludo is thinking…
+                </div>
+                <TraceSteps visited={visitedNodes} current={currentNode} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {error && (
+            <div className="mt-6 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger-bg)] text-[var(--danger)] text-sm px-4 py-3">
+              {error}
+            </div>
+          )}
+
+          <AnimatePresence>
+            {result && (
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, filter: "blur(4px)" }}
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="panel mt-6 rounded-xl p-5 space-y-4"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <RouteBadge route={result.route} />
+                  {result.cached && <Pill>Cached</Pill>}
+                </div>
+
+                <Markdown>{result.answer}</Markdown>
+
+                {result.forecast_result && <ForecastResultView forecast={result.forecast_result} />}
+
+                {result.chart_spec && <Chart spec={result.chart_spec} />}
+
+                {!result.chart_spec && result.columns && result.rows && (
+                  <ResultTable columns={result.columns} rows={result.rows} />
+                )}
+
+                {result.stats_result && <StatsResultView stats={result.stats_result} />}
+
+                {(result.sql || result.retrieved_schema_chunks) && (
+                  <details className="text-xs text-[var(--muted)]">
+                    <summary className="cursor-pointer select-none">Show the work</summary>
+                    <div className="mt-2 space-y-2">
+                      {result.sql && (
+                        <pre className="whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 overflow-x-auto font-mono">
+                          {result.sql}
+                        </pre>
+                      )}
+                      {result.retrieved_schema_chunks && (
+                        <div>
+                          retrieved schema: {result.retrieved_schema_chunks.join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       <MeetLudo onPick={ask} disabled={loading} />
 
       <div className="max-w-2xl mx-auto px-6 py-14">
-        <div className="mb-12">
+        <div>
           <GenreShowcase onPick={ask} disabled={loading} />
         </div>
-
-        <AnimatePresence mode="wait">
-          {(loading || progress.length > 0) && !result && (
-            <motion.div
-              key="progress"
-              initial={{ opacity: 0, filter: "blur(4px)" }}
-              animate={{ opacity: 1, filter: "blur(0px)" }}
-              exit={{ opacity: 0, filter: "blur(4px)" }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-              className="panel mb-6 rounded-xl px-4 py-4"
-            >
-              <TraceSteps visited={visitedNodes} current={currentNode} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {error && (
-          <div className="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger-bg)] text-[var(--danger)] text-sm px-4 py-3 mb-4">
-            {error}
-          </div>
-        )}
-
-        <AnimatePresence>
-          {result && (
-            <motion.div
-              key="result"
-              initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, filter: "blur(4px)" }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="panel rounded-xl p-5 space-y-4"
-            >
-              <div className="flex items-center gap-2 flex-wrap">
-                <RouteBadge route={result.route} />
-                {result.cached && <Pill>Cached</Pill>}
-              </div>
-
-              <Markdown>{result.answer}</Markdown>
-
-              {result.forecast_result && <ForecastResultView forecast={result.forecast_result} />}
-
-              {result.chart_spec && <Chart spec={result.chart_spec} />}
-
-              {!result.chart_spec && result.columns && result.rows && (
-                <ResultTable columns={result.columns} rows={result.rows} />
-              )}
-
-              {result.stats_result && <StatsResultView stats={result.stats_result} />}
-
-              {(result.sql || result.retrieved_schema_chunks) && (
-                <details className="text-xs text-[var(--muted)]">
-                  <summary className="cursor-pointer select-none">Show the work</summary>
-                  <div className="mt-2 space-y-2">
-                    {result.sql && (
-                      <pre className="whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 overflow-x-auto font-mono">
-                        {result.sql}
-                      </pre>
-                    )}
-                    {result.retrieved_schema_chunks && (
-                      <div>
-                        retrieved schema: {result.retrieved_schema_chunks.join(", ")}
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </div>
   );

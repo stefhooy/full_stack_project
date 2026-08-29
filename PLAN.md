@@ -1066,6 +1066,102 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       touched files for em dashes, en dashes, and non-breaking hyphens —
       none found in rendered copy
 
+## Slice 19 — Actually deployed, for the first time
+- [x] Backend deployed to Render (free web service, Docker runtime,
+      `master` branch, Frankfurt region). Build ran real ingestion
+      (1000 games via SteamSpy + Steam store enrichment, ~32 minutes
+      total, ~25 of which is the enrichment step's deliberate 1.5s/game
+      rate limit) and the local embedding model download, exactly as
+      the Dockerfile describes, this time actually verified against a
+      live build rather than only reasoned about
+- [x] Corrected the README's own deployment advice before using it:
+      checked current terms and Fly.io removed its free tier for new
+      accounts in 2024 (2 VM hour/7 day trial only, then a card is
+      required); Render's free web service tier still needs no card.
+      Used Render only, not "Render or Fly.io" as originally written
+- [x] Health Check Path set to `/health` (the app's real endpoint) —
+      not the dashboard's own greyed placeholder text (`/healthz`),
+      which would have pointed Render's health monitor at a route that
+      doesn't exist
+- [x] Build Filters (Ignored Paths) added on Render: `frontend/**`,
+      `*.md`, `.github/**` — without these, every frontend-only commit
+      or doc update (most commits in this project's history) would
+      trigger a full backend rebuild, including a full 25-minute
+      re-ingestion, for zero reason
+- [x] Frontend deployed to Vercel (Hobby, free), Root Directory
+      `frontend`, one real env var (`NEXT_PUBLIC_API_BASE_URL`). Vercel
+      auto-suggested importing 26 environment variables detected from
+      `.env.example` files across the whole repo (25 backend-only vars
+      with empty values, since the real `.env` is gitignored and never
+      visible to it) — all 25 removed, keeping only the one the
+      frontend actually reads
+- [x] Real gap found and fixed: `CORS_ALLOWED_ORIGINS` was missing
+      entirely from Render's environment, not just left at its default
+      — the backend was deployed via "Add from .env" against a local
+      `.env` that had never included that line (only `.env.example`
+      documents it), so `src/config.py`'s built-in default of
+      `http://localhost:3000` was silently active in production. Added
+      it explicitly, set to the real Vercel URL, "Save and deploy" (not
+      "Save, rebuild, and deploy" — an env-var-only change needs a
+      container restart, not a full Docker rebuild plus a second
+      25-minute re-ingestion)
+- [x] Closed the loop and verified for real, against the live URLs, not
+      just localhost: `curl` confirmed `/health` returns `db_exists:
+      true` in production; an `OPTIONS` preflight against `/ask` with
+      the real Vercel `Origin` header confirmed
+      `access-control-allow-origin` echoes the Vercel URL specifically,
+      not a wildcard or a stale localhost value; Playwright against the
+      live Vercel URL (not localhost) confirmed real cover art loads,
+      the cartridge opens/closes, `/catalog` renders real rows, and
+      zero console errors/horizontal overflow at desktop and mobile
+      viewports; a live `POST /ask` round trip against the deployed
+      Render backend returned a correct answer with correct SQL and a
+      markdown table, no em/en dashes
+- Live URLs: `https://ai-game-analyst-api.onrender.com` (backend),
+  `https://full-stack-project-sepia-nine.vercel.app` (frontend)
+
+## Slice 20 — The answer used to render below two whole sections it had nothing to do with
+- [x] Real UX bug reported after the deploy: clicking Ask gave no visible
+      feedback near the input, and the result rendered all the way at
+      the bottom of the homepage, past the entire Meet Ludo and genre
+      showcase sections — confirmed by reading `app/page.tsx`, not just
+      taking the report on faith
+- [x] Moved the progress-trace/error/result block to render directly
+      under the ask bar and its example-question pills, before Meet
+      Ludo and the genre showcase, instead of after both
+- [x] Added an explicit "Ludo is thinking…" label above the trace
+      dots, so the loading state reads as "something is happening" at
+      a glance, not just five grey dots
+- [x] Added `scrollIntoView({ behavior: "smooth" })` on every `ask()`
+      call, anchored to a ref that wraps the trace/result block — this
+      matters because Meet Ludo's example questions and the genre
+      showcase's leaderboard picks call the same shared `ask()`
+      function from much further down the page; without the scroll,
+      triggering a question from either of those would show its answer
+      off-screen above the click, which is the same underlying bug in
+      a different direction
+- [x] A separate, much larger idea from the same feedback (a
+      ChatGPT-style multi-turn chat thread, follow-up questions,
+      cross-game comparison within a conversation) was deliberately
+      NOT built this slice. Recommended against building it as scoped:
+      the stated use case (comparing games) is already served by the
+      existing stateless `run_stats` `compare_two_groups` tool in a
+      single question, and full conversational memory would require
+      teaching the router/prompts to resolve references across turns —
+      real architecture work that trades away some of the project's
+      actual differentiator (a stateless, easy-to-guardrail pipeline)
+      for a feature the current tools mostly already cover. Logged as
+      an open question below rather than silently dropped
+- [x] Verified fresh: `tsc --noEmit`, `npm run lint`, `npm run build`
+      all clean; Playwright against a real local backend confirmed the
+      "Ludo is thinking" label and the trace panel are both visible in
+      the viewport immediately after clicking Ask, with no scrolling,
+      on both desktop and mobile; a second check confirmed triggering
+      `ask()` from a lower section (a Meet Ludo/genre-showcase example)
+      scrolls the page so the trace panel becomes visible, not just the
+      main bar's own click; zero console errors; grepped the new copy
+      for em/en dashes and non-breaking hyphens, none found
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

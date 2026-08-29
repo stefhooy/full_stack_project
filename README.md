@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 18** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 20** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -276,45 +276,79 @@ itself, it only queries what's already there.
 
 ## Deploying
 
-Resolved in Slice 6, after being flagged as open since Slice 1: **Vercel
-for the frontend, a separate normal Python host (Render or Fly.io free
-tier) for the backend** — not Vercel Python functions. This stack's actual
-footprint (fastembed's ~130MB ONNX model, scipy, a DuckDB file, multi-step
-LLM calls with retries that can run 10-30s+) doesn't comfortably fit
-serverless payload-size and execution-time limits. See DOCEXP.md for the
-full reasoning.
+**Live since Slice 19:**
 
-**Backend** (`Dockerfile` + `render.yaml` at the repo root):
+- Backend: [ai-game-analyst-api.onrender.com](https://ai-game-analyst-api.onrender.com) (Render, free tier)
+- Frontend: [full-stack-project-sepia-nine.vercel.app](https://full-stack-project-sepia-nine.vercel.app) (Vercel, Hobby)
+
+Resolved in Slice 6, after being flagged as open since Slice 1, then
+actually carried out in Slice 19: **Vercel for the frontend, a separate
+normal Python host for the backend** — not Vercel Python functions.
+This stack's actual footprint (fastembed's ~130MB ONNX model, scipy, a
+DuckDB file, multi-step LLM calls with retries that can run 10-30s+)
+doesn't comfortably fit serverless payload-size and execution-time
+limits. See DOCEXP.md for the full reasoning.
+
+The original plan named "Render or Fly.io" as interchangeable options;
+that's now out of date and was corrected before deploying, not after —
+Fly.io removed its free tier for new accounts in 2024 (a 2 VM hour/7
+day trial, then a card is required), while Render's free web service
+tier still needs no card. Used Render only.
+
+**Backend** (`Dockerfile` at the repo root; `render.yaml` is
+illustrative reference, the actual deploy used Render's manual "New Web
+Service" form, not the Blueprint import):
 
 1. Push this repo to GitHub.
-2. On Render (or Fly.io, using the same Dockerfile via `fly launch`):
-   create a new Web Service from the repo, Docker runtime, root directory
-   `.`. Render can pick up `render.yaml` directly as a Blueprint.
-3. Set the real env vars in the platform's dashboard (not in `render.yaml`,
-   which only has placeholders): `GROQ_API_KEY` at minimum. Defaults for
-   everything else match `.env.example`.
-4. Ingestion runs **at Docker build time** (see the Dockerfile) — the image
-   bakes in a snapshot of the SteamSpy catalog. Re-deploy (rebuild) to
-   refresh the data; there's no scheduled re-ingestion yet (see PLAN.md's
-   Slice 7 note).
-5. Note the deployed backend URL — you need it for the frontend.
+2. On Render: create a new Web Service from the repo, Docker runtime,
+   root directory `.`, branch `master`, plan **Free**.
+3. Health Check Path: `/health` — this app's real endpoint, not
+   Render's own greyed placeholder text (`/healthz`), which isn't a
+   route this app has.
+4. Build Filters → Ignored Paths: `frontend/**`, `*.md`, `.github/**` —
+   otherwise every frontend or docs-only commit triggers a wasted full
+   backend rebuild (and a ~25-minute re-ingestion) for no reason.
+5. Environment Variables: `GROQ_API_KEY` at minimum. Defaults for
+   everything else match `.env.example` — but note that `.env.example`
+   documents more variables (`CORS_ALLOWED_ORIGINS`, `DEBUG`, the
+   rate-limit/cache tuning knobs) than a typical working local `.env`
+   actually contains; if you use Render's "Add from .env" shortcut
+   against your own `.env`, double-check `CORS_ALLOWED_ORIGINS`
+   specifically ends up set (see the Slice 19 DOCEXP entry — it's easy
+   to end up with the code's `http://localhost:3000` default silently
+   active in production instead of an error you'd notice).
+6. Ingestion runs **at Docker build time** (see the Dockerfile) — the
+   image bakes in a snapshot of the SteamSpy catalog, and per-game
+   Steam store enrichment is deliberately rate-limited to 1.5s/game, so
+   the first build takes roughly 30 minutes for 1000 games, not a hang.
+   Re-deploy (rebuild) to refresh the data; there's no scheduled
+   re-ingestion yet outside the optional workflow below.
+7. Note the deployed backend URL — you need it for the frontend.
 
 **Frontend** (Vercel):
 
 1. Import the repo into Vercel, set **Root Directory** to `frontend`.
-2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL from step 5 above.
+2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL from step 7 above.
+   Vercel's import UI may offer to auto-import env vars it detected
+   across the *whole* repo (not just `frontend/`) from `.env.example`
+   files — remove anything that isn't `NEXT_PUBLIC_API_BASE_URL`; the
+   rest are backend-only and Next.js never reads them.
 3. Deploy. Note the resulting `*.vercel.app` URL.
 
 **Close the loop:** go back to the backend host's dashboard and set
-`CORS_ALLOWED_ORIGINS` to the Vercel URL from the frontend step — the
-backend only accepts browser requests from origins in that list.
+`CORS_ALLOWED_ORIGINS` to the Vercel URL from the frontend step (add it
+if it isn't already a listed variable at all — see step 5 above), then
+"Save and deploy" (a container restart, not "Save, rebuild, and
+deploy" — that variable is read at startup, not baked into the image,
+so a full rebuild plus a second re-ingestion would be pure waste here).
+The backend only accepts browser requests from origins in that list.
 
 **Caveats, honestly:** the semantic cache and rate limiter are in-memory
 and process-local (see `src/agent/cache.py` and `src/api/rate_limit.py`) —
 correct for a single instance, would need a shared store (Redis) if the
-backend ever scales to multiple instances. The Dockerfile is written
-carefully but **not verified against a live build** in this environment
-(no Docker available) — check it actually builds before relying on it.
+backend ever scales to multiple instances. Render's free tier spins the
+service down after 15 minutes of inactivity; the first request after
+that takes 30-60s to wake it back up.
 
 **Keeping data fresh** (Slice 7, once you've pushed to GitHub and enabled
 Actions):
@@ -467,9 +501,9 @@ choices worth being able to defend:
 A native mobile app was considered and dropped (see PLAN.md's "Dropped")
 in favor of the same responsive Next.js frontend — verified on real
 mobile-viewport emulation in Slice 9e, one real overlap bug found and
-fixed there. Slice 10 is a further mobile-web design pass plus actually
-deploying (Vercel + Render/Fly.io, the plan resolved back in Slice 6 —
-see "Deploying" below).
+fixed there. Actually deploying (Vercel + Render, the plan resolved
+back in Slice 6) landed in Slice 19 — see "Deploying" below for the
+live URLs.
 
 Forecasting is real now, not deferred: `run_forecast` (Slice 9b) is a real
 linear-trend projection over `player_counts` history, bound only for

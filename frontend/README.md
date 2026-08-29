@@ -17,9 +17,10 @@ directly via `NEXT_PUBLIC_API_BASE_URL`, no server-side proxy.
 
 ## What's here
 
-Slice 18, adding a cartridge detail popup to Slice 17's film strip on
-real positive feedback for the first time in this project's redesign
-history. See DOCEXP.md for the full history
+Slice 20, fixing a real UX bug found by actually using the deployed
+site: the ask flow's progress trace and answer used to render below
+two whole unrelated sections with no feedback near the input itself.
+See DOCEXP.md for the full history
 (Slice 9g's near-black dev-tool look, Slice 12b's turquoise pass, Slice
 13's light "Roman Intelligence" re-skin, Slice 14/14b/14c's dark
 illustrated-then-photographic Roman statue, Slice 15's monochrome-plus-
@@ -32,9 +33,15 @@ deleted full Roman identity.
 
 - `app/page.tsx` — the whole UI: hero (headline + `HeroPreview`, a real
   verified answer shown in a floating panel), ask console, example
-  questions, the "Meet Ludo" capabilities section, genre picker, streamed
-  progress (as an animated trace stepper), answer, chart/table,
-  stats/forecast result.
+  questions, then the streamed progress (an animated trace stepper with
+  an explicit "Ludo is thinking…" label) and the answer/chart/table/
+  stats/forecast result — rendered directly under the ask bar itself,
+  before the "Meet Ludo" capabilities section and the genre picker, not
+  after both (Slice 20; it used to render below both, with no feedback
+  near the input while a question ran). `ask()` scrolls that block into
+  view on every call, since Meet Ludo's example questions and the genre
+  picker's leaderboard both trigger the same shared `ask()` from much
+  further down the page.
 - `app/catalog/` — the full-catalog browse page (search/filter/sort/
   paginate over all 1,000 games, `GET /catalog`, no LLM call). `page.tsx`
   is a thin server wrapper (for a real per-route `<title>`) around the

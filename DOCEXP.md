@@ -3531,3 +3531,219 @@ explicitly and the other two were part of the design, not just an
 implementation detail. Grepped every new and touched file for em
 dashes, en dashes, and non-breaking hyphens; none found outside code
 comments.
+
+## Slice 19 — Actually deployed, and two real gaps the deploy itself surfaced
+
+**Date:** 2026-08-29
+
+Everything up to this point had been verified against `localhost` only.
+Asked directly "how do I deploy this, and do I still need to run
+uvicorn/npm run dev myself" — the answer to the second half is no, once
+deployed the platforms run the servers continuously on their own
+infrastructure, the local dev commands become a pure local-dev loop.
+
+### Correcting the repo's own advice before following it
+
+The README's Deploying section (written back in Slice 6) recommends
+"Render or Fly.io" interchangeably. Rather than trust that unchanged,
+checked current terms first, since hosting free tiers are exactly the
+kind of fact that goes stale: Fly.io removed its free tier for new
+accounts back in 2024 (a 2 VM hour/7 day trial, then a card is
+required), while Render's free web service tier still needs no card at
+all. Used Render only. Same instinct as verifying the Steam CDN URL
+with a live curl before hotlinking it in Slice 16, applied to a
+pricing claim instead of a technical one.
+
+### The Health Check Path trap
+
+Render's own new-service form shows `/healthz` as greyed placeholder
+text in the Health Check Path field — common convention on other
+platforms, but not this app's actual route. The real endpoint is
+`GET /health` (`src/api/main.py`). Typing the placeholder literally,
+rather than reading it as an example, would have pointed Render's
+health monitor at a 404 and likely marked the service unhealthy despite
+it actually running fine.
+
+### Build Filters, added because most commits in this repo are irrelevant to the backend
+
+Left unset, every commit to `master` triggers a full Render rebuild,
+including a full Docker build and the ~25-minute SteamSpy re-ingestion
+step. Looking at this project's own commit history, the overwhelming
+majority of commits are frontend-only or documentation-only (this
+project's own habit of updating PLAN/DOCEXP/README after every slice).
+Added Ignored Paths (`frontend/**`, `*.md`, `.github/**`) so those
+commits redeploy the frontend on Vercel (fast, no ingestion involved)
+without also triggering a wasted 30-minute backend rebuild that changes
+nothing. Chose an ignore-list over an allow-list deliberately: a
+forgotten future backend path still deploys correctly under an
+ignore-list (fails safe, just an occasional unnecessary rebuild); under
+an allow-list, a forgotten path means a real change silently never
+ships (fails unsafe, and is a much worse thing to debug later).
+
+### Two real gaps the deploy step itself surfaced, not hypothesized in advance
+
+**Vercel offered to import 26 environment variables it detected across
+the whole repo, not just `frontend/`.** These came from `.env.example`
+(root, ~25 backend-only vars) plus `frontend/.env.local.example` (the
+one real one). All 25 backend vars had empty values, since the actual
+`.env` with real values is gitignored and was never visible to Vercel's
+GitHub-based import, so nothing sensitive was ever at risk, but
+importing them all would have left 25 dead, confusing entries sitting
+in a frontend project that never reads any of them. Removed all but
+`NEXT_PUBLIC_API_BASE_URL`.
+
+**`CORS_ALLOWED_ORIGINS` was missing entirely from Render's environment,
+not merely left at a default value on purpose.** The backend had been
+set up via Render's "Add from .env" shortcut against the real local
+`.env` file — and that file, unlike `.env.example`, had never actually
+included a `CORS_ALLOWED_ORIGINS` line (or `DEBUG`, or the rate-limit/
+cache tuning vars — those simply hadn't been needed for local dev,
+where the code's built-in defaults already matched what local dev
+wanted). Because `src/config.py`'s `Settings` class gives
+`cors_allowed_origins` a default of `http://localhost:3000`, the
+missing variable didn't cause an error or a crash, which is exactly
+what made it easy to miss: the service came up green, `/health` was
+fine, and the only visible symptom was the deployed frontend's fetches
+failing with a CORS rejection once Vercel was live. Added the variable
+explicitly rather than relying on the default resolving correctly by
+coincidence.
+
+Picked "Save and deploy" over "Save, rebuild, and deploy" for this
+fix specifically: `CORS_ALLOWED_ORIGINS` is read at container startup,
+not baked into the image at build time, so a full Docker rebuild (and
+therefore a second ~25-minute re-ingestion) would have been pure waste
+for a change that only needs a container restart with a new
+environment variable.
+
+### Verification, against the live URLs this time, not localhost
+
+`curl https://ai-game-analyst-api.onrender.com/health` confirmed
+`db_exists: true` in production, not just that the container booted.
+An `OPTIONS` preflight against `/ask` with a real `Origin:
+https://full-stack-project-sepia-nine.vercel.app` header confirmed the
+response's `access-control-allow-origin` echoes that exact URL, not a
+wildcard or a stale `localhost` value left over from before the fix.
+Playwright driven against the live Vercel URL (not localhost)
+confirmed real Steam cover art loads, a click opens the cartridge and
+Escape closes it, `/catalog` renders real rows, and zero console errors
+or horizontal overflow at both desktop and mobile viewports. A live
+`POST /ask` against the deployed Render backend, not a local one,
+returned a correct route classification (`analysis`), correct SQL, and
+a correctly formatted markdown-table answer with no em/en dashes. This
+is the first slice where "verified" means verified against the actual
+public URLs a stranger would hit, not against a machine only I can
+reach.
+
+### Open questions (new)
+
+- **No live-URL smoke test runs automatically.** Everything above was
+  checked by hand, once, right after deploying. A future code change
+  could break the live site (a bad env var, a CORS regression, a
+  broken build) with nothing catching it until someone happens to
+  visit and notice — there's no scheduled or post-deploy check hitting
+  the real URLs the way `test.yml` hits the test suite on every push.
+- **The Render free tier's 15-minute spin-down is real and unverified
+  under a genuinely cold start.** Every check in this slice happened
+  while the service was already warm from the deploy itself; the
+  actual 30-60 second cold-start delay after real inactivity hasn't
+  been observed directly yet.
+
+## Slice 20 — The answer was correct and completely invisible
+
+**Date:** 2026-08-29
+
+Live-site usage surfaced the first real UX bug found by actually using
+the deployed product rather than by reading code: asking a question
+gave no visible feedback near the input, and the answer rendered
+somewhere off-screen. Worth noting the sequence, since it started as a
+misread: while investigating, a Render log full of `huggingface.co`
+HEAD requests and an orange `HF_TOKEN` warning looked alarming at
+first glance, but turned out to be completely normal (a cold-start
+embedding-model cache verification, not a failure — no exception, no
+non-2xx from the app itself, and the screenshot alongside it showed the
+question had actually answered correctly). Worth recording as a small
+lesson on its own: color-coded log severity (Render highlights WARNING
+lines in orange) is not the same signal as "something is broken," and
+reading the actual HTTP status codes and outcome mattered more than
+the visual alarm color.
+
+### The real bug, confirmed by reading the code, not just the report
+
+`app/page.tsx`'s layout put the ask bar near the top, then rendered
+`MeetLudo` and the genre showcase in full below it, and only after
+both of those did the progress trace and result actually appear.
+Clicking Ask changed the button label to "Asking…" and nothing else
+visible happened until the user scrolled past two entire sections that
+have nothing to do with the question they just asked.
+
+### The fix, and why it needed more than moving one `<div>`
+
+Relocating the trace/result block to sit directly under the ask bar's
+example-question pills solves the problem for the main input, but this
+app has two other entry points that call the exact same `ask()`
+function from much further down the page: Meet Ludo's example
+questions and the genre showcase's leaderboard picks. Moving the
+result block up without anything else would have just relocated the
+bug rather than fixed it for those two paths — triggering a question
+from the bottom of the page would then show the answer scrolled far
+above the click, same underlying problem, opposite direction. Added a
+ref-anchored `scrollIntoView({ behavior: "smooth" })` inside `ask()`
+itself, so every entry point converges on the same fix regardless of
+where the click originated. Also added an explicit "Ludo is
+thinking…" label above the trace dots — the dots alone (five grey
+circles, one pulsing) read as decoration at a glance if you don't
+already know what they mean; a plain-language label removes that
+ambiguity for a first-time visitor.
+
+### The chat feature: recommended against building it as scoped, not silently dropped
+
+The same feedback asked for a bigger change: a ChatGPT-style
+multi-turn thread, so a person could ask a follow-up like "compare
+that to Elden Ring" and have the agent understand what "that" refers
+to. Looked at this honestly rather than defaulting to "sure, more
+features": the specific use case named, comparing two games, is
+already served today by the existing stateless `run_stats`
+`compare_two_groups` tool inside a single question (one of this app's
+own example questions already exercises it). Building real
+conversational memory to serve that same use case would mean teaching
+the router and prompts to resolve cross-turn references, deciding
+whether follow-up context should influence SQL generation and how that
+interacts with the SQL-safety guardrails, and building genuinely new
+frontend state — a real architectural undertaking, not a UI tweak.
+
+Recommended against it specifically because of what it would trade
+away, not just its size: this project's actual differentiator among
+portfolio projects a technical reviewer will have seen many of isn't
+"it's a chatbot" — it's the guardrails (guaranteed SELECT-only SQL, a
+router that gates tool access, real statistics instead of an LLM
+eyeballing an average, evals with live-computed ground truth). Adding
+cross-turn context specifically increases the surface area that safety
+story has to cover, for a feature whose stated use case the stateless
+pipeline already handles. If full conversational memory is wanted
+later specifically to demonstrate that skill for a job application,
+that is a legitimate reason on its own — but it deserves its own
+brainstorm and its own slice, not to be folded into a loading-state
+fix.
+
+### Verification
+
+`tsc --noEmit`, `npm run lint`, `npm run build` all clean. Started a
+real local backend (not mocked) and drove the actual UI with
+Playwright: confirmed "Ludo is thinking" and the trace panel are both
+inside the viewport immediately after clicking Ask, with zero
+scrolling, at both desktop and mobile widths; a second run clicked an
+example question rendered well down the page and confirmed the page
+auto-scrolled and the trace panel became visible, proving the fix
+covers all three entry points, not just the one that was reported.
+Zero console errors in either run. Grepped the new copy for em dashes,
+en dashes, and non-breaking hyphens — the only new punctuation is a
+plain ellipsis ("Ludo is thinking…"), not a dash, and none were found.
+
+### Open questions (new)
+
+- **Full multi-turn conversational memory remains unbuilt, on
+  purpose** — see the reasoning above. Worth revisiting only if there's
+  a specific reason (a target role's job description calling out
+  multi-turn agent memory, for instance) that outweighs the guardrail-
+  surface-area cost, and it should get its own brainstorming pass
+  rather than being added incrementally.
