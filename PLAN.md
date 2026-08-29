@@ -1162,6 +1162,36 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       main bar's own click; zero console errors; grepped the new copy
       for em/en dashes and non-breaking hyphens, none found
 
+## Slice 21 — Portfolio/hygiene cleanup pass (in progress)
+- [x] Added `render.yaml` to Render's Ignored Paths (alongside
+      `frontend/**`, `*.md`, `.github/**`) — the Slice 19 doc-fix commit
+      touched it and, not yet being ignored, triggered a real wasted
+      rebuild; closed the gap so a future comment-only touch to it
+      won't do that again
+- [x] Removed `@react-three/fiber`, `@react-three/drei`, `three`, and
+      `@types/three` from `frontend/package.json` — confirmed zero
+      imports anywhere in `app/`, `components/`, or `lib/` before
+      removing (leftover from Slice 14's since-deleted WebGL statue
+      hero). `npm install` dropped 54 packages from the tree; `tsc
+      --noEmit`, `npm run lint`, `npm run build` all still clean, build
+      compile time visibly faster (1.3s vs 2.7s)
+- [ ] No LICENSE file — repo currently has none; add one (MIT is the
+      standard default for a portfolio project like this)
+- [ ] No frontend CI — `.github/workflows/` only runs backend pytest;
+      nothing runs `lint`/`tsc --noEmit`/`build` on push for `frontend/`
+- [ ] No backend static analysis (ruff/mypy) wired into CI
+- [ ] `run_evals.py` (the real answer-quality regression check) still
+      never runs automatically, CLI-only
+- [ ] README still opens with dense technical prose — no live demo
+      link, screenshot/GIF, one-line pitch, or tech badges up top, even
+      though the app is now actually live (Slice 19)
+- [ ] No quantified results published anywhere: real eval accuracy,
+      real `/ask` latency, real cost per question, cache hit rate — all
+      computable from what already exists, never gathered
+- [ ] No standalone data-analysis case study over the real 1,000-game
+      dataset, aimed at a Data Analyst/Data Scientist reviewer
+      specifically rather than an AI-engineering one
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
