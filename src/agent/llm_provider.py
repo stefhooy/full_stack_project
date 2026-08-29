@@ -31,6 +31,8 @@ def get_llm(temperature: float = 0.0) -> BaseChatModel:
             model=settings.groq_model,
             api_key=SecretStr(settings.groq_api_key),
             temperature=temperature,
+            timeout=settings.groq_request_timeout_seconds,
+            max_retries=settings.groq_max_retries,
         )
 
     if provider == "ollama":

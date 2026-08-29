@@ -5147,10 +5147,137 @@ artifact's JS was re-checked programmatically after the example removal
 same discipline Slice 31 established rather than re-reading the whole
 file by eye.
 
+### Resolution, confirmed live
+
+The user checked directly: Auto-Deploy was already on for every commit,
+and added `DEPLOY_HOOK_URL` as a GitHub secret. Manually firing
+`refresh_catalog.yml` (`workflow_dispatch`) triggered a real Render
+redeploy — confirmed via GitHub's own public Actions API, no auth
+needed, that the run completed successfully. `/health` afterward showed
+the `self_correction`/`usage` keys for the first time, confirming
+current code is finally live.
+
+The redeploy's own restart then produced a second, smaller scare: the
+first live `/ask` request timed out against a 60s client-side limit
+with no response, a retry got a real 502, and a third attempt hung for
+90s with nothing at all. Diagnosed rather than assumed broken:
+
+- Hit Groq's API directly (bypassing the app) — 200 in 0.92s, so the
+  provider itself was fine, not degraded.
+- Ran the exact same question through `run_agent()` locally — 9.75s,
+  correct answer. Ruled out a code regression.
+- Retried the live endpoint once more after the container had a few
+  minutes to settle: 200 in 1.2s, `cached: true` — the *original*
+  request had actually succeeded server-side all along, just slower
+  than the client-side timeouts used to test it, and got cached.
+- A genuinely fresh, uncached question then completed in 9.97s with a
+  correct answer, matching local performance almost exactly, and
+  incidentally re-confirming the Slice 30 fix live in production
+  (`avg_price_action: $18.83`, `avg_price_f2p: $0.00`, correctly
+  filtered).
+
+Conclusion: no code bug, no lasting incident. A single slow cold start
+right after the redeploy (loading the embedding model, DuckDB, and the
+compiled graph for the first time on constrained free-tier CPU)
+outran two client-side timeouts before finishing on its own. Confirmed
+resolved, not just assumed resolved.
+
+One real, separate gap surfaced along the way and left as an open
+question rather than fixed reflexively: `src/agent/llm_provider.py`'s
+`ChatGroq(...)` sets no explicit `timeout`/`max_retries`, so a slow
+cold path or a genuinely degraded provider has no ceiling — which is
+exactly what made a one-time slow start look like a hang. Not fixed
+in this slice; offered to the user as a small hardening change rather
+than applied unprompted to a system that just got confirmed working.
+
+No open questions left from this slice: the timeout question below was
+resolved in Slice 33, the next entry.
+
+## Slice 33 — Fixing the missing ceiling, and a second, different Groq limit found along the way
+
+**Date:** 2026-08-30
+
+Two things asked for directly: add the timeout hardening flagged at the
+end of Slice 32, and get a fresh green CI run of the answer-quality
+evals against current live code.
+
+### The fix
+
+Checked `ChatGroq`'s real defaults before assuming anything — its own
+`model_fields` show `request_timeout=None` (the `timeout` constructor
+alias) and `max_retries=2`. `None` isn't "a sane default," it's "fall
+through to the underlying SDK's own default," which for an
+OpenAI-style client is generous enough to be effectively unbounded for
+this app's purposes. That's the actual gap: not that retries never
+stop, but that a single attempt has no ceiling.
+
+Added `groq_request_timeout_seconds` (45.0) and `groq_max_retries` (1)
+to `Settings`, passed through as `timeout=`/`max_retries=` in
+`ChatGroq(...)`. Chose 45s deliberately generous rather than tight — a
+real request completes in single-digit seconds normally (confirmed
+repeatedly this session, both locally and live), so 45s is headroom for
+a legitimately slow moment, not a trap that fires on ordinary variance.
+`max_retries=1` keeps the worst case at roughly two attempts × 45s
+instead of stacking the library's own default of two retries on top of
+an unbounded per-attempt timeout. Documented both as commented-out
+overrides in `.env.example` alongside the existing `GROQ_*` vars.
+
+Verified without spending any more of the day's Groq token budget,
+which mattered given what happened next: confirmed first that nothing
+under `tests/` references `ChatGroq` or `run_agent` (the suite is
+fully mocked at that boundary), so re-running it wouldn't touch the
+real API. `ruff check`, `mypy src/` (44 files), and `pytest -q`
+(88/88) all came back clean.
+
+### A second, different Groq limit, found by actually trying
+
+Asked to re-run `run_evals.yml` for a clean CI result. It failed again,
+but not with the per-minute (TPM) limit `SPACING_SECONDS` and
+`_call_with_retry` already handle (Slices 27/28) — a different one:
+
+```text
+groq.RateLimitError: Error code: 429 - {'error': {'message': 'Rate
+limit reached for model `openai/gpt-oss-120b` in organization
+`org_...` service tier `on_demand` on tokens per day (TPD): Limit
+200000, Used 199865, Requested 656. ...'}}
+```
+
+200,000 tokens/day on the on-demand tier, with 199,865 already used —
+essentially exhausted, not almost hit. This wasn't hypothesized in
+advance; it surfaced because the user actually ran the workflow and
+pasted the real log, exactly the kind of evidence this project's own
+verification discipline depends on rather than a check that would have
+been guessed at and gotten wrong.
+
+Read it plainly rather than reflexively retrying: this is real, shared,
+daily account usage, not a per-run problem `run_evals.py` itself could
+fix. A meaningful share of it plausibly came from this session's own
+testing earlier the same day — a direct Groq API ping used for the
+production-incident diagnosis, two local `run_agent()` calls, three
+live `/ask` calls against the production backend, on top of the eval
+suite's own five golden questions plus five judge calls. With ~135
+tokens of headroom left at the time of the error, an immediate re-run
+would almost certainly fail the exact same way, so didn't retry
+immediately — the honest fix here is patience (the window rolls off,
+or a calendar-day reset, depending on how Groq actually buckets "day"),
+not a code change.
+
+Recorded as a genuinely new, previously-undocumented constraint on this
+project (distinct from the TPM limit already known and handled), not a
+regression and not something Slice 27/28's existing retry logic was
+wrong to not cover — a daily cap needs waiting, not backoff.
+
+### Verification
+
+`ruff check`, `mypy src/`, `pytest -q` (88/88) all clean, run fresh
+after the config/provider change, without needing any real Groq call to
+confirm correctness — the change is a pass-through of two typed
+settings into a constructor the existing test suite already exercises
+in its mocked form.
+
 ### Open questions (new)
 
-- **Whether Render's Auto-Deploy is enabled, and whether
-  `DEPLOY_HOOK_URL` is set** — both need the user to check the actual
-  dashboard/secrets UI; this session can't see either. Until confirmed,
-  the safest assumption is that the live backend only updates on manual
-  deploys, and stays stale in between.
+- **Whether today's TPD exhaustion clears in the "please try again in
+  3m45s" sense Groq's own error reported, or only at a calendar-day
+  boundary.** Not verified either way yet; matters for deciding when a
+  clean `run_evals.yml` run is worth attempting again.

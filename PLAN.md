@@ -1703,6 +1703,49 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       pattern), and (2) whether the `DEPLOY_HOOK_URL` GitHub secret has
       ever actually been set (`refresh_catalog.yml` no-ops silently,
       green checkmark and all, if it hasn't)
+- [x] **Resolved live**: user confirmed Auto-Deploy was already on, added
+      `DEPLOY_HOOK_URL`, manually fired `refresh_catalog.yml` — confirmed
+      via GitHub's own Actions API that it succeeded and triggered a real
+      Render redeploy. The redeploy's own restart briefly looked like a
+      new incident (a hung `/ask`, then a 502), diagnosed live rather
+      than assumed broken: Groq itself answered in 0.92s (not degraded),
+      the identical question worked locally in 9.75s (not a code
+      regression), and a retry minutes later returned instantly with
+      `cached: true` — the original request had actually succeeded
+      server-side all along, just slower than the client timeouts used
+      to test it (a real, one-time cold start on constrained free-tier
+      CPU). A fresh, uncached question then completed in 9.97s, matching
+      local performance, confirming the live system is genuinely healthy
+      end to end on current code
+
+## Slice 33 — A real gap the cold-start scare surfaced: no ceiling on the Groq client
+- [x] The cold-start incident in Slice 32 resolved on its own, but
+      exposed a real, separate gap: `ChatGroq(...)` in
+      `src/agent/llm_provider.py` set no explicit `timeout`/`max_retries`,
+      so a slow cold path or a genuinely degraded provider has no
+      ceiling — confirmed via `ChatGroq.model_fields` that the library's
+      own defaults are `request_timeout=None` (unbounded) and
+      `max_retries=2`
+- [x] Added two new settings (`groq_request_timeout_seconds=45.0`,
+      `groq_max_retries=1`) in `src/config.py`, passed through in
+      `llm_provider.py`. Worst case now bounded at roughly two attempts
+      x 45s instead of an unbounded hang; documented in `.env.example`
+- [x] Attempted to also get a fresh green CI run on `run_evals.yml`
+      against current live code, per the user's own request — hit a
+      real, different Groq limit instead: **200,000 tokens/day (TPD) on
+      the on-demand tier**, `Used 199865, Requested 656`, not the
+      per-minute (TPM) limit `SPACING_SECONDS`/`_call_with_retry`
+      (Slice 27/28) already handle. A genuinely new, previously
+      undocumented constraint, not a bug — this session's own testing
+      that day (direct Groq pings, local agent runs, live production
+      calls, the eval suite's own calls) plausibly used a meaningful
+      share of it. Not retried immediately: with ~135 tokens of headroom
+      left, an immediate re-run would almost certainly fail the same way
+- [x] Verified the hardening change without spending any more of the
+      day's Groq budget: confirmed no test in `tests/` calls real Groq
+      (`ChatGroq`/`run_agent` don't appear anywhere in `tests/`), so the
+      full suite could be re-run safely. `ruff check`, `mypy src/`
+      (44 files), and `pytest -q` (88/88) all clean
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

@@ -47,6 +47,19 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
+    groq_request_timeout_seconds: float = 45.0
+    """Explicit ceiling on a single Groq HTTP call. Without this, ChatGroq
+    falls back to the underlying SDK's own default (effectively unbounded
+    for this app's purposes) — which is exactly what turned one slow
+    cold-start request into a multi-minute hang/502 cycle instead of a
+    clean, fast failure the one time this was actually hit in production
+    (see DOCEXP.md's Slice 32 entry). A real request completes in single-
+    digit seconds normally; 45s is generous headroom, not a tight budget."""
+    groq_max_retries: int = 1
+    """HTTP-client-level retries, on top of (not instead of) the agent's
+    own SQL_MAX_RETRIES self-correction loop. Kept low deliberately: with
+    the timeout above, a genuinely degraded provider fails in well under
+    two minutes total instead of compounding delay across many attempts."""
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
