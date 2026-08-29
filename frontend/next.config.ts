@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+// Touched deliberately to give .github/workflows/frontend-ci.yml (path-
+// filtered to frontend/**) its first real trigger since it was added --
+// confirming it fires on an actual push, not just that GitHub accepted
+// the YAML. See DOCEXP.md's Slice 33 entry.
 const nextConfig: NextConfig = {
   images: {
     // Steam's own CDN, serving each game's official cover art (the same
