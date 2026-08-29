@@ -37,9 +37,13 @@ Rules:
 - Use the run_sql tool to query the database. Every factual claim in your answer must come
   from a query result.
 - Write DuckDB SQL. A single SELECT statement per call (CTEs with WITH are fine).
-  UNION/UNION ALL are NOT supported by the query guard — to compare two groups in one
-  query, use conditional aggregation instead, e.g.
-  AVG(CASE WHEN genre LIKE '%Action%' THEN price_usd END) AS avg_action_price.
+  UNION/UNION ALL are NOT supported by the query guard — to get two different
+  aggregates side by side in one row, use conditional aggregation instead, e.g.
+  COUNT(CASE WHEN platforms LIKE '%linux%' THEN 1 END) AS linux_count. If the
+  question is really asking whether two GROUPS genuinely differ (not just
+  fetching two numbers), that's what run_stats's compare_two_groups mode is for
+  when it's bound this run — do not hand-roll a group comparison with
+  conditional aggregation just because the syntax is available.
 - Only query the table(s) described above.
 - If a tool call returns an error, read the error message carefully and fix your next call —
   you have a limited number of retries, so don't repeat the same mistake.
@@ -79,8 +83,11 @@ analysis rather than just an aggregate query:
   two columns: a label (e.g. name) and a numeric value.
 - mode="describe": summary statistics (mean, median, stddev, quartiles) for one numeric
   column. Query must return exactly one column.
-Prefer run_stats over hand-computing a comparison yourself with SQL when significance or
-outliers are what the question is actually asking about.
+If the question asks whether two groups genuinely differ (not just which average is
+numerically bigger), use mode="compare_two_groups" — do NOT hand-compute the comparison
+yourself with conditional-aggregation SQL instead, even though that syntax is available
+for other purposes (see the system rules above). Same for anomaly questions: use
+mode="outliers", not a hand-rolled z-score in SQL.
 
 IMPORTANT: make sure each group_label actually matches the condition that produced it. A
 catch-all ELSE branch must be labeled generically (e.g. 'other'), NOT with a specific name

@@ -52,27 +52,60 @@ def _query_one(conn: duckdb.DuckDBPyConnection, sql: str):
 
 
 def _check_action_vs_f2p_not_mislabeled(result: AgentResult) -> CheckResult:
-    if not (result.stats_result and result.stats_result.get("mode") == "compare_two_groups"):
-        return CheckResult(
-            False,
-            f"expected a compare_two_groups stats_result, got "
-            f"{result.stats_result.get('mode') if result.stats_result else None!r} "
-            f"(sql={result.sql!r})",
-        )
-    sr = result.stats_result
-    groups = [(sr["group_a"], sr["mean_a"]), (sr["group_b"], sr["mean_b"])]
-    f2p_group = next((g for g in groups if "free" in g[0].lower()), None)
-    if f2p_group is None:
-        return CheckResult(False, f"no group labeled free-to-play among {[g[0] for g in groups]}")
-    label, mean = f2p_group
-    if abs(mean) > 0.5:
-        return CheckResult(
-            False,
-            f"group {label!r} claims to be free-to-play but has mean price "
-            f"${mean:.2f} (should be ~$0 by definition) — likely mislabeled: "
-            f"the query probably didn't actually filter price_usd = 0",
-        )
-    return CheckResult(True, f"group {label!r} correctly has ~$0 mean price")
+    """Two valid paths to a correct answer, not one: run_stats's
+    compare_two_groups mode (the originally-intended path), or a plain
+    run_sql aggregate whose free-to-play-labeled column's *actual returned
+    value* is really ~$0. Checks the real returned data, not which tool
+    produced it or the SQL's own text -- a model that answers correctly via
+    plain SQL has not reproduced the Slice 4 bug this check exists to
+    catch, even though it skipped run_stats. Every real failure of the
+    original, tool-gated version of this check (Slices 24, 27, 28) turned
+    out, on actually inspecting the SQL each time, to be exactly that:
+    correctly-filtered SQL, rejected only because run_stats wasn't the
+    tool used -- not a real recurrence of the labeling bug. See DOCEXP.md's
+    Slice 30 entry for the full correction."""
+    if result.stats_result and result.stats_result.get("mode") == "compare_two_groups":
+        sr = result.stats_result
+        groups = [(sr["group_a"], sr["mean_a"]), (sr["group_b"], sr["mean_b"])]
+        f2p_group = next((g for g in groups if "free" in g[0].lower()), None)
+        if f2p_group is None:
+            return CheckResult(
+                False, f"no group labeled free-to-play among {[g[0] for g in groups]}"
+            )
+        label, mean = f2p_group
+        if abs(mean) > 0.5:
+            return CheckResult(
+                False,
+                f"group {label!r} claims to be free-to-play but has mean price "
+                f"${mean:.2f} (should be ~$0 by definition) -- likely mislabeled: "
+                f"the query probably didn't actually filter price_usd = 0",
+            )
+        return CheckResult(True, f"group {label!r} (via run_stats) correctly has ~$0 mean price")
+
+    if result.columns and result.rows:
+        for col_idx, col_name in enumerate(result.columns):
+            if "free" not in col_name.lower() and "f2p" not in col_name.lower():
+                continue
+            value = result.rows[0][col_idx]
+            if value is None:
+                continue
+            if abs(value) <= 0.5:
+                return CheckResult(
+                    True, f"column {col_name!r} (via plain SQL) correctly has ~$0 mean price"
+                )
+            return CheckResult(
+                False,
+                f"column {col_name!r} claims free-to-play but its actual returned value "
+                f"is {value} (should be ~$0 by definition) -- likely mislabeled: the "
+                f"query probably didn't actually filter price_usd = 0",
+            )
+
+    return CheckResult(
+        False,
+        "expected either a compare_two_groups stats_result, or a plain-SQL column "
+        f"labeled free-to-play with a real returned value; got "
+        f"stats_result={result.stats_result!r}, columns={result.columns!r}, sql={result.sql!r}",
+    )
 
 
 def build_golden_questions() -> list[GoldenQuestion]:

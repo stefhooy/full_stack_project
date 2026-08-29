@@ -1546,12 +1546,123 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] `ruff check`, `mypy src/`, and the full 88-test suite all clean;
       confirmed no stray local files were left behind by the
       verification run
-- Expected real-world effect, not yet observed on a live scheduled run:
-  total workflow time should drop from roughly an hour (40min wasted
-  rebuild + ~17min real polling + overhead) to roughly 20 minutes (just
-  the real polling + overhead) — worth checking the Actions tab after
-  the next scheduled run to confirm, and cancelling the currently
-  stuck/pending runs from before this fix so they don't linger.
+- [x] Confirmed on a real run, not just calculated: the user cancelled
+      the old stuck/pending runs and manually triggered the fixed
+      workflow. Run #3 **succeeded in 19m29s total** ("Poll live player
+      counts" alone: 19m22s for all 1000 games) — matching the ~20
+      minute estimate almost exactly, down from the roughly hour-long
+      runs before this fix. "Commit the new snapshot" wrote a real new
+      file (`data/player_counts_raw/2026-08-29T16-40-29Z.json`, 1004
+      insertions) and pushed it automatically, confirming the whole
+      pipeline — not just the appid-fetching change in isolation —
+      works end to end on GitHub's own infrastructure
+
+## Slice 30 — A real bug hunt that found the eval check was wrong, not the model
+- [x] Started from a real trigger: a scheduled `run_evals.yml` failure
+      (4/5 deterministic) on `analysis_action_vs_f2p_not_mislabeled`,
+      the same check that's failed repeatedly since Slice 4. Diagnosed
+      the actual root cause by reading `prompts.py` and
+      `schema_corpus.py` rather than guessing: the base system prompt
+      *and* the RAG-retrieved `metric:no_union` chunk both gave the
+      model a concrete worked SQL example for "comparing two groups"
+      directly, competing with `ANALYSIS_TOOL_GUIDANCE`'s instruction
+      to prefer `run_stats` for exactly that question class
+- [x] Fixed the competing guidance in both `prompts.py` (base template
+      + `ANALYSIS_TOOL_GUIDANCE`, made directive rather than a soft
+      preference) and `schema_corpus.py`'s `metric:no_union` chunk —
+      removed the dangerous worked example, kept enough domain
+      vocabulary ("Action games vs. free-to-play games") to avoid
+      regressing the Slice 22 RAG retrieval eval (verified: a first
+      draft dropped recall@8 to 0.967, a revised wording restored it to
+      1.000 exactly)
+- [x] Verified the prompt fix with real repeated runs before trusting
+      it, not just one clean pass — and it didn't work: 2 real runs
+      after the change still produced plain conditional-aggregation SQL
+      instead of calling `run_stats`. Reported this honestly rather
+      than declaring victory on a plausible-sounding fix
+- [x] **The real discovery**: re-examined every SQL string this check
+      has ever failed on, across Slices 24, 27, 28, and this slice's
+      own verification runs (six instances). Every single one correctly
+      filtered on `price_usd = 0` for the free-to-play group. The
+      original Slice 4 bug (a group falsely labeled free-to-play
+      without actually filtering on `price_usd = 0`) has never actually
+      recurred — the check was failing purely because it hard-required
+      `run_stats`'s `compare_two_groups` mode and never inspected
+      `result.sql`/the real returned values at all when a different,
+      equally-correct tool was used
+- [x] Corrected the record: this project's own docs (README.md,
+      PLAN.md, DOCEXP.md) described this across four prior slices as
+      "the same bug reproduced N times" — that framing was wrong,
+      built from pattern-matching a failing check rather than actually
+      re-verifying the SQL each time. Named directly rather than quietly
+      fixed
+- [x] Fixed the check itself, not the model: `_check_action_vs_f2p_not_mislabeled`
+      now accepts two valid paths — the original `run_stats`
+      `compare_two_groups` result, or a plain-SQL answer whose
+      free-to-play-labeled column's *actual returned value* is really
+      ~$0. Checks real data, not which tool produced it or the SQL's
+      text, so it can't be fooled by phrasing and directly serves the
+      original anti-mislabeling intent regardless of tool choice
+- [x] Kept the prompt/schema clarity improvements despite them not
+      being the actual fix — they're still more correct guidance with
+      no observed downside, just not sufficient on their own for a
+      problem that, as it turned out, mostly didn't exist
+- [x] Verified with a real full run against the real 1000-game local
+      catalog after the check fix: **5/5 route accuracy, 5/5
+      deterministic checks** — the first clean run this specific
+      question has ever produced, because the check now correctly
+      recognizes an answer that was actually right all along
+- [x] `ruff check`, `mypy src/`, and the full 88-test pytest suite all
+      clean throughout
+
+## Slice 31 — Agent Execution Trace artifact rebuilt: real graph shape, dark-green identity
+- [x] The interactive "Agent Execution Trace" Claude Artifact (linked
+      from `ARCHITECTURE.md`) had gone stale: its `forecast_not_supported`
+      node and edges depicted the pre-Slice-9b graph, before `run_forecast`
+      existed, and its warm-amber/Archivo styling predated the product's
+      own pivot to a dark-green/neon accent (`--accent: #39ff88`) and
+      Rajdhani. Rebuilt rather than patched
+- [x] Removed `forecast_not_supported` from the graph entirely — forecast
+      now correctly routes through the same `retrieve_schema` → `agent`
+      ↔ `execute_tools` → `build_chart_spec` loop as `lookup`/`analysis`
+      (matching `src/agent/graph.py` exactly), not a separate dead end
+- [x] Rewrote the "Forecast question" example's steps around the one
+      genuinely real captured run (question, route, retrieved schema
+      chunks, and final answer all real, from a live call against the
+      deployed backend) rather than inventing a tool-call transcript.
+      That real run shows the model answering directly from schema
+      context without invoking `run_forecast`, an honest, worth-showing
+      real behavior, not a fabricated "and then it forecasted" step.
+      Tried for a fresh, tool-invoked capture first (5 real attempts
+      against Groq, spaced to respect the rate limit, plus a check for a
+      local Ollama fallback); all attempts hit real 429/503s or found no
+      local daemon, so this is the honest result rather than a retry
+      loop run to exhaustion for cosmetic content
+- [x] Restyled the whole artifact on the live product's own real design
+      tokens (`--background: #0a0f0b`, `--accent: #39ff88`, Rajdhani +
+      IBM Plex Mono) instead of inventing a new palette — a single
+      committed dark theme, matching the product's own deliberate
+      choice not to split light/dark chrome. Kept semantic status color
+      (error/degraded badges reuse the product's own `--danger` red)
+      distinct from the brand accent, per the dataviz/artifact-design
+      skills' guidance
+- [x] Fixed a second, smaller staleness bug while in there: the
+      retrieval panel's copy still said "~24 schema chunks," predating
+      Slice 22's RAG corpus, which now has 35
+- [x] Published as a new artifact (the user asked to "make a new
+      architecture artifact") rather than overwriting the old one in
+      place: `https://claude.ai/code/artifact/78ea93b6-b38e-4242-b4d6-ab60eae3b4ab`
+- [x] Regenerated `docs/agent-trace.gif` for real rather than leaving it
+      stale: installed Playwright as an ephemeral `uv run --with
+      playwright` dependency (not added to `pyproject.toml` — a one-off
+      capture tool, not a runtime/dev dependency), drove the new
+      artifact's `lookup` example through all 8 real steps at 2x device
+      scale, and assembled the frames into a GIF with Pillow (also
+      ephemeral via `uv run --with pillow`). Verified by reading back
+      individual captured frames, not just trusting the script ran
+      cleanly — caught and fixed one real bug this way: a stray em dash
+      in the new artifact's own footer credit line, against this
+      project's repo-wide no-dash convention
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

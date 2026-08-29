@@ -4739,16 +4739,299 @@ confirmed no stray local files were left behind by the verification
 call (it doesn't write a snapshot on its own — only `run_poll()`
 does, which wasn't run against the real 1000-game target locally).
 
+### Confirmed on a real run, the same day
+
+Both open questions this entry originally raised got resolved within
+hours, not left standing: the user cancelled the old stuck/pending
+runs directly from the Actions tab, then manually triggered the fixed
+workflow to check it for real rather than waiting for the next `cron`
+tick. Run #3 succeeded in **19m29s total** — "Poll live player counts"
+alone took 19m22s for all 1000 games, matching the ~20 minute estimate
+almost exactly, against the roughly hour-long runs from before this
+fix. "Commit the new snapshot" wrote and pushed a real new file
+(`data/player_counts_raw/2026-08-29T16-40-29Z.json`, 1004 insertions)
+automatically. This confirms the whole pipeline end to end on GitHub's
+own infrastructure, not just the appid-fetching function in isolation
+the way this slice's own verification section was scoped to.
+
 ### Open questions (new)
 
-- **The real-world time savings (roughly an hour down to roughly 20
-  minutes) is a calculation from known rate limits, not yet an
-  observed scheduled run.** Worth checking the Actions tab after the
-  next real `cron` trigger to confirm the workflow actually completes
-  in the expected window, not just that the code is correct in
-  isolation.
-- **The stuck/pending runs from before this fix were never explicitly
-  cancelled** as part of this slice — they should clear on their own
-  once a fixed run completes fast enough to release the concurrency
-  group, but manually cancelling them from the Actions tab is the more
-  direct way to confirm the queue isn't jammed on something else.
+- **Only a manually-triggered run has been observed, not yet the
+  `cron`-scheduled path itself.** No known reason to expect it to
+  behave differently — `workflow_dispatch` and `schedule` both invoke
+  the identical job definition — but the actual every-6-hours trigger
+  firing on its own is still technically unconfirmed.
+
+## Slice 30 — The eval check was wrong, not the model, and four slices of docs said otherwise
+
+**Date:** 2026-08-29
+
+A scheduled `run_evals.yml` run failed on the same check it's failed on
+before: `analysis_action_vs_f2p_not_mislabeled`. The instinct at this
+point, reinforced by this project's own prior documentation, was "this
+is the known Slice 4 bug, seen again" — and that instinct was wrong,
+in a way worth writing up in full because of how it was wrong, not
+just that it was.
+
+### First pass: diagnosing real competing prompt guidance, correctly
+
+Read `prompts.py` and `schema_corpus.py` rather than guessing, and
+found something real: the base system prompt template *and* the
+RAG-retrieved `metric:no_union` schema chunk both handed the model a
+concrete, worked SQL example for "comparing two groups" directly —
+`AVG(CASE WHEN genre LIKE '%Action%' THEN price_usd END) AS
+avg_action_price` — using almost the exact domain example
+(Action/free-to-play) the failing golden question itself uses. That
+competed directly with `ANALYSIS_TOOL_GUIDANCE`'s instruction to
+prefer `run_stats` for this exact question class. This diagnosis was
+correct as far as it went: two real, contradictory pieces of guidance
+existed in the prompt, and removing the dangerous example while
+preserving enough domain vocabulary to not regress Slice 22's RAG
+retrieval eval (a first attempt did regress it, from 1.000 to 0.967 —
+caught by the retrieval eval test itself, not manually) was a
+legitimate improvement.
+
+### Verifying the fix instead of trusting it — and it failed
+
+Ran the exact golden question five times with the fix in place (rate
+limits cut it to two clean samples before a 429). Both still produced
+plain conditional-aggregation SQL, not a `run_stats` call. Reported
+this plainly rather than declaring success on a plausible-sounding
+fix — this is the exact discipline `verification-before-completion`
+exists to enforce, and it's what led to the next, more important step
+instead of stopping at "well, I tried."
+
+### The actual discovery: re-reading old evidence instead of gathering new evidence
+
+Rather than immediately trying a third, blunter prompt wording, went
+back through every SQL string this check has ever failed on —
+Slices 24, 27, 28, and this slice's own two verification runs, six
+instances total — and actually read each one instead of trusting the
+check's verdict. Every single one correctly filtered the free-to-play
+group on `price_usd = 0`. Not "usually." Every time. The original
+Slice 4 bug — a group falsely labeled free-to-play without actually
+filtering on `price_usd = 0` — has never once recurred in this
+project's entire history of testing this question.
+
+The check itself explained why once looked at closely:
+
+```python
+if not (result.stats_result and result.stats_result.get("mode") == "compare_two_groups"):
+    return CheckResult(False, ...)
+```
+
+This is the *first* line of the check. It hard-requires `run_stats`'s
+specific structured output shape and returns failure immediately if
+that shape isn't present — it never once inspects `result.sql` or the
+real returned values when a different tool was used. The check was
+never actually testing "is the free-to-play group correctly filtered."
+It was testing "was `run_stats` the tool called," and treating that as
+a proxy for the real thing. The proxy was wrong, and had been wrong
+since whenever this check was last touched.
+
+### The docs said otherwise, four times, and that's worth naming directly
+
+README.md's "Measured results," and DOCEXP.md's Slices 24, 27, 28, and
+29 entries all describe this failure as "the same bug reproduced
+again" — two, three, four, five times, escalating the claim each time
+as if it were accumulating evidence of a real, consistent model
+behavior. It was accumulating evidence of something real — just not
+what it was labeled as. Every one of those claims was written by
+pattern-matching "this specific check failed" to "the historical bug
+recurred," without re-verifying the actual SQL each time. That's
+exactly the kind of unverified claim this project's own discipline
+(evidence before assertions, described in the
+`verification-before-completion` skill this whole session has followed)
+exists to prevent, and it happened anyway, repeatedly, because the
+check's own verdict was trusted as ground truth instead of checked
+against the real underlying data. Not correcting the historical
+entries themselves — they're a lab notebook, and rewriting past
+entries to match current understanding would defeat the purpose of
+keeping one — but naming the pattern here, plainly, matters more than
+the specific miscount.
+
+### The actual fix: the check, not the model
+
+`_check_action_vs_f2p_not_mislabeled` now accepts two valid paths to a
+correct answer: the original `run_stats` `compare_two_groups` result,
+or a plain-SQL answer whose free-to-play-labeled column's real
+returned value is genuinely ~$0. It checks `result.columns`/
+`result.rows` — the actual data that came back — not the SQL's text
+and not which tool produced it. This directly serves the original
+Slice 4 intent (never let a fake free-to-play group slip through)
+without depending on a specific tool being chosen, which prompt
+engineering alone had just been shown not to reliably guarantee.
+
+The prompt/schema wording improvements from earlier in this slice
+weren't reverted — they're still more precise, correct guidance with
+no observed downside (retrieval eval back to 1.000, all other tests
+green) — but they're explicitly not credited as "the fix" here. They
+were a reasonable attempt at a problem that, once actually understood,
+turned out to be smaller than believed.
+
+### Verification
+
+`ruff check`, `mypy src/`, and the full 88-test suite clean throughout
+every step of this slice. The real proof is the final eval run against
+the real 1000-game local catalog, with the judge, after the check fix:
+**5/5 route accuracy, 5/5 deterministic checks** — the first clean
+result this specific golden question has ever produced, not because
+the model finally got it right, but because the check finally started
+looking at whether it actually had been right all along.
+
+### Open questions (new)
+
+- **README.md's "Measured results" table still shows the old 4/5
+  numbers** as of this entry and needs republishing with the real,
+  current 5/5 result — tracked as the immediate next step, not left
+  standing.
+- **The prompt/schema changes remain unproven at scale.** They didn't
+  cause the fix here, but whether they meaningfully improve real
+  production behavior for genuinely ambiguous group-comparison
+  questions (distinct from this one golden question, which turned out
+  not to need them) is still an open, unverified claim.
+
+## Slice 31 — The Agent Execution Trace artifact catches up to the real graph
+
+**Date:** 2026-08-29
+
+The interactive "Agent Execution Trace" Claude Artifact linked from
+`ARCHITECTURE.md` predates a fair amount of this project's own history.
+Read it back in full (803 lines) to check it against the current system,
+and it had drifted on two independent axes: content and identity.
+
+### Content: a graph node that stopped existing
+
+The artifact's `NODES`/`EDGES` arrays still had a `forecast_not_supported`
+box, wired from `router` on the `forecast` route straight to `answer`,
+with a fourth "Forecast question" example walking through it: route
+classifies as forecast, hits the dead end, answer says "I can't forecast
+yet... (planned for a later slice)." That was accurate once, before
+Slice 9b gave the graph a real `run_forecast` tool. Since then, forecast
+has flowed through the exact same `retrieve_schema` → `agent` ↔
+`execute_tools` → `build_chart_spec` loop as `lookup` and `analysis` —
+the dedicated dead-end node simply isn't in `src/agent/graph.py` anymore.
+Presenting it as current would have been showing a portfolio reviewer an
+architecture the code no longer has.
+
+Fixing this meant more than deleting a box. The corrected "Forecast
+question" example needed real steps through the real path, and the
+instinct to invent a clean "agent calls `run_forecast`, gets a tidy
+projection back" transcript had to be resisted — that would be exactly
+the kind of fabricated trace this whole artifact exists to be the
+opposite of. So the plan was: capture one fresh, real, tool-invoked
+forecast run against the live backend, the same way the other four
+examples were originally captured.
+
+That didn't work. Five real attempts against the deployed backend
+(`ai-game-analyst-api.onrender.com`), spaced 30 to 45 seconds apart to
+respect Groq's rate limit, hit real `429`s and `503`s — genuine
+production flakiness, not a mocked failure. A local Ollama daemon was
+checked as a fallback (`curl http://localhost:11434/api/tags`) and
+wasn't running. One real capture did land before the rate limiting set
+in: a real question ("How many players will Counter-Strike 2 have next
+month?"), a real `route: forecast`, real retrieved schema chunks
+(including `table:player_counts` and the note that it needs a JOIN to
+`games`), and a real final answer — but on that particular run the model
+answered directly from the retrieved schema context without calling
+`run_forecast` at all.
+
+That's not a failed capture to discard and retry until a "better" one
+appears. It's a real, honest data point about current behavior worth
+keeping: on at least one real run, the forecast route reasons from
+schema-level context (no historical `player_counts` snapshots exist yet
+for most games) rather than empirically checking via the tool first.
+The rebuilt example uses exactly that real capture, with a description
+that says plainly what happened and why it's shown this way, rather than
+presenting a single unbroken "and then it forecasted" narrative that
+never actually occurred in any of the six real attempts made to produce
+one. Decided to stop spending shared production quota chasing a
+cosmetically tidier capture after the fifth failed attempt; this is
+illustrative content, not something worth burning more of a rate-limited
+free tier on.
+
+While rebuilding the graph, also caught a second, smaller drift: the
+retrieval panel's copy still said "ranks ~24 schema chunks," a number
+from before Slice 22 grew the RAG corpus to 35. Fixed alongside the
+node/edge changes since it was in the same file anyway.
+
+### Identity: amber and Archivo, on a product that's been green and Rajdhani for a while
+
+Separately from content accuracy, the user asked directly for a
+dark-green reskin. The artifact's existing palette (`--accent: #a8650f`
+light / `#f0a63a` dark, warm amber) and typography (Archivo + IBM Plex
+Mono) predate this project's own pivot to a neon-green identity
+(`--accent: #39ff88`) and Rajdhani, both already validated and shipped
+in the real frontend. Rather than pick a new, unrelated dark-green
+palette, reused the live product's own real tokens verbatim
+(`--background: #0a0f0b`, `--surface: #101610`, `--accent: #39ff88`,
+Rajdhani + IBM Plex Mono) — the artifact *is* this product's
+architecture, so it should look like it. Per the `artifact-design`
+skill's own guidance on committing to one visual world, built this as a
+single dark theme rather than a light/dark toggle, matching the real
+frontend's own documented choice not to split light/dark chrome. Kept
+semantic status color separate from the brand accent: error/degraded
+badges reuse the frontend's actual `--danger` red rather than a second
+shade of green, so a failure state doesn't visually blend into "this is
+just how the app looks."
+
+### Regenerating the static GIF, for real
+
+`ARCHITECTURE.md`'s static `docs/agent-trace.gif` (the non-interactive
+fallback image, captured from the old amber theme) visually mismatched
+the new artifact the moment it was rebuilt. First pass at this slice
+left it as a flagged follow-up rather than doing it, on the reasoning
+that it needed an actual Playwright capture pass, not an HTML edit. The
+user asked for it directly right after, so it got done in the same
+slice rather than deferred further.
+
+Playwright turned out to already be present on the machine, but not in
+the project's own `.venv` (`pip show playwright` found a global
+install; the project's venv had no `pip` module at all, this project
+manages dependencies with `uv`). Rather than add Playwright to
+`pyproject.toml`'s dev extra for what is a one-off documentation-image
+capture tool, not something the running system needs, used `uv run
+--with playwright` / `--with pillow` to pull both in as ephemeral
+dependencies for the single capture script, `UV_LINK_MODE=copy` was
+also needed because the repo lives under OneDrive, which breaks uv's
+default hardlink-based package install with an "incompatible
+hardlinks" error.
+
+The script drives the new artifact's `lookup` example through all 8
+real steps (the same steps table shown in the earlier "Content" section
+above), screenshotting the `.wrap` container at 2x device scale after
+each step's CSS transitions settle, then assembles the frames into a
+GIF with Pillow, holding longer on the first and last frames.
+
+Verified by actually reading back individual captured frames rather
+than trusting a clean script exit, per this project's own verification
+discipline, and that caught a real bug: a stray em dash in the new
+artifact's own footer credit line ("...onrender.com) — see
+ARCHITECTURE.md..."), against this project's repo-wide no-dash
+convention. Fixed, re-captured, and republished to the same artifact
+URL before copying the final GIF into `docs/agent-trace.gif`.
+
+(One genuine false alarm along the way, worth naming since it
+determined how the frames were checked: a first look at a captured
+frame's footer text seemed to show an amber tint against the dark-green
+theme, which would have meant the recolor missed a spot. Sampling the
+actual pixel values showed the real color matched `--text-faint`
+exactly; the apparent tint was a compression artifact from viewing a
+downscaled preview of small anti-aliased text on a very dark
+background, not a rendering bug. Cropping and re-viewing the region at
+native resolution confirmed clean, correctly-colored text. Worth
+recording as a reminder that a screenshot preview at reduced size can
+manufacture color problems that don't exist in the actual file, so a
+finding like that needs the pixel data checked before being reported.)
+
+### Publishing
+
+The user's phrasing ("make a new architecture artifact") was taken at
+face value: published as a genuinely new artifact rather than
+overwriting the old URL in place, since `ARCHITECTURE.md` doesn't
+hard-link the artifact's URL in the repo (it only refers to it as "a
+private Claude Artifact"), there was nothing in-repo to break by doing
+so.
+
+No open questions left from this slice: the GIF staleness flagged
+earlier in this same entry was closed out before the slice ended.

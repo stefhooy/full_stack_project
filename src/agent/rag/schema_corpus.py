@@ -256,9 +256,12 @@ SCHEMA_CHUNKS: list[SchemaChunk] = [
         id="metric:no_union",
         kind="metric_note",
         text=(
-            "To compare two groups (e.g. Action games vs. free-to-play games) in one "
-            "query, use conditional aggregation — AVG(CASE WHEN <condition> THEN <col> END) "
-            "— not UNION. UNION queries are rejected by the query guard."
+            "UNION queries are rejected by the query guard. To get two different "
+            "aggregates side by side in one row, use conditional aggregation instead, "
+            "e.g. COUNT(CASE WHEN <condition> THEN 1 END) AS <label>. For a real group "
+            "comparison — e.g. Action games vs. free-to-play games — use run_stats's "
+            "compare_two_groups mode instead of hand-rolling it with conditional "
+            "aggregation."
         ),
     ),
     # --- player_counts (Slice 7): a real time series, not a snapshot table.

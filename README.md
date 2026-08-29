@@ -18,7 +18,7 @@ itself — not a fixed dashboard, not a chatbot answering from memory.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 29** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 31** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -154,29 +154,33 @@ and Groq's actual current on-demand pricing (verified live, not
 assumed) — published as they came out, not re-run until clean. This
 suite now also runs automatically, daily, in
 `.github/workflows/run_evals.yml` (Slice 27). See DOCEXP.md's Slice
-24/27 entries for full methodology and caveats.
+24/27/30 entries for full methodology and caveats.
 
 | Metric | Result |
 |---|---|
 | Route accuracy | 5/5 |
-| Deterministic checks | 4/5 (one real, honest failure — see below) |
-| Avg LLM-judge score | 4.6/5 |
-| Avg `/ask` latency | 14.4s (n=5, range 3.5s-36.2s) |
-| Avg cost per question | $0.00059 (Groq on-demand list price) |
+| Deterministic checks | 5/5 |
+| Avg LLM-judge score | 4.2/5 |
+| Avg `/ask` latency | 13.3s (n=5, real full-graph runs) |
+| Avg cost per question | $0.00066 (Groq on-demand list price) |
 | RAG retrieval recall@8 | 1.000 (15 hand-labeled questions, Slice 22) |
 
-The one deterministic failure is worth naming rather than hiding: it's
-the exact free-to-play group-mislabeling regression check Slice 4 built
-after a real bug (a group claiming to be "free-to-play" without
-actually being filtered to `price_usd = 0`) — and on this real run, it
-caught a live instance of that same failure class again — reproduced
-independently four separate times now across three different catalogs
-(the real 1000-game one twice, two different smaller ones used for CI
-verification), which is real evidence it's a consistent model behavior
-tied to how the prompt guides comparison queries, not a one-off fluke.
-That's the eval harness doing its job, not a result to explain away; a
-suspiciously clean 5/5 would have been less informative and less
-honest.
+Worth being honest about how this got to 5/5, since earlier versions of
+this table showed a real, repeated 4/5 and described it as the same
+model bug recurring: that framing was wrong. Investigating it properly
+(Slice 30) found that the failing check — a free-to-play group-
+mislabeling regression test from Slice 4 — hard-required a specific
+tool (`run_stats`) and never actually inspected whether the model's
+answer was correct when it used plain SQL instead. Re-checking every
+SQL string that check had ever failed on showed the group was
+correctly filtered on `price_usd = 0` every single time; the model was
+right, the check wasn't looking at the right thing. Fixed the check to
+verify the real returned value regardless of which tool produced it,
+not the model's behavior. A 5/5 that comes from fixing a check to test
+what it actually claims to test is worth exactly as much as it says;
+still no guarantee every future run stays clean, since the model's
+tool choice remains nondeterministic even now that the check judges it
+fairly.
 
 Cache hit behavior was checked directly against a live backend rather
 than assumed: a genuinely different question correctly missed, a
