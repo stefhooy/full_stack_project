@@ -1478,10 +1478,38 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Cleaned up three stale unchecked boxes from Slices 4/6/10 that
       pre-dated actual deployment and were never marked resolved once
       Slice 19 superseded them
-- **Needs a `GROQ_API_KEY` repository secret to actually run** — add it
-  under Settings → Secrets and variables → Actions, same place
-  `DEPLOY_HOOK_URL` went. Without it, this workflow will run and fail
-  cleanly on the eval step (not silently), not do anything worse.
+- [x] `GROQ_API_KEY` repository secret added by the user — first manual
+      trigger surfaced a real bug, fixed in Slice 28 below
+
+## Slice 28 — The first real run of run_evals.yml found a real bug in it
+- [x] First manual trigger of the new scheduled workflow hit a genuine
+      `groq.RateLimitError` (429) mid-suite: Groq's free tier caps
+      `openai/gpt-oss-120b` at 8000 tokens/minute (TPM), and this
+      suite's own back-to-back golden questions — several using
+      3000-4700+ tokens each — burst past that on their own, with no
+      external traffic involved at all. A real production bug in a
+      brand-new CI workflow, caught by actually running it rather than
+      trusting the design
+- [x] Fixed with two mitigations, not one: a proactive `SPACING_SECONDS`
+      (5s) gap between golden questions to spread usage across the
+      rolling window, plus a real `_call_with_retry()` backoff (15s,
+      then 30s) around both the agent call and the judge call as a
+      safety net for whenever spacing alone isn't enough
+- [x] Redesigned away from an initial lambda-based retry wrapper once
+      ruff's bugbear (B023, "function definition does not bind loop
+      variable") flagged the closure-over-loop-variable pattern — rather
+      than argue the immediate-invocation usage made it safe in
+      practice, changed `_call_with_retry` to take the function and its
+      arguments separately, removing the lambda (and the whole class of
+      bug the lint rule exists to catch) entirely
+- [x] Verified with a real run against a throwaway catalog (never the
+      real local 1000-game one) after the fix: completed cleanly with
+      no rate-limit errors, same 5/5 route accuracy and 4/5
+      deterministic result — the known free-to-play mislabeling bug
+      reproduced a fifth time now, across a fifth distinct catalog
+- [x] `ruff check`, `mypy src/`, and the full 88-test pytest suite all
+      clean; confirmed the real local catalog's row count (1000)
+      unchanged after both verification runs
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

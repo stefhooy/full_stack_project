@@ -29,8 +29,10 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     # declare reconfigure() (only the concrete TextIOWrapper it actually is
     # at runtime does) -- a known typeshed gap, not a real type error.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+from collections.abc import Callable
 from dataclasses import dataclass
 
+from groq import RateLimitError
 from langchain_core.callbacks import get_usage_metadata_callback
 
 from src.agent.graph import AgentResult, run_agent
@@ -38,6 +40,34 @@ from src.agent.pricing import estimate_cost_usd
 from src.evals.checks import CheckResult
 from src.evals.golden_questions import GoldenQuestion, build_golden_questions
 from src.evals.judge import JudgeVerdict, judge_answer
+
+# Groq's free tier caps openai/gpt-oss-120b at 8000 tokens/minute (TPM) --
+# confirmed for real (Slice 28) when the scheduled GitHub Actions run hit
+# a genuine 429 mid-suite, not from external traffic but from this suite's
+# own back-to-back questions (several use 3000-4700+ tokens each; two or
+# three landing in the same rolling minute is enough to burst past 8000).
+# Two mitigations, not one: a small proactive gap between questions
+# (SPACING_SECONDS) to spread usage across the minute, and a real retry
+# with backoff (_call_with_retry) as a safety net for whenever spacing
+# alone isn't enough. Groq's own error message told us the wait needed
+# was tiny (412.5ms) that one time, but a rolling-window limit can need up
+# to the whole window to clear, so backoff is seconds, not milliseconds.
+SPACING_SECONDS = 5.0
+
+
+def _call_with_retry[T](fn: Callable[..., T], *args: object, max_attempts: int = 3) -> T:
+    """Takes fn and its args separately, not a zero-arg lambda closing over
+    a loop variable -- avoids the late-binding-closure trap (and the lint
+    rule for it) entirely rather than relying on remembering to invoke the
+    lambda within the same iteration it's defined in."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn(*args)
+        except RateLimitError:
+            if attempt == max_attempts:
+                raise
+            time.sleep(15.0 * attempt)  # 15s, then 30s
+    raise AssertionError("unreachable")  # loop always returns or raises
 
 
 @dataclass
@@ -61,14 +91,22 @@ class EvalRunResult:
 
 def run_evals(use_judge: bool = True) -> list[EvalRunResult]:
     results = []
-    for gq in build_golden_questions():
+    for i, gq in enumerate(build_golden_questions()):
+        if i > 0:
+            # Proactive spacing, not just reactive retry -- see
+            # SPACING_SECONDS' comment for why a fixed suite of questions
+            # can burst a per-minute token cap on its own.
+            time.sleep(SPACING_SECONDS)
+
         start = time.monotonic()
         with get_usage_metadata_callback() as cb:
-            agent_result = run_agent(gq.question)
+            agent_result = _call_with_retry(run_agent, gq.question)
         latency = time.monotonic() - start
         check_result = gq.check(agent_result)
         judge_verdict = (
-            judge_answer(gq.question, agent_result.answer, gq.reference_facts)
+            _call_with_retry(
+                judge_answer, gq.question, agent_result.answer, gq.reference_facts
+            )
             if use_judge
             else None
         )

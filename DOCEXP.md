@@ -4573,3 +4573,82 @@ not do anything destructive either.
   Verified the mechanism thoroughly by hand; the first real scheduled
   run (and whether the `GROQ_API_KEY` secret has been added by then)
   is still unconfirmed.
+
+## Slice 28 — The new workflow's first real run found a real bug in itself
+
+**Date:** 2026-08-29
+
+The user added the `GROQ_API_KEY` secret and manually triggered
+`run_evals.yml` right away to check it worked, rather than waiting for
+the next day's schedule — exactly the right instinct. It failed, with a
+genuine `groq.RateLimitError`: "Rate limit reached for model
+`openai/gpt-oss-120b` ... on tokens per minute (TPM): Limit 8000, Used
+5688, Requested 2367." This is the best possible outcome for a first
+run in one specific sense: it found a real bug immediately, in CI,
+before it could fail silently or intermittently in a way that looked
+like flakiness rather than a real, fixable problem.
+
+### What was actually wrong, and why "scheduled, not on every push" wasn't the whole fix
+
+Slice 27's reasoning for a daily schedule (instead of gating every
+push) was about avoiding rate-limit collisions with *other* traffic
+during active development bursts. That reasoning was correct as far as
+it went, but incomplete: this failure had nothing to do with external
+traffic at all. Five golden questions, run back-to-back within one
+process, each using 3000-4700+ tokens, can burst past an 8000 TPM cap
+entirely on their own, with zero other requests involved. The schedule
+change solved a different problem than the one that actually occurred.
+
+### Two mitigations, because either alone has a real weakness
+
+A proactive fixed gap between questions (`SPACING_SECONDS = 5.0`)
+reduces how often the limit gets hit, but a fixed number can't
+adapt if a future model change increases per-question token usage, or
+if Groq's own limit changes. A reactive retry-with-backoff
+(`_call_with_retry`) adapts to whatever actually happens, but doing
+only that would mean routinely eating a 429 and a 15-30 second wait as
+normal operation instead of trying to avoid it in the first place.
+Used both: spacing to make hitting the limit uncommon, backoff to
+recover cleanly on the rare occasion spacing isn't enough. Same
+"defense in depth, not one clever fix" instinct as the two independent
+SQL-safety layers in `db/connection.py`.
+
+### A lint rule caught a real design smell in the first draft, not a false positive
+
+The first version of the retry wrapper used a zero-argument lambda
+closing over the loop variable (`lambda: run_agent(gq.question)`), with
+a mental justification that it was safe because the lambda was invoked
+immediately within the same loop iteration, never stored for later.
+Ruff's B023 (bugbear's "function definition does not bind loop
+variable") flagged it anyway. The instinct to argue the specific usage
+was safe and suppress the warning was available and would have worked
+functionally — but the actual fix (have `_call_with_retry` accept the
+function and its arguments separately, no lambda, no closure) is
+strictly simpler code that eliminates the entire bug class the lint
+rule exists to catch, not just this one safe-in-practice instance of
+it. Took the rule's hint seriously rather than arguing past it.
+
+### Verification
+
+Ran the exact fixed suite for real against a fresh throwaway catalog
+(`/tmp/eval_verify2`, never the real local `data/db/games.duckdb`) —
+completed with zero rate-limit errors, 5/5 route accuracy, 4/5
+deterministic checks. The one failure is the same free-to-play
+mislabeling bug, now independently reproduced a fifth time across a
+fifth distinct catalog (the real 1000-game one twice across Slices 24
+and this verification's baseline, plus three different smaller ones
+used for CI/workflow verification across Slices 27 and 28) — this is
+now about as strong a signal as this project has for "genuine,
+consistent model behavior" versus "one dataset's fluke." Confirmed the
+real local catalog's row count (1000) unchanged after the throwaway-DB
+runs, same discipline as Slice 27. `ruff check`, `mypy src/`, and the
+full 88-test suite all clean.
+
+### Open questions (new)
+
+- **The daily schedule itself still hasn't fired on its own yet** — only
+  manual `workflow_dispatch` runs have been observed (the one that
+  failed, and the fix verified locally). The actual `cron`-triggered run
+  is still unconfirmed, though there's no known reason it would behave
+  differently from the manual trigger now that the rate-limit fix is
+  in place.
