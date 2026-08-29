@@ -13,7 +13,7 @@ by frame from the interactive version, not staged:
 ![The agent graph lighting up node by node as it answers "Which game has the highest peak concurrent player count?" — router classifies it as a lookup, retrieve_schema pulls the relevant columns, agent calls run_sql, execute_tools returns the result, and the final answer comes back.](docs/agent-trace.gif)
 
 There's also a **live, interactive** version — same graph, but you pick
-any of 5 real questions (including a genuine self-correction retry) and
+any of 4 real questions (including a genuine self-correction retry) and
 step or auto-play through exactly what happened at each node, with the
 full captured state, not just the GIF's single trace. It's a private
 Claude Artifact; share it from its own page's share menu if you want the

@@ -5035,3 +5035,122 @@ so.
 
 No open questions left from this slice: the GIF staleness flagged
 earlier in this same entry was closed out before the slice ended.
+
+## Slice 32 — A pushback on the forecast example led to a real production finding
+
+**Date:** 2026-08-29
+
+Right after Slice 31 shipped, direct pushback: "why did you include a
+forecast question, Ludo doesn't have a forecast capability." The
+instinct to defend the example (`run_forecast` is real code, genuinely
+bound to the graph) would have missed the actual point, which wasn't
+about whether the code exists.
+
+### Checking instead of asserting
+
+Separately, this same slice had already started a broader "is this
+project top notch" health pass, and part of that was hitting the live
+`/health` endpoint for real. It came back missing the
+`self_correction`/`usage` keys Slices 23 and 26 added:
+
+```json
+{"status":"ok","db_exists":true,"model_provider":"groq","cache_entries":0}
+```
+
+That one fact reframed the forecast question entirely. Chased it
+properly instead of treating it as a footnote:
+
+- `data/player_counts_raw/` holds exactly two committed snapshots,
+  `2026-08-24` and `2026-08-29`, five days apart — the gap is the
+  `poll_player_counts.yml` bug fixed in Slice 29 having sat broken
+  before that.
+- `player_counts` is only materialized into the queryable database at
+  **Docker build time** (`Dockerfile`'s `RUN python -m
+  src.ingestion.build_player_counts_table`), not at request time or on
+  a schedule. A running deployment only ever sees the snapshots that
+  existed *when it was last built*.
+- The live `/health` response above means the current deployment
+  predates Slices 23/26, so it almost certainly has zero player-count
+  history baked in, regardless of what's since been committed to the
+  repo.
+
+So `run_forecast` is real, correctly designed code, not fabricated
+architecture, but it has, as far as any evidence in this repo shows,
+never once produced a working forecast for a real user hitting the live
+site. Featuring it as a worked example in the trace artifact presented
+a capability that doesn't function in the product a reviewer would
+actually try. The user's pushback was right, and for a more concrete
+reason than "it just feels off": there's a real, checkable gap behind
+it.
+
+### Fixed the artifact, then chased the actual root cause
+
+Removed the Forecast example from the Agent Execution Trace artifact
+entirely (offered reframing it around the honest-refusal behavior
+instead; the user chose removal). Four examples now, "Five real runs"
+corrected to "Four", republished to the same URL, and every remaining
+example's node/edge references re-validated programmatically the same
+way Slice 31 did, since a manual removal is exactly the kind of edit
+that silently breaks a cross-reference.
+
+The more interesting question was why the live deploy is stale at all.
+Two real things checked, one ruled out, one left as a genuine open
+finding for the user to resolve from the Render dashboard, which this
+session has no access to:
+
+**Ruled out**: `.github/workflows/refresh_catalog.yml`, the workflow
+whose entire job is periodically poking Render's deploy hook to force a
+rebuild, has had zero runs, ever — checked via GitHub's public Actions
+API, no auth needed for a public repo. That looked damning until
+checking when the workflow was actually added: Monday, August 24th, by
+its own git history. Its schedule is Monday 03:00 UTC. The next
+Monday, August 31st, hasn't happened yet as of this entry (today is
+Saturday the 29th). Zero runs is exactly what a workflow with a
+correct weekly Monday schedule looks like four days after being
+created, not evidence it's broken. Worth writing down precisely because
+the *symptom* (zero runs) looked like a smoking gun and wasn't.
+
+**Left open, genuinely**: this exact symptom, a live backend serving
+stale code, already happened once before. Slice 23's own commit message
+(`e127dee`) says so directly: "a live backend round trip that caught a
+stale process serving old code" — found, apparently fixed by a manual
+redeploy at the time, and never written up or root-caused in DOCEXP.md.
+It has now recurred. Two concrete, plausible causes remain that only
+the Render dashboard can settle:
+
+1. **Auto-Deploy might simply not be enabled** on the service. Slice
+   19's original setup used Render's manual "New Web Service" form
+   rather than importing `render.yaml` as a Blueprint (documented at
+   the top of that file), so whatever Auto-Deploy defaulted to in that
+   flow was never explicitly verified either way. A service that only
+   ever updates when someone happens to click "Manual Deploy" would
+   produce exactly this recurring, unpredictable staleness.
+2. **The `DEPLOY_HOOK_URL` GitHub secret may never have been set.**
+   `refresh_catalog.yml` no-ops cleanly (a green checkmark, not a
+   failure) when it's missing, which is precisely the failure mode that
+   hides itself from a casual glance at the Actions tab.
+
+Presented both to the user directly rather than guessing further or
+silently doing nothing: this session has no Render API/dashboard
+access, so this is a real handoff, not a deferred task the next slice
+can just pick back up unassisted.
+
+### Verification
+
+Re-ran the full local suite fresh as part of the same health pass this
+slice grew out of: `ruff check` clean, `mypy src/` clean (44 files),
+`pytest -q` 88/88, frontend `npm run lint` clean, `npx tsc --noEmit`
+clean, `npm run build` clean. Confirmed `git status -sb` shows the
+local `master` exactly matching `origin/master`, nothing unpushed. The
+artifact's JS was re-checked programmatically after the example removal
+(parses, and every remaining step's node/edge id still resolves), the
+same discipline Slice 31 established rather than re-reading the whole
+file by eye.
+
+### Open questions (new)
+
+- **Whether Render's Auto-Deploy is enabled, and whether
+  `DEPLOY_HOOK_URL` is set** — both need the user to check the actual
+  dashboard/secrets UI; this session can't see either. Until confirmed,
+  the safest assumption is that the live backend only updates on manual
+  deploys, and stays stale in between.

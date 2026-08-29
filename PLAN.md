@@ -1664,6 +1664,46 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       in the new artifact's own footer credit line, against this
       project's repo-wide no-dash convention
 
+## Slice 32 — The forecast example was showing a capability that has never actually worked live, and a real production health check
+- [x] User pushback ("why did you include a forecast question, Ludo
+      doesn't have a forecast capability") triggered a real check rather
+      than a defense: `run_forecast` (`src/tools/forecast_tool.py`) is
+      genuinely real code, correctly bound to the `forecast` route, with
+      an honest linear-regression implementation that refuses to
+      fabricate a projection without enough history. But it has never
+      produced a working forecast for a real user hitting the live site
+- [x] Root cause, found while independently checking `/health` for this
+      slice's broader audit: **only 2 real player-count snapshots exist,
+      ever, 5 days apart** (`data/player_counts_raw/`), and even those
+      aren't visible to the live backend — `player_counts` is only
+      materialized into the database at **Docker build time**
+      (`Dockerfile`), and the live deploy hasn't rebuilt recently enough
+      to have picked up either snapshot: live `/health` is still missing
+      the `self_correction`/`usage` keys Slices 23/26 added
+- [x] Removed the Forecast example from the Agent Execution Trace
+      artifact entirely (user's explicit call over reframing or leaving
+      it) — republished to the same URL, "Five real runs" corrected to
+      "Four", all remaining example/node/edge references re-validated
+      programmatically after the removal
+- [x] Investigated the deploy staleness itself rather than just noting
+      it: confirmed `.github/workflows/refresh_catalog.yml`'s weekly
+      Render-redeploy-via-deploy-hook has had zero runs ever, but that's
+      because it was only added on Aug 24 (a Monday) — its first
+      scheduled Monday-03:00-UTC slot is Aug 31, still ahead, so it
+      cannot be blamed for the current staleness yet. Separately, found
+      that this exact "stale process serving old code" symptom already
+      happened once before, during Slice 23 (named directly in that
+      slice's own commit message), and was worked around rather than
+      root-caused at the time
+- [x] Could not fully diagnose from the repo side alone — genuinely
+      needs the user to check the Render dashboard directly. Two
+      concrete things to check, both plausible root causes: (1) whether
+      Auto-Deploy is actually enabled on the service (vs. only ever
+      updated by manual deploys, which fits the recurring-staleness
+      pattern), and (2) whether the `DEPLOY_HOOK_URL` GitHub secret has
+      ever actually been set (`refresh_catalog.yml` no-ops silently,
+      green checkmark and all, if it hasn't)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
