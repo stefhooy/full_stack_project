@@ -102,11 +102,14 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An MCP server (`src/mcp_server/`) exposing the same guarded `run_sql`/
   `run_stats` to any MCP-compatible AI app (Claude Desktop, Claude Code,
   Cursor) — free, local stdio, no LLM key needed
-- A pytest suite (`tests/`, 66 tests) against the SQL guard, the stats/
-  forecast/viz pure functions, the new ingestion parsing, and the genre
-  stats queries — real DuckDB fixtures, not mocks of this project's own DB
-  layer, and network/LLM-hitting tests are marked `live` and excluded by
-  default; runs on every push/PR via `.github/workflows/test.yml`
+- A pytest suite (`tests/`, 83 tests) against the SQL guard, the stats/
+  forecast/viz pure functions, the ingestion parsing, the catalog/genre
+  queries, and the dash-stripping guarantee — real DuckDB fixtures, not
+  mocks of this project's own DB layer, and network/LLM-hitting tests
+  are marked `live` and excluded by default; runs on every push/PR via
+  `.github/workflows/test.yml`. The frontend gets the equivalent check
+  (lint, `tsc --noEmit`, `build`) via `.github/workflows/frontend-ci.yml`,
+  scoped to `frontend/**` changes only (Slice 21)
 
 ## Setup
 

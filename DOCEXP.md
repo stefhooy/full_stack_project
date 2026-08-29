@@ -3747,3 +3747,73 @@ plain ellipsis ("Ludo is thinking…"), not a dash, and none were found.
   multi-turn agent memory, for instance) that outweighs the guardrail-
   surface-area cost, and it should get its own brainstorming pass
   rather than being added incrementally.
+
+## Slice 21 — Portfolio/hygiene cleanup pass
+
+**Date:** 2026-08-29
+
+A deliberate stock-take rather than a feature: after Slice 19's deploy
+and Slice 20's UX fix, took a step back and listed everything still
+open before doing more feature work. Two real, self-inflicted findings
+came out of just checking git state honestly:
+
+**`render.yaml` wasn't covered by Render's Ignored Paths, and it
+mattered immediately, not hypothetically.** The Slice 19 doc-fix commit
+touched `render.yaml` (correcting its stale Fly.io comment and
+placeholder CORS URL), and because that file wasn't on the ignore
+list, it almost certainly triggered a real, wasted Render rebuild —
+caught by checking `git show --stat` on the pushed commit, not by
+guessing. Added it to the ignore list.
+
+**Dead 3D dependencies were still costing install/bundle weight for
+zero functional benefit.** `@react-three/fiber`, `@react-three/drei`,
+`three`, and `@types/three` survived Slice 14's WebGL statue hero being
+deleted, sitting unused in `package.json` since. Confirmed zero imports
+across `app/`, `components/`, `lib/` before removing anything (same
+discipline as every other deletion in this project's history — grep
+first, never assume). `npm install` afterward dropped 54 packages;
+`tsc --noEmit`/`lint`/`build` all still clean, and the build's own
+compile step measurably faster (1.3s vs 2.7s) with less to bundle.
+
+### Adding a LICENSE, and being explicit about the name on it
+
+The repo had no LICENSE file at all — a real gap for a public portfolio
+project, since without one the legal default is "all rights reserved,"
+which is a strange stance for something meant to be read and judged by
+strangers. Added MIT, the conventional default for exactly this kind of
+project. Used the GitHub-facing identity (`stefhooy`, the name every
+commit in this repo is already authored under) as the copyright holder
+rather than inserting a real legal name unasked — easy to swap for a
+different name if a real one is preferred.
+
+### `frontend-ci.yml`: why it exists and what it actually catches
+
+Every frontend verification in this project's entire history, across
+every one of the last several slices, was a manual pass: run `tsc`,
+run `lint`, run `build`, run Playwright, by hand, in the same
+conversation turn as the change. That's real verification in the
+moment, but it proves nothing about the *next* commit. Nothing before
+this slice would have caught a future change that broke the frontend
+build, introduced a type error, or failed lint, unless someone happened
+to run those commands again by hand. `test.yml` already covers exactly
+this need for the backend (pytest on every push/PR); `frontend-ci.yml`
+is the same idea for the frontend, deliberately mirroring `test.yml`'s
+structure and commenting style rather than inventing a different
+pattern for the same job.
+
+Scoped to `frontend/**` via `paths:`, for the identical reason Render's
+Ignored Paths exist: a backend-only or docs-only commit has no way to
+break the frontend build, so re-running it on every unrelated push
+would just be wasted Actions minutes for zero additional signal.
+
+Verified the workflow's three steps would actually pass, not just that
+the YAML parses: killed lingering local Node processes holding a file
+lock, ran a genuinely fresh `npm ci` (not a warm `npm install`, to
+match what a CI runner actually does), then ran `lint`, `tsc --noEmit`,
+and `build` in that exact order against that fresh install. All three
+passed. `NEXT_PUBLIC_API_BASE_URL` is set to a harmless placeholder in
+the workflow env — `lib/api.ts` already falls back to
+`http://localhost:8000` when the variable is unset, so this is
+belt-and-suspenders explicitness rather than a functional requirement;
+the build never calls the real backend regardless; it only proves
+Next.js's static generation and type checking succeed.

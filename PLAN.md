@@ -1175,10 +1175,13 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       hero). `npm install` dropped 54 packages from the tree; `tsc
       --noEmit`, `npm run lint`, `npm run build` all still clean, build
       compile time visibly faster (1.3s vs 2.7s)
-- [ ] No LICENSE file — repo currently has none; add one (MIT is the
-      standard default for a portfolio project like this)
-- [ ] No frontend CI — `.github/workflows/` only runs backend pytest;
-      nothing runs `lint`/`tsc --noEmit`/`build` on push for `frontend/`
+- [x] Added a root `LICENSE` file (MIT)
+- [x] Added `.github/workflows/frontend-ci.yml` — lint, `tsc --noEmit`,
+      and `build`, gated on `frontend/**` changes only (same
+      don't-rebuild-what-didn't-change reasoning as Render's Ignored
+      Paths). Verified by running the exact same three commands locally
+      against a truly fresh `npm ci` install first, not just trusting
+      the YAML — all three passed
 - [ ] No backend static analysis (ruff/mypy) wired into CI
 - [ ] `run_evals.py` (the real answer-quality regression check) still
       never runs automatically, CLI-only

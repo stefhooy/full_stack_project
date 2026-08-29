@@ -1,0 +1,53 @@
+name: Frontend CI
+
+# The frontend's equivalent of test.yml: gates on "does the frontend still
+# build," which nothing else in this repo checked automatically before this
+# workflow existed -- every prior frontend verification in this project's
+# history (see DOCEXP.md) was a manual `tsc`/`lint`/`build`/Playwright pass
+# run by hand in the same turn as the change, never re-run on a later push.
+# Scoped to `frontend/**` changes only via `paths:`, matching the same
+# don't-rebuild-what-didn't-change reasoning as Render's Ignored Paths for
+# this repo's backend service (see render.yaml and DOCEXP.md's Slice 19
+# entry) -- a backend-only or docs-only commit shouldn't burn Actions
+# minutes re-running this.
+
+on:
+  push:
+    branches: [main, master]
+    paths: [frontend/**]
+  pull_request:
+    paths: [frontend/**]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          # A placeholder is enough here -- this job only proves the build
+          # compiles and Next.js's static generation succeeds, it never
+          # calls the real backend. NEXT_PUBLIC_API_BASE_URL just needs to
+          # be a syntactically valid value so nothing crashes constructing
+          # a URL at build time.
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
