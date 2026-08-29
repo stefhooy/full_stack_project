@@ -3901,3 +3901,23 @@ behavior. Also simulated the exact CI workflow order locally (`uv sync
 --extra agent --extra dev` fresh, then ruff, then mypy, then pytest, in
 that sequence) rather than trusting the YAML would behave the same as
 running the commands by hand.
+
+### A small ARCHITECTURE.md accuracy fix, found while checking whether it needed one
+
+Asked directly whether ARCHITECTURE.md needed updating for Slices
+18-21's work. It didn't — that document is deliberately scoped to the
+reasoning system's shape (the graph, RAG, the safety boundary), not
+deployment topology or frontend UI or dev tooling, and none of those
+slices touched that shape. But checking it against the real code
+surfaced a genuine, pre-existing staleness unrelated to recent work:
+the System overview diagram's FastAPI node listed `/ask, /ask/stream,
+/genres, /games` without `/catalog`, which has existed for several
+slices. Fixed the diagram, and also noticed `catalog.py` — which
+bypasses `connection.py` the same way `genre_stats.py` does — wasn't
+represented as a box at all. Combined them into one box and rewrote the
+explanatory bullet to state their actual, slightly different safety
+reasoning accurately rather than imply they're identical: `genre_stats.py`
+has no user input at all; `catalog.py` has real user input (search,
+sort, genre filter) but never lets it reach a SQL string, routing sort
+through a Python allowlist dict and filtering in Python after one
+unparameterized fetch instead.

@@ -51,12 +51,12 @@ flowchart LR
     end
 
     subgraph surfaces["Serving surfaces"]
-        api["FastAPI<br/>/ask, /ask/stream, /genres, /games"]
+        api["FastAPI<br/>/ask, /ask/stream, /genres, /games, /catalog"]
         mcpsrv["MCP server<br/>(stdio, no LLM key)"]
         webui["Next.js frontend"]
     end
 
-    genrestats["genre_stats.py<br/>(fixed query, no LLM,<br/>no guard needed)"]
+    genrestats["genre_stats.py + catalog.py<br/>(fixed/paginated queries,<br/>no LLM input, no guard needed)"]
 
     steamspy --> ingestpy --> duckdb
     steamweb --> pollpy --> duckdb
@@ -78,13 +78,20 @@ Two things this diagram is making a point of, not just showing:
 - **The MCP server reuses `run_sql`/`run_stats` directly**, not a second
   implementation. Whatever guarantees the agent gets, the MCP server gets
   identically, for free.
-- **`genre_stats.py` bypasses `connection.py` on purpose.** The guard exists
-  to constrain LLM-*generated* SQL, which this isn't — it's one fixed,
-  hand-written query with no user or model input in it at all, so routing
-  it through the same guard as `run_sql` would be safety theater, not
-  safety. It exists so the frontend's genre showcase counts are computed
-  live from whatever's actually in `games` (see DOCEXP.md's Slice 9
-  addendum), not a number baked into frontend source at design time.
+- **`genre_stats.py` and `catalog.py` both bypass `connection.py` on
+  purpose**, for related but distinct reasons. The guard exists to
+  constrain LLM-*generated* SQL; neither of these is that. `genre_stats.py`
+  runs one fixed, hand-written query with no user or model input in it at
+  all — routing it through the same guard as `run_sql` would be safety
+  theater, not safety. `catalog.py` (the `/catalog` browse page's search/
+  sort/filter/paginate) does take real user input, but never interpolates
+  it into SQL: the sort column comes from a Python allowlist dict, and
+  search/genre filtering happen in Python after one unparameterized fetch,
+  not via a dynamically built query string. Different mechanism, same
+  result — no path from user input to arbitrary SQL. Both exist so the
+  frontend's genre counts and catalog listing are computed live from
+  whatever's actually in `games` (see DOCEXP.md's Slice 9 addendum), not a
+  number baked into frontend source at design time.
 
 ## The agent graph
 
