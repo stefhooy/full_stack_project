@@ -35,15 +35,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # SteamSpy's catalog is always-current, not historical (see
-      # src/db/schema.py) -- rebuilding it here is just how this ephemeral
-      # runner learns which appids to poll, not a durable data update.
-      # As a side effect, this also means the appid list stays current
-      # even as new games get added to SteamSpy's top-owned list over
-      # time, without any separate scheduled catalog-refresh job.
-      - name: Rebuild the local catalog (needed to know which appids to poll)
-        run: uv run python -m src.ingestion.ingest
-
+      # poll_player_counts.py gets its appid list directly from SteamSpy's
+      # own cheap bulk listing (one request, no per-game rate limit) --
+      # no local catalog needs building first. Used to run the *full*
+      # ingest.py here (both APIs' per-game enrichment loops) just to
+      # learn appids this script never used any other field of -- ~40
+      # real minutes of wasted work every 6 hours, and the direct cause
+      # of runs queuing up behind each other. See DOCEXP.md's Slice 29
+      # entry. As a side effect, going straight to SteamSpy here still
+      # means the appid list stays current as new games enter the
+      # top-owned list, without any separate scheduled refresh job.
       - name: Poll live player counts
         run: uv run python -m src.ingestion.poll_player_counts
 

@@ -508,12 +508,10 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       cwd-insertion). Fixed with pytest's built-in `pythonpath = ["."]`
       ini option so `pytest`, `uv run pytest`, and `python -m pytest` all
       behave the same — would have silently broken CI too
-- [ ] `poll_player_counts.yml`'s catalog-rebuild step now costs ~2.5x more
-      CI time per scheduled run (the new per-game storefront calls, no
-      persisted `data/raw/` cache between GH Actions runs) for data that
-      step doesn't actually need — it only wants appids. Flagged, not yet
-      addressed; a narrower "appids-only" ingestion path is the likely fix
-      if this becomes a real problem
+- [x] ~~`poll_player_counts.yml`'s catalog-rebuild step costs ~2.5x more
+      CI time than it needs~~ — it became a real problem (Slice 29: runs
+      queuing up behind each other for hours) rather than staying
+      theoretical, and got the narrower "appids-only" fix predicted here
 - [ ] Real year-over-year forecasting (delta-players-per-year
       extrapolation, not just the existing short-window linear trend) needs
       historical yearly snapshots that don't exist yet from any free
@@ -1510,6 +1508,50 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] `ruff check`, `mypy src/`, and the full 88-test pytest suite all
       clean; confirmed the real local catalog's row count (1000)
       unchanged after both verification runs
+
+## Slice 29 — poll_player_counts.yml stuck queuing behind itself for hours
+- [x] User-reported: GitHub Actions showed a scheduled `Poll player
+      counts` run still "Pending" 7 hours after its trigger time, with
+      a manually-triggered run stuck "In progress" for 7+ minutes on a
+      step called "Rebuild the local catalog." Diagnosed by reading the
+      actual workflow file and the two scripts it calls, not by
+      guessing from the symptom
+- [x] Root cause confirmed by tracing the real code: that step ran the
+      *full* `ingest.py` (both SteamSpy's per-game `appdetails` at
+      ~1/sec and Steam's own storefront `appdetails` at ~1/1.5s, for
+      1000 games — a genuine ~40+ real minutes) purely so
+      `poll_player_counts.py` could read `SELECT appid FROM games`
+      afterward. That query only ever used the `appid` column — none of
+      the ~40 minutes of enrichment work was for data this script reads
+      at all. This is the exact issue an earlier slice had already
+      flagged as a real risk ("a narrower appids-only ingestion path is
+      the likely fix if this becomes a real problem") and left
+      unaddressed until it actually did
+- [x] Fixed at the source, not by increasing timeouts or the
+      concurrency window: `poll_player_counts.py` now fetches its
+      appid list directly from `SteamSpyClient.get_all_page()` — the
+      same cheap, single-request bulk listing `ingest.py` itself starts
+      with — instead of requiring a pre-built `games` table at all. No
+      more DuckDB dependency in this script, and
+      `poll_player_counts.yml`'s "Rebuild the local catalog" step is
+      gone entirely, not just made faster
+- [x] Verified the new appid-sourcing function directly against the
+      real live SteamSpy API (not mocked): returned 10 real appids
+      headed by `730`, the same game this project has independently
+      confirmed as the top-owned/most-played title all session.
+      Deliberately did not run a full `run_poll()` locally (would poll
+      1000 real games at Steam's own 1-request/second rate limit, ~17
+      real minutes, to verify code that wasn't touched) — scoped
+      verification to the part that actually changed
+- [x] `ruff check`, `mypy src/`, and the full 88-test suite all clean;
+      confirmed no stray local files were left behind by the
+      verification run
+- Expected real-world effect, not yet observed on a live scheduled run:
+  total workflow time should drop from roughly an hour (40min wasted
+  rebuild + ~17min real polling + overhead) to roughly 20 minutes (just
+  the real polling + overhead) — worth checking the Actions tab after
+  the next scheduled run to confirm, and cancelling the currently
+  stuck/pending runs from before this fix so they don't linger.
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

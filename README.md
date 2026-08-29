@@ -18,7 +18,7 @@ itself — not a fixed dashboard, not a chatbot answering from memory.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 28** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 29** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -440,7 +440,12 @@ Actions):
 
 - `.github/workflows/poll_player_counts.yml` runs every 6h automatically —
   no setup needed, it just needs Actions enabled and (default-on) permission
-  to push back to the repo.
+  to push back to the repo. Gets its appid list directly from SteamSpy's
+  own cheap bulk listing (Slice 29), not from a pre-built local catalog —
+  it used to run the full `ingest.py` first just to learn appids,
+  which cost ~40 real minutes every run for data this workflow never
+  otherwise used; see DOCEXP.md's Slice 29 entry for the real incident
+  that surfaced it (runs queuing behind each other for hours).
 - `.github/workflows/refresh_catalog.yml` runs weekly but no-ops until you
   add a `DEPLOY_HOOK_URL` repo secret — Render and Fly.io both give you a
   deploy-hook URL in their dashboard once the backend is deployed; add it

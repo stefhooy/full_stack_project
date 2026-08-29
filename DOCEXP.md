@@ -4652,3 +4652,103 @@ full 88-test suite all clean.
   is still unconfirmed, though there's no known reason it would behave
   differently from the manual trigger now that the rate-limit fix is
   in place.
+
+## Slice 29 — A year-old flagged risk finally became a real incident
+
+**Date:** 2026-08-29
+
+The user noticed something looked wrong on the Actions tab: a
+scheduled `Poll player counts` run sitting "Pending" seven hours after
+it should have started, and a manually-triggered run stuck seven-plus
+minutes into a step called "Rebuild the local catalog." Two
+screenshots, no logs beyond a truncated build warning — the actual
+diagnosis had to come from reading the workflow file and the two
+Python scripts it runs, not from the screenshots themselves.
+
+### Reading the code instead of guessing from the symptom
+
+`poll_player_counts.yml`'s "Rebuild the local catalog" step runs
+`uv run python -m src.ingestion.ingest` with no `--count` flag, meaning
+the real production default of 1000 games. Reading `ingest.py`'s own
+docstring spells out exactly what that does: a cheap bulk listing call,
+then *two* separate per-game enrichment loops — SteamSpy's own
+`appdetails` at roughly 1 request/second, and Steam's storefront
+`appdetails` at roughly 1 request per 1.5 seconds. For 1000 games,
+that's easily 40+ real minutes, every single time, since a GitHub
+Actions runner starts fresh each run with no persisted `data/raw/`
+cache to skip re-fetching from.
+
+Then read what `poll_player_counts.py` actually does with all of that:
+one line, `SELECT appid FROM {GAMES_TABLE}`. Not genre, not price, not
+release date, not any of the ~15 other columns that ~40 minutes of
+enrichment calls exist to populate. The entire expensive step existed
+solely to let this script learn a list of integers it could have
+gotten from the first, cheap step of `ingest.py` alone.
+
+### This was a known risk, written down, and not acted on until it broke
+
+An earlier slice had already flagged this almost exactly: "a narrower
+appids-only ingestion path is the likely fix if this becomes a real
+problem." That's precisely what happened here — not a new discovery,
+a predicted risk finally landing. Worth being honest about the
+lesson: flagging a real, understood risk in a document and then not
+prioritizing it until a user hits the consequence is a common way
+technical debt actually plays out, and this project's own
+documentation had the fix already spelled out, just not scheduled.
+
+### Why runs were queuing for hours: the concurrency group, not a bug in it
+
+`poll_player_counts.yml`'s `concurrency: group: poll-player-counts,
+cancel-in-progress: false` means only one run executes at a time;
+anything else queues behind it. That setting itself isn't wrong — it's
+exactly right for a job that commits data back to the repo, where two
+overlapping runs writing snapshots simultaneously would be a real
+problem. The concurrency group was working as designed; it was
+faithfully queuing runs behind a job that individually took far longer
+than it needed to, turning a correct safety mechanism into a visible
+symptom of the real problem underneath it.
+
+### The fix: remove the dependency, not just speed up the step
+
+Considered adding a `--count` override or an "appids-only" flag to
+`ingest.py` itself, but the cleaner fix doesn't touch `ingest.py` at
+all: `poll_player_counts.py` now calls `SteamSpyClient.get_all_page()`
+directly — the exact same cheap, single-request bulk listing
+`ingest.py` already starts with — and never touches DuckDB or requires
+a pre-built `games` table in the first place. This removes the "rebuild
+the catalog" step from the workflow entirely, not just makes it
+faster, and removes a dependency (`get_read_only_connection`,
+`GAMES_TABLE`) this script never conceptually needed: it was never
+really about the catalog, only ever about a list of appids the catalog
+happened to also contain.
+
+### Verification, scoped to what actually changed
+
+Ran the new `_fetch_target_appids()` function directly against the
+real live SteamSpy API — no mocking — and got back real appids headed
+by `730`, the same game independently confirmed as the top-owned title
+in every other real check this project has done this session (the
+eval suite's `lookup_top_ccu` golden question, live `/ask` calls, the
+README screenshot). Deliberately did not run a full `run_poll()`
+locally: that would mean polling 1000 real games at Steam's own real
+1-request/second rate limit — about 17 real minutes — to re-verify
+polling-loop code that this slice never touched. Scoping verification
+to the actual diff, not the whole script, was the right call here.
+`ruff check`, `mypy src/`, and the full 88-test suite all clean;
+confirmed no stray local files were left behind by the verification
+call (it doesn't write a snapshot on its own — only `run_poll()`
+does, which wasn't run against the real 1000-game target locally).
+
+### Open questions (new)
+
+- **The real-world time savings (roughly an hour down to roughly 20
+  minutes) is a calculation from known rate limits, not yet an
+  observed scheduled run.** Worth checking the Actions tab after the
+  next real `cron` trigger to confirm the workflow actually completes
+  in the expected window, not just that the code is correct in
+  isolation.
+- **The stuck/pending runs from before this fix were never explicitly
+  cancelled** as part of this slice — they should clear on their own
+  once a fixed run completes fast enough to release the concurrency
+  group, but manually cancelling them from the Actions tab is the more
+  direct way to confirm the queue isn't jammed on something else.
