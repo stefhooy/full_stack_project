@@ -4026,3 +4026,103 @@ composes cleanly with everything else.
   user would notice — an acceptable trade for a portfolio project's
   regression net, but worth knowing if this pattern is reused somewhere
   with a bigger, noisier corpus.
+
+## Slice 23 — Making the retry loop's self-correction visible, and a real bug found in the design pass
+
+**Date:** 2026-08-29
+
+`execute_tools_node` has had a self-correction retry loop since early in
+this project (a tool error gets fed back to the model as a `ToolMessage`,
+which gets another try, up to `SQL_MAX_RETRIES`). Nothing outside a
+debugger could ever see it happen, though — `attempts` lived in internal
+graph state only, never reached the API response, a log line, or
+anywhere a person could look and answer "how often does this actually
+fire, and does it work."
+
+### The distinction that mattered: `attempts` was already overloaded
+
+Read the existing code before adding anything, rather than assuming
+`attempts` meant "retries." It doesn't, quite: `execute_tools_node`
+increments it once per tool call in the loop, success or failure alike.
+A question needing two legitimate tool calls (a lookup, then a stats
+call) increments it exactly the same way a single failed-then-retried
+call would. Surfacing the existing `attempts` field alone would have
+produced a "self-correction rate" that was actually measuring "how many
+tool calls did this question need" — a real but different thing.
+Added a second, separate counter, `tool_errors`, incremented only
+inside the `except` branch that actually catches a failure. This is the
+whole point of the feature: without this split, a genuinely useful
+multi-step question and an actual model mistake look identical in the
+data, and any rate computed from the conflated number would be
+meaningless.
+
+### A real correctness bug caught during the design pass, before it shipped
+
+The natural way to report "how many self-corrections actually
+recovered" is `runs_with_tool_error - runs_that_hit_the_retry_cap`,
+computed from two independently-incremented counters. Working through
+it by hand before writing the code: `attempts` can theoretically reach
+`SQL_MAX_RETRIES` through a long chain of *successful* tool calls that
+never errored at all (rare in this system, but not impossible, and not
+excluded by the type system). If that ever happened, `runs_that_hit_the_retry_cap`
+would include a run that was never in `runs_with_tool_error` to begin
+with, and the subtraction could go negative — an obviously wrong
+"recovered" count with no exception ever raised to reveal it, exactly
+the kind of bug that ships quietly and shows up as a nonsensical number
+on a dashboard months later. Fixed by tracking the actual intersection
+directly (`runs_with_tool_error_that_hit_the_attempts_cap`, incremented
+only inside the branch that already knows `had_error` is true) instead
+of two independent totals subtracted after the fact — a subset by
+construction, so the subtraction can never go negative. This is a
+correctness bug that never ran, caught by reasoning about the data
+model before writing the implementation, not by a failing test after
+the fact.
+
+### What deliberately does NOT count toward these stats, verified live
+
+A semantic-cache hit replays a stored `AgentResult` without running the
+graph again — counting it would double-count the same underlying run
+under a different question's cache key. A hard provider failure (Groq
+rate-limited or erroring before the agent ever reaches the tool-call
+loop) is a different failure class entirely, not a self-correction
+event — the request never got far enough to try or fail a tool call.
+Both exclusions were reasoned about in the design, then actually
+confirmed live rather than just argued for: rapid manual testing during
+verification genuinely triggered a real Groq 413 (tokens-per-minute
+limit exceeded, an authentic free-tier constraint, not a contrived
+test), which correctly fell through to the existing
+`FRIENDLY_ERROR_MESSAGE` 503 path with no change in behavior, and
+`/health`'s `total_runs` confirmed unchanged afterward — the exclusion
+held under a real failure, not just an imagined one.
+
+### Verification
+
+`tests/test_graph_tool_errors.py`: four new tests directly against
+`execute_tools_node`, using the same real-DuckDB-fixture-over-mocking
+approach as `test_catalog.py`/`test_genre_stats.py` — including an
+actual `DROP TABLE games` to produce a real `UnsafeQueryError`, not a
+simulated one. One test specifically encodes the reason this feature
+exists: two successful calls in one turn must leave `tool_errors` at
+`0`. `ruff check`, `mypy src/`, and the full suite (88 tests, up from
+84) all clean.
+
+Also verified end to end against a real running backend, not just unit
+tests: confirmed `/health`'s new `self_correction` block and `/ask`'s
+`attempts`/`tool_errors` fields are both present and correctly computed
+on genuine live Groq round trips (including catching and killing a
+stale backend process from an earlier verification session that was
+still bound to port 8000 and silently serving pre-Slice-23 responses —
+worth remembering: a "field missing" error can mean the code is wrong,
+or it can mean you're not actually talking to the code you think you
+are).
+
+### Open questions (new)
+
+- **No real self-correction (an actual model-produced SQL error, not a
+  hand-crafted one) has been observed live yet.** Every real question
+  tried during verification either succeeded on the first attempt or
+  hit a hard Groq rate limit before reaching the tool loop at all. The
+  mechanism is proven correct at the unit level against a genuine
+  error; the end-to-end "a real live mistake gets logged and counted
+  correctly" path is inferred from the wiring, not yet observed
+  in production traffic.

@@ -20,3 +20,10 @@ class AskResponse(BaseModel):
     retrieved_schema_chunks: list[str] | None = None
     route: str | None = None
     cached: bool = False
+    attempts: int = 0
+    """Total tool-call round trips this question took. 1 is normal for a
+    single-fact lookup; higher can mean either a legitimate multi-step
+    question or a self-correction retry -- see tool_errors to tell which."""
+    tool_errors: int = 0
+    """How many of those tool calls actually failed and had to be
+    self-corrected. 0 means the model got it right first try every time."""

@@ -1264,6 +1264,48 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified fresh: `ruff check`, `mypy src/`, and the full pytest
       suite (now 84 tests) all clean
 
+## Slice 23 — Self-correction, made visible instead of invisible
+- [x] `attempts` (total tool-call round trips) already existed in graph
+      state but was never surfaced past internal state, and conflated
+      two different things: a legitimate multi-step question needing
+      two tool calls looked identical to a real error-triggered retry.
+      Added a second counter, `tool_errors`, incremented only inside
+      `execute_tools_node`'s except branch — the actual self-correction
+      signal
+- [x] Both counters now flow all the way through: `AgentResult` →
+      `AskResponse` (so anyone hitting `/docs` sees real per-request
+      numbers) → a request-level log line whenever `tool_errors > 0`
+- [x] `src/api/run_stats.py`: a small in-memory aggregate tracker
+      (same single-process pattern as `cache.py`/`rate_limit.py`,
+      same documented multi-instance caveat), exposed via `/health` as
+      `self_correction`: total real runs, how many needed at least one
+      self-correction, and — the number that actually answers "does it
+      work" rather than just "does it happen" — what fraction of those
+      recovered with a real answer versus ran out of retry budget.
+      Tracks the recovered/exhausted split as a true intersection
+      counter, not two independent counts subtracted from each other,
+      specifically to avoid a negative-count edge case if a run ever
+      hit the attempts cap via a long legitimate chain with zero errors
+- [x] Cache hits and hard provider failures (a Groq rate limit killing
+      the whole request before the graph's tool loop ever runs)
+      deliberately do NOT count toward these stats — verified live,
+      not just reasoned about: a real 413 tokens-per-minute error from
+      rapid live testing propagated to the existing `FRIENDLY_ERROR_MESSAGE`
+      503 path exactly as before, and `/health`'s `total_runs` correctly
+      did not increment for it
+- [x] `tests/test_graph_tool_errors.py`: 4 new tests against
+      `execute_tools_node` directly, real DuckDB fixture, real errors
+      (an actual `DROP TABLE games`) — not mocked. Specifically proves
+      the distinction the whole feature exists for: two successful
+      tool calls in one turn leave `tool_errors` at 0
+- [x] Verified fresh end to end, not just unit tests: started a real
+      local backend, confirmed `/health`'s `self_correction` block and
+      `/ask`'s `attempts`/`tool_errors` fields are both present and
+      correct on a genuine live Groq round trip, confirmed the
+      aggregate updates correctly across two real requests. `ruff
+      check`, `mypy src/`, and the full pytest suite (now 88 tests)
+      all clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

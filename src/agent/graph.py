@@ -76,6 +76,15 @@ class AgentState(TypedDict):
     question: str
     messages: Annotated[list[BaseMessage], add_messages]
     attempts: int
+    """Total tool-call round trips, success or failure -- a multi-step
+    analysis question that legitimately needs two tool calls looks the
+    same as one that needed a single retry. See `tool_errors` for the
+    metric that actually means self-correction."""
+    tool_errors: int
+    """Incremented only when a tool call actually fails (the except branch
+    in execute_tools_node) -- the real self-correction signal: a nonzero
+    value means the model got something wrong and the graph fed the error
+    back for it to fix, not just that the question needed multiple tools."""
     last_successful_sql: str | None
     last_successful_columns: list[str] | None
     last_successful_rows: list[list] | None
@@ -170,6 +179,7 @@ def execute_tools_node(state: AgentState) -> dict:
     last_ai = cast(AIMessage, state["messages"][-1])
     tool_messages: list[ToolMessage] = []
     attempts = state["attempts"]
+    tool_errors = state["tool_errors"]
     update: dict = {}
 
     for call in last_ai.tool_calls:
@@ -201,6 +211,7 @@ def execute_tools_node(state: AgentState) -> dict:
                 ToolMessage(content=json.dumps(result), tool_call_id=call["id"])
             )
         except (UnsafeQueryError, duckdb.Error, ValueError) as e:
+            tool_errors += 1
             error_text = f"Error: {e}"
             if attempts >= settings.sql_max_retries:
                 error_text += (
@@ -212,6 +223,7 @@ def execute_tools_node(state: AgentState) -> dict:
 
     update["messages"] = tool_messages
     update["attempts"] = attempts
+    update["tool_errors"] = tool_errors
     return update
 
 
@@ -277,6 +289,12 @@ class AgentResult:
     retrieved_chunk_ids: list[str] | None
     route: str | None
     chart_spec: dict | None
+    attempts: int
+    tool_errors: int
+    """Both surfaced on the final result (not just internal graph state) so
+    the API response, logs, and /health can report real self-correction
+    activity instead of it being invisible outside a debugger -- see
+    DOCEXP.md's Slice 23 entry for why this was worth adding."""
 
 
 def _initial_state(question: str) -> AgentState:
@@ -284,6 +302,7 @@ def _initial_state(question: str) -> AgentState:
         "question": question,
         "messages": [],
         "attempts": 0,
+        "tool_errors": 0,
         "last_successful_sql": None,
         "last_successful_columns": None,
         "last_successful_rows": None,
@@ -344,6 +363,8 @@ def _result_from_state(final_state: dict) -> AgentResult:
         retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
         route=final_state.get("route"),
         chart_spec=final_state.get("chart_spec"),
+        attempts=final_state.get("attempts", 0),
+        tool_errors=final_state.get("tool_errors", 0),
     )
 
 

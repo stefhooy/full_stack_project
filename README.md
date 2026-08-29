@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 20** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 23** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -38,7 +38,12 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   the agent guess
 - A minimal LangGraph agent — `router` → `retrieve_schema` → `agent` →
   `execute_tools` → `build_chart_spec` loop — with a self-correcting retry
-  loop (tool errors get fed back to the model, up to 3 attempts)
+  loop (tool errors get fed back to the model, up to 3 attempts). This
+  isn't just a claim: `tool_errors` (Slice 23) counts real failures
+  separately from legitimate multi-step tool use, surfaced per-request in
+  the API response and aggregated live at `/health` as `self_correction`
+  — real numbers for how often self-correction fires and how often it
+  actually recovers, not just an architecture description
 - Three tools: `run_sql` (bound for every routable question), `run_stats`
   (bound only for `analysis`-routed questions) — real statistics via scipy:
   a Welch's t-test with a p-value for group comparisons, z-score outlier
@@ -106,10 +111,11 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An MCP server (`src/mcp_server/`) exposing the same guarded `run_sql`/
   `run_stats` to any MCP-compatible AI app (Claude Desktop, Claude Code,
   Cursor) — free, local stdio, no LLM key needed
-- A pytest suite (`tests/`, 84 tests) against the SQL guard, the stats/
+- A pytest suite (`tests/`, 88 tests) against the SQL guard, the stats/
   forecast/viz pure functions, the ingestion parsing, the catalog/genre
-  queries, the dash-stripping guarantee, and (Slice 22) RAG retrieval
-  quality itself — real DuckDB fixtures, not mocks of this project's own
+  queries, the dash-stripping guarantee, RAG retrieval quality (Slice
+  22), and the self-correction attempts/tool_errors distinction (Slice
+  23) — real DuckDB fixtures, not mocks of this project's own
   DB layer, and network/LLM-hitting tests are marked `live` and excluded
   by default; runs on every push/PR via `.github/workflows/test.yml`,
   alongside ruff and mypy (Slice 21). The frontend gets the equivalent

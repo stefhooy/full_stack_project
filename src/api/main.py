@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from src.agent.cache import SemanticCache
 from src.agent.graph import AgentResult, run_agent, stream_agent
 from src.api.rate_limit import enforce_rate_limit
+from src.api.run_stats import RunStats
 from src.api.schemas import AskRequest, AskResponse
 from src.config import settings
 from src.db.catalog import DEFAULT_PAGE_SIZE, DEFAULT_SORT, MAX_PAGE_SIZE, list_games
@@ -42,6 +43,8 @@ _cache: SemanticCache[AgentResult] = SemanticCache(
     similarity_threshold=settings.semantic_cache_similarity_threshold,
     max_entries=settings.semantic_cache_max_entries,
 )
+
+_run_stats = RunStats()
 
 FRIENDLY_ERROR_MESSAGE = (
     "We're experiencing high demand right now. Please try again in a moment."
@@ -65,6 +68,7 @@ def health() -> dict:
         "db_exists": Path(settings.duckdb_abs_path).exists(),
         "model_provider": settings.model_provider,
         "cache_entries": len(_cache),
+        "self_correction": _run_stats.as_dict(),
     }
 
 
@@ -134,7 +138,24 @@ def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
         retrieved_schema_chunks=result.retrieved_chunk_ids,
         route=result.route,
         cached=cached,
+        attempts=result.attempts,
+        tool_errors=result.tool_errors,
     )
+
+
+def _record_real_run(result: AgentResult) -> None:
+    """Only real runs count toward self-correction stats -- a cache hit
+    replays a previous result verbatim, it doesn't run the graph again, so
+    counting it here would double-count the same underlying run. Shared by
+    both /ask and /ask/stream since each has its own real-run path."""
+    _run_stats.record(result)
+    if result.tool_errors > 0:
+        logger.info(
+            "self-correction: route=%s attempts=%d tool_errors=%d",
+            result.route,
+            result.attempts,
+            result.tool_errors,
+        )
 
 
 def _run_with_cache(question: str) -> tuple[AgentResult, bool]:
@@ -146,6 +167,7 @@ def _run_with_cache(question: str) -> tuple[AgentResult, bool]:
             return cached_result, True
 
     result = run_agent(question)
+    _record_real_run(result)
     if settings.semantic_cache_enabled:
         _cache.put(question, result)
     return result, False
@@ -207,6 +229,7 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                     final_result = event["result"]
 
             if final_result is not None:
+                _record_real_run(final_result)
                 if settings.semantic_cache_enabled:
                     _cache.put(request.question, final_result)
                 payload = _to_response(final_result, cached=False)
