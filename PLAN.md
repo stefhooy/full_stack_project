@@ -1205,9 +1205,7 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       paths
 - [ ] `run_evals.py` (the real answer-quality regression check) still
       never runs automatically, CLI-only
-- [ ] README still opens with dense technical prose — no live demo
-      link, screenshot/GIF, one-line pitch, or tech badges up top, even
-      though the app is now actually live (Slice 19)
+- [x] README hook added (Slice 25) — see below
 - [x] Quantified results gathered and published (Slice 24) — see below
 
 ## Slice 22 — A RAG retrieval eval, not just a final-answer eval
@@ -1356,6 +1354,42 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       and `taskkill //F //PID` instead, since a stale process serving
       pre-change code masquerading as a fresh one is a real, repeatable
       trap in this environment (see DOCEXP.md)
+
+## Slice 25 — A README hook, and a real production reliability finding along the way
+- [x] Confirmed the GitHub repo is actually public before building any
+      of this — a recruiter-facing hook is pointless work if the repo
+      isn't visible to them at all
+- [x] Added badges (GitHub's own live workflow-status badges for
+      `test.yml`/`frontend-ci.yml`, not static claims — they actually
+      reflect current CI state; MIT license; Python/Next.js), a
+      one-line "try it live" call to action with the real Vercel URL,
+      and a real screenshot up top, before the dense technical prose
+- [x] The screenshot is a genuine live capture, not a mockup: Playwright
+      drove the actual deployed site, asked a real question, expanded
+      "Show the work," and screenshotted the exact real result panel
+      element (not a manually-guessed crop region) — real route badge,
+      real answer, real SQL, real retrieved schema chunk list, saved to
+      `docs/live-demo.png`
+- [x] A real production incident surfaced while capturing it, not
+      induced deliberately: the live backend returned a hard 502 from
+      *every* endpoint including `/health` for a stretch, then
+      recovered on its own — diagnosed methodically (checked `/health`
+      alone to isolate "whole service down" from "just `/ask` is slow,"
+      confirmed via response headers that uvicorn itself came back
+      before declaring it recovered) rather than just retrying blindly
+      until it happened to work
+- [x] Traced it to Render's free-tier spin-down being rougher than
+      previously documented: the existing README caveat said "the
+      first request after inactivity takes 30-60s" (implying a slow
+      but successful response); what's actually observed is a hard 502
+      during the boot window, not a queued slow one — corrected the
+      existing caveat to match reality instead of leaving a claim that
+      turned out to be more optimistic than what really happens
+- [x] Verified fresh: all three new/changed badge URLs return real
+      200s (not just pasted and assumed); the screenshot file is a
+      reasonable 70KB; grepped the new copy for em/en dashes — none
+      found (the root README has never been subject to the frontend's
+      no-dash rule, same as every prior slice's docs work)
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

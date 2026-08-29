@@ -1,10 +1,24 @@
 # AI Game Analyst
 
-A tool-using AI agent that answers plain-English questions about the video
-game market by writing and running real SQL against a database it ingested
-itself — not a fixed dashboard, not a chatbot answering from memory. Built
-as a series of thin, working vertical slices; this snapshot is through
-**Slice 24** (see [PLAN.md](PLAN.md) for the full roadmap,
+[![Tests](https://github.com/stefhooy/full_stack_project/actions/workflows/test.yml/badge.svg)](https://github.com/stefhooy/full_stack_project/actions/workflows/test.yml)
+[![Frontend CI](https://github.com/stefhooy/full_stack_project/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/stefhooy/full_stack_project/actions/workflows/frontend-ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![Next.js 16](https://img.shields.io/badge/next.js-16-black.svg)
+
+**[Try it live](https://full-stack-project-sepia-nine.vercel.app)** — ask
+a real question about the video game market and watch it write the SQL
+itself. (Free-tier host; the first request after a quiet stretch can
+take up to a minute to wake back up — see "Deploying" below.)
+
+An AI agent that answers plain-English questions about the video game
+market by writing and running real SQL against a database it ingested
+itself — not a fixed dashboard, not a chatbot answering from memory.
+
+![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
+
+Built as a series of thin, working vertical slices; this snapshot is
+through **Slice 25** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -397,8 +411,13 @@ The backend only accepts browser requests from origins in that list.
 and process-local (see `src/agent/cache.py` and `src/api/rate_limit.py`) —
 correct for a single instance, would need a shared store (Redis) if the
 backend ever scales to multiple instances. Render's free tier spins the
-service down after 15 minutes of inactivity; the first request after
-that takes 30-60s to wake it back up.
+service down after 15 minutes of inactivity, and waking back up is
+rougher than a plain slow response: observed live (Slice 25) as a real
+502 from every endpoint, including `/health`, for the first stretch of
+requests during the wake window, not just a slow-but-successful one —
+it resolves on its own within roughly a minute as the container finishes
+booting, but a request that lands mid-boot fails outright rather than
+queuing.
 
 **Keeping data fresh** (Slice 7, once you've pushed to GitHub and enabled
 Actions):

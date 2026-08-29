@@ -4284,3 +4284,118 @@ editing.
   average — worth re-measuring at a larger scale before quoting these
   numbers as if they were production telemetry rather than a single
   eval run's honest result.
+
+## Slice 25 — Building the README hook, and finding a real production bug while taking a screenshot
+
+**Date:** 2026-08-29
+
+The last item on the AI-Engineer-focused audit: the README opened
+straight into dense technical prose, with no live demo link, screenshot,
+or badges, despite the app being genuinely live since Slice 19. Checked
+one thing before writing a word of the hook: whether the GitHub repo is
+actually public. A polished hook pointed at a private repo helps nobody
+— confirmed via the GitHub API (`private: false`) before investing any
+further effort.
+
+### The screenshot had to be real, which is what surfaced the real bug
+
+Decided early that a mockup or a hand-drawn diagram wouldn't do — the
+whole point of a "live demo" hook is that it's actually live, so the
+screenshot needed to come from driving the real deployed site with
+Playwright, not from a local dev server. That decision is what surfaced
+a genuine production incident that a static mockup would have hidden
+completely.
+
+The first two capture attempts failed for boring reasons (a `wait_for`
+that matched a decorative "Show the work" heading in the Meet Ludo
+section instead of the real result's `<summary>` element, then a
+too-short timeout). The third attempt failed differently: a 90-second
+timeout with nothing rendering at all. Rather than assume "just add a
+longer timeout and retry," checked the live backend directly with
+`curl`, which is what turned this into a real finding instead of a
+flaky-test workaround.
+
+### Diagnosing it methodically instead of just retrying until it worked
+
+`curl` against `/ask` for the exact same question returned a hard 502
+after ~59 seconds. The instinct at that point could have been "the LLM
+call is slow, that's expected" — but the eval numbers from Slice 24,
+gathered minutes earlier, already established real latency tops out
+around 37s for a heavy question, and a 502 is not what a slow-but-
+successful request looks like. Checked `/health` next specifically to
+isolate two different possible problems: "the whole service is down"
+versus "just the heavy `/ask` path is struggling." `/health` also
+returned a 502, in 0.3 seconds — not a timeout, an immediate rejection,
+meaning nothing was actually answering behind Render's proxy at all. A
+few minutes later, `/health` came back clean with `cache_entries: 0`
+(a tell that the process had restarted fresh), and a plain `curl -I`
+showed `x-render-origin-server: uvicorn` responding normally again.
+This is exactly a real, live production incident living and being
+diagnosed in real time, not a hypothetical failure mode.
+
+### What this actually means, and what it doesn't (yet)
+
+The existing README caveat, written back in Slice 19, said the free
+tier's spin-down means "the first request after inactivity takes
+30-60s to wake it back up" — implying a slow but eventually-successful
+response. What was actually observed here is meaningfully worse: a hard
+502 across every endpoint during some portion of the wake window, not
+a queued request that eventually completes. Corrected the README's own
+claim to match what was actually observed rather than leave the more
+optimistic (and, it turns out, incorrect) original phrasing standing.
+This doesn't yet rise to "the deployment is broken" — the service does
+recover on its own within roughly a minute, and every previous live
+verification in this project (Slices 19, 23, 24) worked fine once past
+that window. The likely cause, not yet confirmed: this app's actual
+memory footprint (fastembed's ONNX runtime, numpy, scipy, DuckDB, and
+the full LangChain/LangGraph stack all loaded in one process) is
+substantial for Render's free-tier 512MB limit, and the boot window
+after a spin-down is exactly when memory pressure would be highest —
+noted as a real, specific hypothesis to check, not asserted as fact
+without evidence.
+
+### The screenshot itself
+
+Once the backend was confirmed stable, drove the real site end to end:
+filled the real ask bar, submitted a real question, waited specifically
+for the real result's `<summary>` element (disambiguated from the
+decorative one), expanded it, and screenshotted that exact panel
+element directly — not a manually-computed pixel region, which the
+first successful capture attempt got wrong (cropped the top of the
+route badge off and missed the question). Element-level screenshotting
+fixed that correctly on the first retry. The final image shows a real
+route badge (`Lookup`), a real `Cached` label (left in deliberately —
+it's evidence the semantic cache actually works, not something to hide
+for a cleaner-looking screenshot), the real answer, a real result
+table, and the real SQL and retrieved-schema-chunk list under "Show the
+work."
+
+### Verification
+
+Confirmed the repo is public via the GitHub API before starting. Every
+new badge URL (`test.yml`, `frontend-ci.yml`, the shields.io license
+badge) checked with a real `curl` for a 200, not pasted and assumed —
+GitHub's workflow badges are dynamic and only exist for a public repo
+with that exact workflow file present, so this wasn't a given. The
+screenshot file was checked for a reasonable size (70KB). Grepped the
+new README copy for em dashes and en dashes; the root README has never
+been subject to the frontend's no-dash rule (that rule is explicitly
+scoped to `app/`, `components/`, `lib/`, and the agent's generated
+answer text — every prior slice's own DOCEXP/PLAN/README prose has used
+em dashes freely throughout this whole project), so this was a
+consistency check against existing practice, not a new constraint.
+
+### Open questions (new)
+
+- **The 502-during-wake-up root cause (likely memory pressure on the
+  free tier's 512MB limit) is a hypothesis, not a confirmed diagnosis.**
+  Would need Render's own metrics/logs (not accessible from here) to
+  confirm memory is actually the constraint rather than something else
+  (a slow health-check registration, a Cloudflare-edge timing issue on
+  Render's side). Worth checking directly next time this is
+  investigated, rather than continuing to assume.
+- **No alerting exists for this.** The only way this incident was
+  caught was a screenshot script timing out during unrelated work. A
+  portfolio project doesn't need production-grade uptime monitoring,
+  but it's worth knowing this failure mode has no visibility outside of
+  someone happening to hit it.
