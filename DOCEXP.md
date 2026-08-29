@@ -3921,3 +3921,108 @@ has no user input at all; `catalog.py` has real user input (search,
 sort, genre filter) but never lets it reach a SQL string, routing sort
 through a Python allowlist dict and filtering in Python after one
 unparameterized fetch instead.
+
+## Slice 22 — A RAG retrieval eval, and confirming the eval itself wasn't fake
+
+**Date:** 2026-08-29
+
+Every eval this project has had so far checks the final answer: is the
+number right, is the route right, is the LLM judge satisfied. None of
+them check the one step in between — does `retrieve_schema` actually
+pull in the right context for a given question. A final answer can
+sometimes come out right even when retrieval grabbed the wrong or
+incomplete chunks (the LLM might already "know" the schema well enough
+from the question itself, or get lucky), so "the answer was correct"
+is not the same claim as "retrieval did its job." This slice built a
+way to check the second claim directly.
+
+### The free-eval discovery that shaped the design
+
+Before designing anything, read `schema_index.py` and
+`schema_corpus.py` rather than assuming how retrieval works. That
+surfaced something that changed the whole approach: `SchemaIndex.retrieve()`
+only calls `get_embedder()` (the local ONNX model via fastembed) — it
+never touches Groq or any paid API. Every other eval in this project
+(`run_evals.py`'s golden questions) needs a real LLM call per question,
+which is exactly why that harness stays manual-only, cost- and
+rate-limit-gated. This one doesn't have that constraint at all. That
+single fact moved the whole feature from "another manual report to run
+occasionally" to "a real pytest test that gates CI for free, forever."
+
+### Excluding `always_include` chunks from the golden set, on purpose
+
+`schema_corpus.py` marks four chunks (`table:games`, `column:name`,
+`column:genre`, `table:player_counts`) as `always_include=True` — they
+bypass ranking entirely and come back regardless of the question,
+because semantic similarity alone was empirically found (Slice 2/9) to
+under-rank generic-sounding columns like "name" against a question
+naming a specific game. Including these in the golden set's expected
+answers would have made the eval measure nothing real: they'd show up
+100% of the time by construction, inflating the score without the
+ranking algorithm having done any work. The golden set only tests the
+~30 chunks that actually have to compete on similarity to be retrieved.
+
+### Measuring before locking in a bar, and proving the measurement means something
+
+Rather than pick a target recall number, measured what the real system
+actually achieves first: **recall@8 (production's real `RAG_TOP_K`)
+came back 1.000** across all 15 hand-labeled questions. Before trusting
+that as a real baseline rather than an artifact of a too-easy test,
+checked whether the eval could actually tell good retrieval from bad by
+re-running at a much smaller k: recall@3 dropped to 0.789, recall@1 to
+0.522, with real, specific misses reported (e.g. `dev_publisher` scored
+0 at k=3 — the developer/publisher columns didn't make the cut at that
+tight a limit). That confirmed the eval has real discriminating power,
+not just a design that trivially always passes regardless of k, so the
+1.000 at the real k=8 is an earned, meaningful result and not a red
+flag. Also confirmed the result is deterministic across repeated runs
+(no randomness in embedding computation for fixed input text) before
+locking `1.0` in as the exact regression bar — a bar grounded in what
+was actually measured, not a guessed target picked in advance.
+
+### A quick honesty check on the 15 questions themselves
+
+Cross-checked every chunk ID referenced in the golden set against the
+real corpus programmatically (a small script comparing the two id sets)
+rather than trusting hand-typed IDs — caught zero typos, but this is
+exactly the kind of silent bug (a golden question that can never pass
+because its expected chunk ID has a typo, quietly rendering that
+question's "pass" meaningless) that's cheap to introduce and easy to
+miss by eye in a list of 15 frozensets.
+
+### Two small, unrelated documentation bugs found while checking scope
+
+Asked directly whether ARCHITECTURE.md needed updating for this work
+(it doesn't touch the graph's shape, so no) — but checking it against
+the real code surfaced two pre-existing staleness bugs unrelated to
+this slice: the System overview diagram's FastAPI node was missing
+`/catalog` (added several slices ago), and the RAG diagram said "~24
+SchemaChunks" when the corpus has grown to 35 real chunks. Fixed both,
+and also added `catalog.py` as a second box next to `genre_stats.py`
+in the System overview diagram, since it bypasses `connection.py` the
+same way but had never been drawn — see the entry just above this one.
+
+### Verification
+
+`ruff check src/ tests/`, `uv run mypy src/`, and the full pytest suite
+(now 84 tests, up from 83) all clean. The new test itself was run
+individually first to confirm it actually exercises real retrieval
+code (not a stub), then as part of the full suite to confirm it
+composes cleanly with everything else.
+
+### Open questions (new)
+
+- **15 golden questions is a reasonable start, not exhaustive.** Some
+  corpus chunks (e.g. `column:owners_high` specifically, distinct from
+  `owners_low`) aren't independently tested — the eval currently checks
+  clusters of related chunks together rather than every chunk in
+  isolation. Worth expanding if the corpus grows significantly or a
+  real retrieval miss shows up in production that this set wouldn't
+  have caught.
+- **The bar is 1.0 with zero slack.** That's honest given what was
+  measured, but it also means any future corpus edit that changes even
+  one chunk's wording in a way that shifts its embedding slightly could
+  fail this test without retrieval actually being "worse" in any way a
+  user would notice — an acceptable trade for a portfolio project's
+  regression net, but worth knowing if this pattern is reused somewhere
+  with a bigger, noisier corpus.

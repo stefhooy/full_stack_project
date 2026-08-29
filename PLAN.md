@@ -1215,6 +1215,55 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       dataset, aimed at a Data Analyst/Data Scientist reviewer
       specifically rather than an AI-engineering one
 
+## Slice 22 — A RAG retrieval eval, not just a final-answer eval
+- [x] Went through `superpowers:brainstorming`, classified Bounded (an
+      existing eval-harness pattern applied to a new target, not a new
+      subsystem). Real discovery made before designing anything, from
+      reading `schema_index.py`/`schema_corpus.py` rather than assuming:
+      retrieval only calls the local embedding model, never Groq, so
+      this eval is free and can run in CI on every push — unlike the
+      rest of the eval harness, which needs real, cost/rate-limit-gated
+      LLM calls and stays manual-only
+- [x] `src/evals/retrieval_golden.py`: 15 hand-labeled questions, each
+      paired with the specific schema chunks retrieval should surface —
+      deliberately excluding the 4 `always_include` chunks (`table:games`,
+      `column:name`, `column:genre`, `table:player_counts`) from every
+      expected set, since those bypass ranking entirely and testing for
+      them would prove nothing about whether the ranking algorithm
+      itself is doing its job. Cross-checked every referenced chunk ID
+      against the real corpus programmatically before trusting any of
+      it — zero typos, zero accidental overlap with the always-include
+      set
+- [x] `src/evals/retrieval_eval.py`: `evaluate_retrieval(top_k)` runs
+      the real `SchemaIndex.retrieve()` (not a mock) against the golden
+      set, computes recall@k per question and overall, plus a report
+      printer matching `run_evals.py`'s style
+- [x] Measured before locking in a bar, not guessed: recall@8 (the real
+      production `RAG_TOP_K`) came back **1.000** across all 15
+      questions. Confirmed this wasn't a trivially-passing test by
+      checking discriminating power at lower k first — recall@3 = 0.789,
+      recall@1 = 0.522 — proving the eval genuinely distinguishes good
+      retrieval from bad, and confirmed deterministic across repeated
+      runs (no randomness in embedding computation) before treating 1.0
+      as a real, reproducible baseline
+- [x] `tests/test_retrieval_eval.py`: a real pytest test asserting
+      recall@8 stays at the measured 1.0 baseline, wired into the
+      existing `test.yml` CI job (no new workflow needed — it's just
+      another test in `tests/`) — a future corpus edit, embedding-model
+      swap, or `schema_index.py` change that degrades retrieval now
+      fails CI instead of shipping silently
+- [x] Found and fixed two small, unrelated ARCHITECTURE.md staleness
+      bugs while checking whether it needed updating for this work: the
+      System overview diagram's FastAPI node was missing `/catalog`
+      (added several slices ago), and the RAG diagram said "~24
+      SchemaChunks" when the real corpus has grown to 35. Also added
+      `catalog.py` as a box next to `genre_stats.py` (both bypass
+      `connection.py`, previously only one was drawn) and corrected the
+      explanatory bullet to state their actual, slightly different
+      safety reasoning rather than imply they're identical
+- [x] Verified fresh: `ruff check`, `mypy src/`, and the full pytest
+      suite (now 84 tests) all clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

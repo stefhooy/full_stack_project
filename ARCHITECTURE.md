@@ -176,7 +176,7 @@ what the agent is structurally capable of doing.
 ```mermaid
 flowchart LR
     q["question"] --> embed["embed_query()<br/>(local ONNX, fastembed —<br/>no API key)"]
-    corpus["~24 SchemaChunks<br/>(table / column / metric_note)"] --> vectors["precomputed<br/>embeddings"]
+    corpus["~35 SchemaChunks<br/>(table / column / metric_note)"] --> vectors["precomputed<br/>embeddings"]
     embed --> sim["cosine similarity"]
     vectors --> sim
     sim --> topk["top-K + always_include<br/>chunks (table, name, genre)"]
@@ -197,6 +197,17 @@ generic-sounding columns needed by almost every question — `name` doesn't
 embed close to a specific game's name, `genre` doesn't embed close to a
 specific genre string. A handful of chunks bypass ranking entirely rather
 than trusting the embedding model to always surface them.
+
+**Retrieval quality is measured, not assumed** (Slice 22):
+`src/evals/retrieval_eval.py` runs the real `SchemaIndex.retrieve()`
+against a hand-labeled set of questions (`retrieval_golden.py`) — each
+paired with the specific non-`always_include` chunks it should surface —
+and computes recall@k. Deliberately excludes `always_include` chunks from
+every expected set, since those are returned regardless of the question
+and would make the eval measure nothing about the ranking itself. Unlike
+the rest of the eval harness (`src/evals/run_evals.py`), this never calls
+an LLM, so it runs as a real, free regression test in CI
+(`tests/test_retrieval_eval.py`) rather than a manual-only report.
 
 ## The safety boundary
 

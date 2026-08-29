@@ -27,7 +27,11 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   enforced by a real SQL parser in code, not by trusting the prompt
 - RAG over the DB schema: table/column/metric descriptions are chunked,
   embedded, and retrieved per-question instead of always injecting the
-  whole schema into the prompt
+  whole schema into the prompt. Retrieval quality itself is measured, not
+  just assumed: a hand-labeled recall@k eval (`src/evals/retrieval_eval.py`)
+  checks that the right chunks actually come back for a given question,
+  gated as a real, free (no LLM call) regression test in CI — currently
+  a measured 1.0 recall at production's real `RAG_TOP_K`
 - A supervisor-router that classifies each question (lookup / analysis /
   forecast / needs-clarification) before any DB work happens, routing
   ambiguous questions away from the SQL pipeline entirely instead of letting
@@ -102,14 +106,16 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 - An MCP server (`src/mcp_server/`) exposing the same guarded `run_sql`/
   `run_stats` to any MCP-compatible AI app (Claude Desktop, Claude Code,
   Cursor) — free, local stdio, no LLM key needed
-- A pytest suite (`tests/`, 83 tests) against the SQL guard, the stats/
+- A pytest suite (`tests/`, 84 tests) against the SQL guard, the stats/
   forecast/viz pure functions, the ingestion parsing, the catalog/genre
-  queries, and the dash-stripping guarantee — real DuckDB fixtures, not
-  mocks of this project's own DB layer, and network/LLM-hitting tests
-  are marked `live` and excluded by default; runs on every push/PR via
-  `.github/workflows/test.yml`. The frontend gets the equivalent check
-  (lint, `tsc --noEmit`, `build`) via `.github/workflows/frontend-ci.yml`,
-  scoped to `frontend/**` changes only (Slice 21)
+  queries, the dash-stripping guarantee, and (Slice 22) RAG retrieval
+  quality itself — real DuckDB fixtures, not mocks of this project's own
+  DB layer, and network/LLM-hitting tests are marked `live` and excluded
+  by default; runs on every push/PR via `.github/workflows/test.yml`,
+  alongside ruff and mypy (Slice 21). The frontend gets the equivalent
+  check (lint, `tsc --noEmit`, `build`) via
+  `.github/workflows/frontend-ci.yml`, scoped to `frontend/**` changes
+  only
 
 ## Setup
 
