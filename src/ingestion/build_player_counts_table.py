@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import sys
 from datetime import datetime
-from pathlib import Path
 
 from src.config import PROJECT_ROOT, settings
 from src.db.connection import get_write_connection
@@ -62,7 +61,9 @@ def run_build() -> int:
         conn.executemany(UPSERT_SQL, rows)
         rows_inserted += len(rows)
 
-    total = conn.execute("SELECT COUNT(*) FROM player_counts").fetchone()[0]
+    count_row = conn.execute("SELECT COUNT(*) FROM player_counts").fetchone()
+    assert count_row is not None  # COUNT(*) always returns exactly one row
+    total = count_row[0]
     conn.close()
     print(
         f"[build] processed {len(snapshot_files)} snapshot(s), "

@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
 from src.config import PROJECT_ROOT, settings
 from src.db.connection import get_read_only_connection
@@ -36,7 +35,7 @@ def run_poll() -> int:
     print(f"[poll] polling live player counts for {len(appids)} games...")
     client = SteamWebClient(user_agent=settings.steamspy_user_agent)
 
-    polled_at = datetime.now(timezone.utc)
+    polled_at = datetime.now(UTC)
     counts: dict[str, int] = {}
     for i, appid in enumerate(appids, start=1):
         count = client.get_current_players(appid)

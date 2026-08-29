@@ -1,10 +1,9 @@
 """The agent graph: router first, then (for routable questions) RAG
 retrieval, then a tool-calling loop and a visible self-correction path.
 
-    START -> router -> [lookup]                -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
-                     -> [analysis]              -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
-                     -> [forecast]              -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
-                     -> [needs_clarification]   -> ask_clarification                                               -> END
+    START -> router -> [lookup, analysis, forecast]
+                        -> retrieve_schema -> agent <-> execute_tools -> build_chart_spec -> END
+                     -> [needs_clarification] -> ask_clarification -> END
 
 - "router": classifies the question (lookup / analysis / forecast /
   needs_clarification) before any DB work happens — see src/agent/router.py
@@ -54,7 +53,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, cast
 
 import duckdb
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -119,7 +118,11 @@ _TOOL_GUIDANCE_BY_ROUTE = {
 def retrieve_schema_node(state: AgentState) -> dict:
     chunks = get_schema_index().retrieve(state["question"], top_k=settings.rag_top_k)
     schema_text = assemble_schema_text(chunks)
-    tool_guidance = _TOOL_GUIDANCE_BY_ROUTE.get(state["route"], "")
+    # state["route"] is always set by the time this node runs (the router
+    # always runs first, and needs_clarification never reaches this node) --
+    # `or ""` just satisfies the type checker's Optional[str] on AgentState
+    # without changing behavior; an empty-string key never matches anyway.
+    tool_guidance = _TOOL_GUIDANCE_BY_ROUTE.get(state["route"] or "", "")
     return {
         "messages": [
             SystemMessage(
@@ -160,7 +163,11 @@ def route_after_agent(state: AgentState) -> str:
 
 
 def execute_tools_node(state: AgentState) -> dict:
-    last_ai = state["messages"][-1]
+    # This node is only ever reached via route_after_agent's "execute_tools"
+    # branch, which only fires when the last message's tool_calls is
+    # non-empty -- guaranteed to be the AIMessage that just requested a tool,
+    # never a plain BaseMessage (which doesn't declare tool_calls at all).
+    last_ai = cast(AIMessage, state["messages"][-1])
     tool_messages: list[ToolMessage] = []
     attempts = state["attempts"]
     update: dict = {}

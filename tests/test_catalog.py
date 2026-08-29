@@ -69,7 +69,7 @@ def test_sort_by_release_date_ascending_puts_nulls_last():
 
 
 def test_unknown_sort_key_falls_back_to_the_default_instead_of_raising():
-    games, total = list_games(sort="not_a_real_column")
+    _games, total = list_games(sort="not_a_real_column")
     assert total == 4  # no exception, no data loss
 
 

@@ -25,7 +25,10 @@ import time
 # replacement is the right fix here (this is a report to a terminal, not
 # a place where losing an unencodable character silently matters).
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # sys.stdout is typed as the abstract TextIO protocol, which doesn't
+    # declare reconfigure() (only the concrete TextIOWrapper it actually is
+    # at runtime does) -- a known typeshed gap, not a real type error.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 from dataclasses import dataclass
 
 from src.agent.graph import AgentResult, run_agent
@@ -69,7 +72,10 @@ def print_report(results: list[EvalRunResult]) -> bool:
     for r in results:
         status = "PASS" if r.passed else "FAIL"
         judge_str = f"{r.judge_verdict.score}/5" if r.judge_verdict else "-"
-        print(f"{r.golden.id:32s} {status:6s} {judge_str:7s} {r.latency_seconds:7.1f}s  {r.check_result.detail}")
+        print(
+            f"{r.golden.id:32s} {status:6s} {judge_str:7s} "
+            f"{r.latency_seconds:7.1f}s  {r.check_result.detail}"
+        )
         if r.judge_verdict:
             print(f"{'':32s} {'':6s} judge: {r.judge_verdict.rationale}")
 

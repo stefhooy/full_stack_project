@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=1, description="A plain-English question about the games catalog.")
+    question: str = Field(
+        min_length=1, description="A plain-English question about the games catalog."
+    )
 
 
 class AskResponse(BaseModel):

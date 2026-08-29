@@ -1182,7 +1182,27 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       Paths). Verified by running the exact same three commands locally
       against a truly fresh `npm ci` install first, not just trusting
       the YAML — all three passed
-- [ ] No backend static analysis (ruff/mypy) wired into CI
+- [x] Added ruff + mypy for the backend (`[tool.ruff]`/`[tool.mypy]` in
+      `pyproject.toml`) and wired both into `test.yml`, before pytest.
+      Deliberately not full-strict mypy (LangChain/LangGraph/DuckDB don't
+      ship complete stubs); a moderate ruff rule set (`E, F, I, UP, B,
+      BLE, RUF`) with DTZ left out on purpose (this codebase has one
+      consistent naive-vs-aware datetime convention DTZ would flag as a
+      bug). Fixed every real finding rather than blanket-suppressing:
+      33 real ruff issues (line length, an unpacked-but-unused variable
+      in two tests, `zip()` without `strict=`, a stale generic-class
+      syntax, ambiguous-unicode false positives in the two files that
+      exist specifically to contain literal em/en dashes) and 13 real
+      mypy issues (two unguarded `fetchone()` results that could be
+      `None`, four functions typed `list[list]` when DuckDB actually
+      returns `list[tuple]`, an untyped `ChatGroq` API key, two
+      LangChain `with_structured_output()` calls typed looser than they
+      resolve at runtime, one dead `sys.exit(main() or 0)` pattern, one
+      genuine typeshed gap). Re-verified with a real live `/ask` and
+      `/ask/stream` round trip afterward, not just unit tests, since two
+      of the fixes (the API key wrapper, an SSE-yielding helper
+      extracted to fix a duplicated long line) touched real request
+      paths
 - [ ] `run_evals.py` (the real answer-quality regression check) still
       never runs automatically, CLI-only
 - [ ] README still opens with dense technical prose — no live demo

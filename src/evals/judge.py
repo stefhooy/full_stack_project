@@ -17,6 +17,8 @@ usable as a regression signal.
 
 from __future__ import annotations
 
+from typing import cast
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
@@ -39,7 +41,9 @@ Score 1-5:
 
 
 class JudgeVerdict(BaseModel):
-    correct: bool = Field(description="True if the answer is factually consistent with the reference facts.")
+    correct: bool = Field(
+        description="True if the answer is factually consistent with the reference facts."
+    )
     score: int = Field(ge=1, le=5, description="1 = wrong/fabricated, 5 = fully correct.")
     rationale: str = Field(description="One sentence explaining the score.")
 
@@ -51,4 +55,9 @@ def judge_answer(question: str, answer: str, reference_facts: str) -> JudgeVerdi
         f"Reference facts (ground truth):\n{reference_facts}\n\n"
         f"AI's answer:\n{answer}"
     )
-    return judge_llm.invoke([SystemMessage(content=JUDGE_SYSTEM_PROMPT), HumanMessage(content=prompt)])
+    messages = [SystemMessage(content=JUDGE_SYSTEM_PROMPT), HumanMessage(content=prompt)]
+    # with_structured_output() is typed to return dict | BaseModel (it also
+    # supports a dict/JSON-schema input, which would come back as a plain
+    # dict) -- passing a Pydantic model class as the schema, as here, always
+    # returns an instance of that exact class at runtime.
+    return cast(JudgeVerdict, judge_llm.invoke(messages))

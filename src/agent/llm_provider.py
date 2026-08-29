@@ -25,9 +25,11 @@ def get_llm(temperature: float = 0.0) -> BaseChatModel:
                 "MODEL_PROVIDER=groq but GROQ_API_KEY is not set. "
                 "Get a free key at https://console.groq.com/keys and put it in .env."
             )
+        from pydantic import SecretStr
+
         return ChatGroq(
             model=settings.groq_model,
-            api_key=settings.groq_api_key,
+            api_key=SecretStr(settings.groq_api_key),
             temperature=temperature,
         )
 

@@ -16,7 +16,8 @@ drifting from the first.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import duckdb
 
@@ -79,7 +80,7 @@ def list_games(
     finally:
         conn.close()
 
-    games = [dict(zip(_CATALOG_COLUMNS, row)) for row in rows]
+    games = [dict(zip(_CATALOG_COLUMNS, row, strict=True)) for row in rows]
 
     if q and q.strip():
         needle = q.strip().lower()

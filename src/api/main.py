@@ -160,12 +160,20 @@ def ask(request: AskRequest) -> AskResponse:
         )
     try:
         result, cached = _run_with_cache(request.question)
-    except Exception as exc:  # noqa: BLE001 - never leak internals to the client by default
+    except Exception as exc:
         logger.exception("Agent run failed")
         detail = str(exc) if settings.debug else FRIENDLY_ERROR_MESSAGE
         raise HTTPException(status_code=503, detail=detail) from exc
 
     return _to_response(result, cached=cached)
+
+
+def _sse(payload: dict) -> str:
+    """One SSE-framed line: 'data: <json>\\n\\n'. Pulled out once ruff's
+    line-length check flagged the third near-identical copy of this exact
+    framing in ask_stream() below -- a real duplication, not just a long
+    line to wrap."""
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 @app.post("/ask/stream", dependencies=[Depends(enforce_rate_limit)])
@@ -188,13 +196,13 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                 if hit is not None:
                     cached_result, _ = hit
                     payload = _to_response(cached_result, cached=True)
-                    yield f"data: {json.dumps({'type': 'final', 'result': payload.model_dump()})}\n\n"
+                    yield _sse({"type": "final", "result": payload.model_dump()})
                     return
 
             final_result: AgentResult | None = None
             async for event in stream_agent(request.question):
                 if event["type"] == "progress":
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield _sse(event)
                 else:
                     final_result = event["result"]
 
@@ -202,10 +210,9 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                 if settings.semantic_cache_enabled:
                     _cache.put(request.question, final_result)
                 payload = _to_response(final_result, cached=False)
-                yield f"data: {json.dumps({'type': 'final', 'result': payload.model_dump()})}\n\n"
+                yield _sse({"type": "final", "result": payload.model_dump()})
         except Exception:
             logger.exception("Streaming agent run failed")
-            detail = FRIENDLY_ERROR_MESSAGE
-            yield f"data: {json.dumps({'type': 'error', 'message': detail})}\n\n"
+            yield _sse({"type": "error", "message": FRIENDLY_ERROR_MESSAGE})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

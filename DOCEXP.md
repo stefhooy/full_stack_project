@@ -3817,3 +3817,87 @@ the workflow env — `lib/api.ts` already falls back to
 belt-and-suspenders explicitness rather than a functional requirement;
 the build never calls the real backend regardless; it only proves
 Next.js's static generation and type checking succeed.
+
+### ruff + mypy for the backend, and fixing what they actually found
+
+Backend static analysis was the next item down Slice 21's list. Chose a
+moderate ruff rule set (`E, F, I, UP, B, BLE, RUF`) rather than every
+plugin ruff ships: `E/F` is the real correctness baseline, `I` sorts
+imports, `UP` modernizes for the 3.12 target, `B` (bugbear) catches
+real bug shapes, `RUF` is ruff's own checks. `BLE` (blind-except)
+specifically because `src/api/main.py` already had a `# noqa: BLE001`
+comment on a broad `except Exception:` before this config existed —
+the codebase was already anticipating this exact rule, so enabling it
+just made an intent that was already written down actually enforced.
+Left `DTZ` (flake8-datetimez, "always pass tzinfo") out on purpose: this
+codebase has one consistent convention instead of an oversight —
+timestamps are written UTC-aware once, at the single point they're
+created (`poll_player_counts.py`), and read back naive everywhere else
+because that's genuinely what DuckDB's Python API returns for a
+TIMESTAMP column. Enabling DTZ would have flagged the tool and its
+tests as buggy for correctly matching their one real data source.
+
+For mypy, deliberately not `--strict`: LangChain, LangGraph, and DuckDB
+don't ship complete type stubs, and strict mode on day one would mean
+either a wall of blanket `# type: ignore` at every library boundary or
+hours spent stub-hunting instead of catching real mistakes. Picked a
+level that catches real bugs (`check_untyped_defs`, `warn_unused_ignores`,
+`warn_redundant_casts`) while tolerating untyped third-party surfaces
+(`ignore_missing_imports`), with room to tighten later once those
+boundaries get individually reviewed instead of ignored wholesale.
+
+**What actually turned up, and why every finding got fixed rather than
+suppressed:** 33 ruff issues and 13 mypy issues, all real, none of them
+"turn off the rule and move on." The two categories worth remembering:
+
+- **Ambiguous-unicode false positives in exactly the two files that are
+  supposed to contain literal em/en dashes** (`graph.py`'s
+  `_strip_dashes()` and its test) — the one case in this whole pass
+  where the right fix genuinely was a per-file ignore, since the
+  characters ruff flagged are the entire point of that code, not stray
+  punctuation. Scoped the ignore to those two files specifically, not
+  project-wide, so the rule still does its job everywhere else.
+- **Four functions typed `list[list]` when their only real caller
+  (`run_guarded_query`, DuckDB's own `.fetchall()`) actually returns
+  `list[tuple]`.** This was a real, if harmless-in-practice, type
+  mismatch that would have let a genuine bug (accidentally relying on
+  list-only behavior, like item assignment) through undetected.
+  Widened the parameter type to `Sequence[Sequence[Any]]` — the
+  functions only ever read `rows`, never mutate it, so the more
+  permissive, correct type was the actual fix, not a workaround.
+- **Two `with_structured_output()` calls** (the router, the eval
+  judge) **typed looser than they resolve at runtime.** LangChain's
+  stub allows either a `dict` or a `BaseModel` back, since the method
+  also accepts a raw JSON-schema dict as its target — but passing a
+  Pydantic model class, as both call sites do, always returns an
+  instance of that exact class. Used `cast()` with a comment explaining
+  why, rather than restructuring working code around a stub's
+  generality it doesn't actually need.
+- **`ChatGroq`'s `api_key` expects a `SecretStr`, not a plain `str`.**
+  A real, if minor, type gap — wrapped it. This one actually touches a
+  live code path (every real Groq call), so it got the same live
+  verification as the SSE change below, not just a type-checker pass.
+- **A duplicated long f-string, not just a long line.** Ruff's line
+  length flag on one `yield f"data: {json.dumps(...)}\n\n"` in
+  `ask_stream()` led to noticing it was the third near-identical copy
+  of the same SSE-framing pattern in that function. Extracted a small
+  `_sse()` helper instead of just wrapping the line — a real
+  deduplication the line-length check surfaced as a side effect, not
+  the fix ruff was actually asking for.
+
+### Verification
+
+`ruff check src/ tests/` and `uv run mypy src/` both clean. Re-ran the
+full 83-test pytest suite after every fix landed, not just at the end —
+still 83 passed. Because two of the fixes (the `SecretStr` wrapper
+around the real Groq API key, the extracted `_sse()` helper inside the
+actual `/ask/stream` handler) touch genuine request paths rather than
+being pure type-annotation changes, started a real local backend and
+drove both `POST /ask` and `POST /ask/stream` with real questions
+against the live Groq API afterward — both returned correct answers,
+correct SQL, and (for the stream) the expected node-by-node progress
+sequence, confirming the refactor didn't silently change runtime
+behavior. Also simulated the exact CI workflow order locally (`uv sync
+--extra agent --extra dev` fresh, then ruff, then mypy, then pytest, in
+that sequence) rather than trusting the YAML would behave the same as
+running the commands by hand.

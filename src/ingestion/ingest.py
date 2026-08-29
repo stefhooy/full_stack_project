@@ -26,8 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -205,13 +204,15 @@ def _row_from_appdetails(
         (store_data.get("metacritic") or {}).get("score"),
         _parse_platforms(store_data.get("platforms")),
         _parse_categories(store_data.get("categories")),
-        datetime.now(timezone.utc),
+        datetime.now(UTC),
     )
 
 
 def run_ingestion(count: int) -> int:
     client = SteamSpyClient(user_agent=settings.steamspy_user_agent, cache_dir=RAW_CACHE_DIR)
-    store_client = SteamStoreClient(user_agent=settings.steamspy_user_agent, cache_dir=RAW_CACHE_DIR)
+    store_client = SteamStoreClient(
+        user_agent=settings.steamspy_user_agent, cache_dir=RAW_CACHE_DIR
+    )
 
     print(f"[ingest] fetching top-owned games listing (target count: {count})...")
     listing = client.get_all_page(page=0)
@@ -259,4 +260,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    main()

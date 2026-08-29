@@ -76,7 +76,7 @@ def test_outliers_finds_the_obvious_one():
     # outlier can't drag the mean/stddev toward itself.
     labels = [f"Normal{i}" for i in range(20)] + ["WayOff"]
     values = [10] * 20 + [500]
-    result = _outliers(["name", "value"], list(zip(labels, values)), z_threshold=2.5)
+    result = _outliers(["name", "value"], list(zip(labels, values, strict=True)), z_threshold=2.5)
     assert result["mode"] == "outliers"
     assert len(result["outliers"]) == 1
     assert result["outliers"][0]["label"] == "WayOff"

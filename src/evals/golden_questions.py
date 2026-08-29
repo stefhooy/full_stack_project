@@ -46,7 +46,9 @@ class GoldenQuestion:
 
 
 def _query_one(conn: duckdb.DuckDBPyConnection, sql: str):
-    return conn.execute(sql).fetchone()[0]
+    row = conn.execute(sql).fetchone()
+    assert row is not None, f"reference query returned no rows: {sql!r}"
+    return row[0]
 
 
 def _check_action_vs_f2p_not_mislabeled(result: AgentResult) -> CheckResult:

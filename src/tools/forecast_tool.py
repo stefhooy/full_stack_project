@@ -24,7 +24,9 @@ projection the moment ≥2 snapshots exist, with no further code changes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
+from typing import Any
 
 from langchain_core.tools import tool
 from scipy import stats as scipy_stats
@@ -42,7 +44,7 @@ def execute_run_forecast(query: str, horizon_days: int) -> dict:
     return _forecast(columns, rows, horizon_days)
 
 
-def _forecast(columns: list[str], rows: list[list], horizon_days: int) -> dict:
+def _forecast(columns: list[str], rows: Sequence[Sequence[Any]], horizon_days: int) -> dict:
     if len(columns) != 2:
         raise ValueError(
             "forecast mode requires a query returning exactly two columns: a "

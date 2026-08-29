@@ -21,24 +21,21 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
 
 import numpy as np
 
 from src.agent.rag.embeddings import get_embedder
 
-T = TypeVar("T")
-
 
 @dataclass
-class _CacheEntry(Generic[T]):
+class _CacheEntry[T]:
     question: str
     vector: np.ndarray
     value: T
     created_at: float = field(default_factory=time.monotonic)
 
 
-class SemanticCache(Generic[T]):
+class SemanticCache[T]:
     def __init__(self, similarity_threshold: float = 0.96, max_entries: int = 200):
         self.similarity_threshold = similarity_threshold
         self.max_entries = max_entries

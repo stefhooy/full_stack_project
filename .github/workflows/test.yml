@@ -2,12 +2,14 @@ name: Tests
 
 # Runs on every push/PR, unlike the other two workflows here (those are
 # scheduled data-collection jobs, not CI) -- this is the one that actually
-# gates on "does the code still work," per Slice 11's test suite
-# (tests/, pytest). Deliberately does NOT need real secrets (GROQ_API_KEY
-# etc.): every test that runs by default is against a pure function or a
-# real, throwaway on-disk DuckDB fixture, never a live LLM/network call
-# (those are marked `live` and excluded by default -- see
-# pyproject.toml's [tool.pytest.ini_options]).
+# gates on "does the code still work": ruff (lint), mypy (types), then
+# pytest (Slice 11's test suite). Deliberately does NOT need real secrets
+# (GROQ_API_KEY etc.): every test that runs by default is against a pure
+# function or a real, throwaway on-disk DuckDB fixture, never a live
+# LLM/network call (those are marked `live` and excluded by default -- see
+# pyproject.toml's [tool.pytest.ini_options]). ruff/mypy's own config lives
+# in pyproject.toml's [tool.ruff]/[tool.mypy] (Slice 21), not duplicated
+# here.
 
 on:
   push:
@@ -31,6 +33,12 @@ jobs:
       # weren't worth a fourth dependency group for two modules.
       - name: Install dependencies
         run: uv sync --extra agent --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check src/ tests/
+
+      - name: Type check (mypy)
+        run: uv run mypy src/
 
       - name: Run tests
         run: uv run pytest -v

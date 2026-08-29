@@ -35,7 +35,8 @@ def games_db(tmp_path):
         # metacritic_score, platforms, categories, ingested_at
         (1, "Alpha Quest", "Dev A", "Pub A", "Action, Adventure", "English",
          900, 100, 0.9, 100_000, 200_000, 0, 0, 19.99, 19.99, 0.0, 500,
-         date(2022, 6, 1), "1 Jun, 2022", 85, "windows,mac", "Single-player,Steam Achievements", datetime.now()),
+         date(2022, 6, 1), "1 Jun, 2022", 85, "windows,mac",
+         "Single-player,Steam Achievements", datetime.now()),
         (2, "Beta Raiders", "Dev B", "Pub B", "Action, Indie", "English",
          400, 400, 0.5, 10_000, 20_000, 0, 0, 4.99, 9.99, 50.0, 20,
          date(2019, 3, 15), "15 Mar, 2019", None, "windows", "Single-player", datetime.now()),

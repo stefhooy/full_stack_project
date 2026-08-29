@@ -32,7 +32,7 @@ the model inventing a fifth category or wrapping its answer in prose.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -77,6 +77,9 @@ class RouteDecision(BaseModel):
 
 def classify_question(question: str) -> RouteDecision:
     router_llm = get_llm().with_structured_output(RouteDecision)
-    return router_llm.invoke(
-        [SystemMessage(content=ROUTER_SYSTEM_PROMPT), HumanMessage(content=question)]
-    )
+    messages = [SystemMessage(content=ROUTER_SYSTEM_PROMPT), HumanMessage(content=question)]
+    # Same reasoning as judge.py's cast: with_structured_output() is typed
+    # to also allow a plain dict back (its dict/JSON-schema input path), but
+    # passing a Pydantic model class, as here, always returns an instance of
+    # that exact class.
+    return cast(RouteDecision, router_llm.invoke(messages))

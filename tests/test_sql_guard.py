@@ -93,7 +93,7 @@ def test_a_real_drop_table_is_rejected_end_to_end(games_db):
         with pytest.raises(UnsafeQueryError):
             run_guarded_query(conn, "DROP TABLE games", max_rows=200)
         # And the table really is still there and queryable afterward.
-        columns, rows = run_guarded_query(conn, "SELECT COUNT(*) FROM games", max_rows=200)
+        _columns, rows = run_guarded_query(conn, "SELECT COUNT(*) FROM games", max_rows=200)
         assert rows[0][0] == 4
     finally:
         conn.close()

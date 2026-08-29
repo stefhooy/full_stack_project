@@ -25,7 +25,8 @@ guard, it's SQL-in, statistics-out.
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import numpy as np
 from langchain_core.tools import tool
@@ -54,10 +55,12 @@ def execute_run_stats(query: str, mode: str, z_threshold: float = 2.5) -> dict:
         return _compare_two_groups(columns, rows)
     if mode == "outliers":
         return _outliers(columns, rows, z_threshold)
-    raise ValueError(f"Unknown stats mode: {mode!r}. Use describe, compare_two_groups, or outliers.")
+    raise ValueError(
+        f"Unknown stats mode: {mode!r}. Use describe, compare_two_groups, or outliers."
+    )
 
 
-def _describe(columns: list[str], rows: list[list]) -> dict:
+def _describe(columns: list[str], rows: Sequence[Sequence[Any]]) -> dict:
     if len(columns) != 1:
         raise ValueError(
             f"describe mode requires a query returning exactly one numeric column, "
@@ -79,7 +82,7 @@ def _describe(columns: list[str], rows: list[list]) -> dict:
     }
 
 
-def _compare_two_groups(columns: list[str], rows: list[list]) -> dict:
+def _compare_two_groups(columns: list[str], rows: Sequence[Sequence[Any]]) -> dict:
     if len(columns) != 2:
         raise ValueError(
             "compare_two_groups mode requires a query returning exactly two columns: "
@@ -120,7 +123,7 @@ def _compare_two_groups(columns: list[str], rows: list[list]) -> dict:
     }
 
 
-def _outliers(columns: list[str], rows: list[list], z_threshold: float) -> dict:
+def _outliers(columns: list[str], rows: Sequence[Sequence[Any]], z_threshold: float) -> dict:
     if len(columns) != 2:
         raise ValueError(
             "outliers mode requires a query returning exactly two columns: a label and a "

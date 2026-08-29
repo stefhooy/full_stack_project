@@ -56,7 +56,61 @@ agent = [
 # --extra" rule beats using the technically-more-correct mechanism here.
 dev = [
     "pytest>=8.3.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: pycodestyle + pyflakes, the real correctness baseline. I: import
+# sorting. UP: modern-Python idioms (this targets 3.12, no reason to write
+# 3.8-compatible code). B: flake8-bugbear, catches real bug patterns (mutable
+# default args, a bare `except Exception:` -- BLE001 specifically, which
+# src/api/main.py was already writing `# noqa: BLE001` comments against
+# before this config existed, so enabling it just makes an intent that was
+# already in the code enforced rather than aspirational). RUF: ruff's own
+# checks (e.g. an unpacked tuple element that's never used, a real bug in
+# two places this caught for real).
+#
+# Deliberately NOT enabling DTZ (flake8-datetimez, "always pass tzinfo"):
+# this codebase has one consistent, intentional convention instead --
+# timestamps are written UTC-aware at the one point they're created
+# (`poll_player_counts.py`'s `datetime.now(timezone.utc)`) and read back
+# naive everywhere else, matching what DuckDB's Python API actually returns
+# for a TIMESTAMP column. Enabling DTZ would flag every naive datetime in
+# tests/forecast_tool.py as a bug when it's actually the tool correctly
+# matching its one real data source, not an oversight.
+select = ["E", "F", "I", "UP", "B", "BLE", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# _strip_dashes() (src/agent/graph.py) and its test both work by containing
+# literal em dash/en dash/non-breaking-hyphen characters in source -- that's
+# not stray unusual punctuation, it's the exact set of characters the
+# function exists to strip. Ruff's ambiguous-unicode checks (RUF001/2/3)
+# would otherwise flag the one place in the repo where these characters are
+# supposed to appear literally.
+"src/agent/graph.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_graph_dash_stripping.py" = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["src"]
+# Not full strict mode: this codebase leans on LangChain/LangGraph/DuckDB,
+# none of which ship complete type stubs, and forcing --strict on day one
+# would mean either a wall of `# type: ignore` on library boundaries or
+# hours spent stub-hunting instead of catching real bugs. Start at a level
+# that catches real mistakes (wrong return type, unreachable code, missing
+# return) without fighting untyped third-party surfaces, and tighten later
+# once the untyped-library boundaries are individually silenced instead of
+# ignored wholesale.
+warn_return_any = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+ignore_missing_imports = true
 
 [tool.uv]
 # This is an application (imported via `from src.x import y`, run as
