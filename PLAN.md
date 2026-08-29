@@ -1208,12 +1208,7 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [ ] README still opens with dense technical prose — no live demo
       link, screenshot/GIF, one-line pitch, or tech badges up top, even
       though the app is now actually live (Slice 19)
-- [ ] No quantified results published anywhere: real eval accuracy,
-      real `/ask` latency, real cost per question, cache hit rate — all
-      computable from what already exists, never gathered
-- [ ] No standalone data-analysis case study over the real 1,000-game
-      dataset, aimed at a Data Analyst/Data Scientist reviewer
-      specifically rather than an AI-engineering one
+- [x] Quantified results gathered and published (Slice 24) — see below
 
 ## Slice 22 — A RAG retrieval eval, not just a final-answer eval
 - [x] Went through `superpowers:brainstorming`, classified Bounded (an
@@ -1306,6 +1301,62 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       check`, `mypy src/`, and the full pytest suite (now 88 tests)
       all clean
 
+## Slice 24 — Real, quantified results, gathered rather than gathered-and-massaged
+- [x] Verified Groq's real current on-demand pricing for `openai/gpt-oss-120b`
+      live (`$0.15`/M input, `$0.60`/M output tokens) rather than assumed
+      from training data, before computing any cost number
+- [x] Confirmed `langchain_core.callbacks.get_usage_metadata_callback()`
+      correctly aggregates real token usage across an entire graph run —
+      including the router's `with_structured_output()` call, which
+      doesn't normally expose raw usage on its parsed return value — by
+      testing it against a real live `run_agent()` call first, before
+      wiring it into anything
+- [x] Wired real token/cost tracking into `run_evals.py` itself (not a
+      disposable one-off script): `EvalRunResult` now carries real
+      `token_usage` and `estimated_cost_usd` per question, computed only
+      from the router+agent calls a real `/ask` caller actually pays
+      for — the judge's own LLM call happens outside the tracked block
+      on purpose, since it's eval-harness overhead, not part of what
+      answering the question costs
+- [x] Ran the real eval suite for real numbers, published exactly what
+      came back rather than a cherry-picked or re-run-until-clean
+      result: route accuracy 6/6, deterministic checks **5/6** (one
+      real, honest failure — the exact free-to-play group-mislabeling
+      bug class the Slice 4 check was built to catch, caught live
+      again on this very run), avg judge score 4.2/5, avg latency 15.5s
+      over 6 real full-graph runs (range 3.2s-37.1s — reported as a
+      range, not just an average, given how few and how skewed the
+      samples are), avg cost **$0.00057/question**
+- [x] Real cache-hit demonstration against a live backend, not assumed:
+      a genuinely different question correctly missed (true negative);
+      a natural real-world paraphrase ("Which game costs the most out
+      of everything" vs "What is the most expensive game") also
+      **missed** — an honest, useful finding that the 0.93 similarity
+      threshold is more conservative in practice than a casual
+      assumption would suggest; a near-identical rewording correctly
+      **hit**, confirmed via the exact log line. Reported the honest,
+      nuanced finding (precise, no false positives observed, but
+      conservative on structurally-different phrasing) instead of a
+      single invented "hit rate" number with no real traffic to derive
+      it from
+- [x] A real, previously-unknown bug surfaced by this work, logged as
+      an open item rather than fixed on the spot (scope discipline —
+      this slice was about gathering numbers, not re-validating the
+      golden set): `golden_questions.py`'s `forecast_not_supported`
+      question's `reference_facts` text still says "this system has no
+      forecasting tool or time-series data," which was true before
+      Slice 9b's real `run_forecast` tool existed and is stale now —
+      likely contributing to that question's own middling 3/5 judge
+      score
+- [x] Published the real numbers in README.md (a new "Measured
+      results" section) and the full methodology/caveats in DOCEXP.md
+- [x] Killed two stale `uvicorn` processes during this slice's live
+      verification that `pkill -f "uvicorn src.api.main"` silently
+      failed to stop — switched to finding the exact PID via `netstat`
+      and `taskkill //F //PID` instead, since a stale process serving
+      pre-change code masquerading as a fresh one is a real, repeatable
+      trap in this environment (see DOCEXP.md)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
@@ -1316,3 +1367,15 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       maintain for one extra install step's worth of value. The Next.js
       frontend is already responsive (verified for real in Slice 9e); a
       phone browser is the mobile experience, not a second codebase.
+- [x] ~~A standalone data-analysis case study (real EDA/charts over the
+      catalog, aimed at a Data Scientist/Data Analyst reviewer)~~ —
+      decided against it directly: this project is explicitly targeting
+      AI Engineer roles, and the user already has separate DS/DA
+      portfolio projects elsewhere covering that audience. Adding one
+      here would speak to a reviewer this project isn't for, at the
+      cost of time better spent on AI-engineering-specific signal (the
+      README hook, quantified results) or on applying/interviewing
+      itself. The project's existing domain understanding (schema
+      corpus metric notes, eval golden questions, the forecast tool's
+      honesty about data maturity) already covers "understands the
+      data," which was the only argument for keeping it.

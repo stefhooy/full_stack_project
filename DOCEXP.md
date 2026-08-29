@@ -4126,3 +4126,161 @@ are).
   error; the end-to-end "a real live mistake gets logged and counted
   correctly" path is inferred from the wiring, not yet observed
   in production traffic.
+
+## A scoping decision, not a slice: dropping the data-analysis case study
+
+**Date:** 2026-08-29
+
+Slice 21's audit had flagged a standalone data-analysis case study (real
+EDA and charts over the 1,000-game catalog) as worth adding for a Data
+Scientist/Data Analyst reviewer specifically, distinct from this
+project's AI-engineering audience. Asked directly whether it was still
+worth building, and it isn't: this project is explicitly positioned for
+AI Engineer roles, and separate DS/DA portfolio projects already exist
+elsewhere covering that audience. Building it here would spend real time
+speaking to a reviewer this project was never meant for, at the cost of
+time better spent on the AI-engineering-specific items still open (the
+README hook, quantified results) or on applying and interview prep
+directly. See PLAN.md's "Dropped" section for the entry.
+
+## Slice 24 — Real numbers, published as they actually came out
+
+**Date:** 2026-08-29
+
+The last audit item asked for quantified results: real eval accuracy,
+real `/ask` latency, real cost per question, cache hit rate. The
+temptation with a slice like this is to run something until it looks
+good, then publish that run. Didn't do that — ran the real eval suite
+once, with real instrumentation, and published exactly what came back,
+including a real failure.
+
+### Verifying Groq's pricing live, not from memory
+
+Cost per question needs a real $/token rate. Checked Groq's current
+on-demand pricing for `openai/gpt-oss-120b` live rather than trusting
+training data, which can be stale for something that changes as often
+as API pricing: $0.15/M input tokens, $0.60/M output tokens. Same
+instinct as verifying the Steam CDN URL or Render's free-tier terms
+earlier in this project — a factual claim about an external service
+gets checked, not assumed.
+
+### Finding the right instrumentation point before touching any code
+
+The real engineering question here was how to get accurate token counts
+across a *whole* agent run (router + agent node, possibly several tool-
+call rounds) without invasively changing `classify_question()`'s or
+`judge_answer()`'s return types just to smuggle usage data out of
+`with_structured_output()` calls, which don't normally expose raw token
+usage on their parsed Pydantic return value. Tested
+`langchain_core.callbacks.get_usage_metadata_callback()` — a contextvar-
+based callback that hooks at `on_llm_end`, before structured-output
+parsing consumes the raw response — against a real live `run_agent()`
+call before trusting it, and confirmed it correctly captured usage from
+*every* LLM call in the graph, structured-output router call included,
+with zero changes to any existing function signature. Wired it directly
+into `run_evals.py` as a permanent addition (not a disposable script),
+since it's exactly the kind of thing worth measuring on every eval run
+going forward, not just once.
+
+Deliberately excluded the judge's own LLM call from the tracked block:
+the judge is eval-harness overhead, not something a real `/ask` caller
+ever pays for, so including it would overstate the real per-question
+cost.
+
+### The numbers, published as they came out
+
+Route accuracy: 6/6. Deterministic checks: **5/6**, not 6/6 — one real
+failure, and a notable one: `analysis_action_vs_f2p_not_mislabeled` is
+the exact regression test Slice 4 built specifically to catch a
+free-to-play group being mislabeled without actually being filtered to
+`price_usd = 0`. On this real run, the model used
+`AVG(CASE WHEN price_usd = 0 THEN price_usd END)` directly in raw SQL
+instead of calling `run_stats`'s `compare_two_groups` mode, and the
+check correctly flagged it. This is the eval harness doing exactly its
+job — catching a live instance of a known failure class — not a
+disappointing result to explain away. A quieter, more tempting version
+of this slice would have re-run the suite until it came back 6/6 and
+reported that instead; publishing the real 5/6 is a more honest signal
+about what the harness actually catches, and arguably a better one to
+be able to discuss in an interview than a suspiciously clean number.
+
+Avg judge score: 4.2/5. Avg latency: 15.5s over 6 real full-graph runs
+— reported the actual range (3.2s to 37.1s) alongside the average
+rather than let one number imply more precision than 6 samples support;
+the slow outlier was an `analysis` question requiring two sequential
+LLM turns plus a heavier query. Avg cost per question: **$0.00057** —
+real token counts, real pricing, meaning roughly $0.57 to answer 1,000
+questions on Groq's on-demand list price.
+
+### The cache-hit finding: honest and more specific than a single number
+
+There's no real production traffic yet to derive an organic cache "hit
+rate" from — inventing one would be exactly the kind of fabricated
+number this project has refused to do elsewhere (the em-dash guarantee,
+the eval ground truth computed live instead of hardcoded). Instead, ran
+a real, small, labeled test against a live backend: a genuinely
+different question correctly missed (true negative, no false
+positives observed in this or any earlier session's testing); a
+natural real-world paraphrase — "Which game costs the most out of
+everything in the catalog?" against the cached "What is the most
+expensive game in the catalog?" — **also missed**, a genuinely useful
+finding that the 0.93 similarity threshold (calibrated empirically back
+when the cache was built, see `src/config.py`'s own comment on it) is
+more conservative in live practice than a casual assumption would
+suggest; a near-identical rewording ("the whole catalog" vs "the
+catalog") correctly hit, confirmed via the exact `cache hit: ... ~ ...`
+log line, not just the response's `cached: true` flag. The honest
+takeaway — precise but conservative — is more useful and more credible
+than a single invented percentage would have been.
+
+### A real bug found along the way, deliberately not fixed in this slice
+
+`golden_questions.py`'s `forecast_not_supported` question still carries
+`reference_facts` text ("This system has no forecasting tool or
+time-series data") that was accurate before Slice 9b's real
+`run_forecast` tool existed and is stale now — likely part of why that
+question scored a middling 3/5 from the judge, which is grading the
+real answer against outdated ground truth. Noticed while reading the
+report, not fixed here: this slice was about gathering and publishing
+numbers honestly, not re-validating the golden set, and conflating the
+two would have meant reporting numbers from a suite that changed mid-
+measurement. Logged as an open item instead (see PLAN.md's Slice 24
+entry).
+
+### A real environment trap, hit twice now
+
+Killed a stale `uvicorn` process during verification whose port was
+still bound from an earlier session — the second time this exact thing
+has happened in this project (see Slice 23's entry). `pkill -f "uvicorn
+src.api.main"` silently reports nothing and does not actually stop the
+process in this environment, for reasons not fully diagnosed (likely a
+process-tree/shell-wrapper mismatch under `uv run` on Windows Git Bash).
+Confirmed via `netstat -ano | grep ":8000"` and killed it precisely with
+`taskkill //F //PID <pid>` instead. Worth remembering as a standing
+practice for this project specifically, not just this slice: when a
+live check shows unexpected/stale data, checking whether you're
+actually talking to fresh code is a real, recurring first step here,
+not a hypothetical one.
+
+### Verification
+
+`ruff check`, `mypy src/`, and the full pytest suite (88 tests, all
+pre-existing — this slice added instrumentation and ran real evals, no
+new test file) all clean. The numbers themselves are the verification
+artifact for this slice: real Groq calls, real pricing, real timing, a
+real cache test against a real running backend, published without
+editing.
+
+### Open questions (new)
+
+- **`forecast_not_supported`'s stale reference facts** (above) should
+  be rewritten to match the real post-Slice-9b behavior before the next
+  time eval numbers are gathered, or it will keep quietly dragging that
+  question's judge score down for a reason that has nothing to do with
+  actual answer quality.
+- **n=6 is a thin sample for latency and cost claims.** The published
+  numbers are real and honestly reported, but six questions is enough
+  to be directionally right, not enough to treat as a stable production
+  average — worth re-measuring at a larger scale before quoting these
+  numbers as if they were production telemetry rather than a single
+  eval run's honest result.

@@ -4,7 +4,7 @@ A tool-using AI agent that answers plain-English questions about the video
 game market by writing and running real SQL against a database it ingested
 itself — not a fixed dashboard, not a chatbot answering from memory. Built
 as a series of thin, working vertical slices; this snapshot is through
-**Slice 23** (see [PLAN.md](PLAN.md) for the full roadmap,
+**Slice 24** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
 
@@ -122,6 +122,41 @@ system, and [DOCEXP.md](DOCEXP.md) for the engineering log/decisions).
   check (lint, `tsc --noEmit`, `build`) via
   `.github/workflows/frontend-ci.yml`, scoped to `frontend/**` changes
   only
+
+## Measured results
+
+Real numbers from a real run of `python -m src.evals.run_evals`
+(2026-08-29) against the golden question set, real Groq token usage,
+and Groq's actual current on-demand pricing (verified live, not
+assumed) — published as they came out, not re-run until clean. See
+DOCEXP.md's Slice 24 entry for full methodology and caveats.
+
+| Metric | Result |
+|---|---|
+| Route accuracy | 6/6 |
+| Deterministic checks | 5/6 (one real, honest failure — see below) |
+| Avg LLM-judge score | 4.2/5 |
+| Avg `/ask` latency | 15.5s (n=6, range 3.2s-37.1s) |
+| Avg cost per question | $0.00057 (Groq on-demand list price) |
+| RAG retrieval recall@8 | 1.000 (15 hand-labeled questions, Slice 22) |
+
+The one deterministic failure is worth naming rather than hiding: it's
+the exact free-to-play group-mislabeling regression check Slice 4 built
+after a real bug (a group claiming to be "free-to-play" without
+actually being filtered to `price_usd = 0`) — and on this real run, it
+caught a live instance of that same failure class again. That's the
+eval harness doing its job, not a result to explain away; a suspiciously
+clean 6/6 would have been less informative and less honest.
+
+Cache hit behavior was checked directly against a live backend rather
+than assumed: a genuinely different question correctly missed, a
+natural real-world paraphrase also missed (the 0.93 similarity
+threshold turned out more conservative in practice than expected — a
+real, useful finding, not a flattering one), and a near-identical
+reword correctly hit. Precise, no false positives observed, but
+conservative — there's no organic production traffic yet to report a
+real aggregate hit rate from, and inventing one would contradict this
+whole project's own no-fabricated-numbers discipline.
 
 ## Setup
 
