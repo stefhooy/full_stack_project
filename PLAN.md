@@ -1858,6 +1858,38 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       new file for em/en dashes (none) matching the project's own
       no-dash convention
 
+## Slice 38 — README follow-up: a real tech-stack section, and a features framing over a pitch framing
+- [x] Direct user feedback on the just-shipped Slice 37 README: add an
+      explicit tech-stack section (backend/frontend/tooling), and rename
+      "Why this matters for an AI Engineer role" to "AI Engineer
+      Features" — a features list a reviewer scans, not a persuasive
+      argument aimed at them
+- [x] Added a "Tech stack" section between the hook and the features
+      list, sourced from the real `pyproject.toml`/`frontend/package.json`
+      manifests rather than written from memory: Python 3.12/FastAPI/
+      LangGraph+LangChain/Groq/DuckDB/fastembed/scipy/sqlglot on the
+      backend; Next.js 16/React 19/TypeScript/Tailwind v4/Motion/Recharts
+      on the frontend; uv/pytest/ruff/mypy/ESLint/5 GitHub Actions
+      workflows/MCP server under tooling
+- [x] Renamed the section header only, kept the bullets themselves
+      (already concrete, quantified feature statements, not abstract
+      argument prose) rather than rewriting content that didn't need it
+- [x] Verified: 244 lines (up slightly from 227, a real net addition, not
+      padding), no em/en dashes introduced
+- [x] Follow-up in the same slice: the user wanted the tech stack shown
+      as visual badge "squares" (grouped, colored pills), not prose.
+      Rebuilt it as shields.io badges grouped under real `###`
+      subheadings (Languages, AI / Agent, Data, Backend, Frontend,
+      Tooling and CI/CD) rather than bold-text-as-heading, fixing a real
+      markdownlint warning (`MD036`) the bold-label version had
+      introduced. Verified every logo actually renders (not just that
+      the URL returns 200) by rendering a local HTML test page with all
+      candidate badges through a real headless-Chromium screenshot before
+      committing to the final list, caught and fixed one real inaccuracy
+      this way: a "SQL" badge that only had a PostgreSQL icon available,
+      misleading for a project that uses DuckDB, not Postgres, dropped
+      rather than kept for the sake of having one more badge
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

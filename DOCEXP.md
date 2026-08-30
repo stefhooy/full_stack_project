@@ -5542,3 +5542,62 @@ publishing (`PLAN.md`, `ARCHITECTURE.md`, `DOCEXP.md`,
 `frontend/.env.local.example`), and the new file scanned for em/en
 dashes (none), matching the project's own no-dash convention. Line count:
 620 to 227.
+
+## Slice 38 — README follow-up: stack and framing
+
+**Date:** 2026-08-30
+
+Immediate feedback on the just-shipped Slice 37 README, two small,
+concrete asks: add a real tech-stack section, and rename "Why this
+matters for an AI Engineer role" to "AI Engineer Features." The second
+one is a real, worthwhile distinction, not just wording: "why this
+matters" argues at the reader; "features" is a list a reviewer scans
+and judges for themselves. The bullets underneath already read as
+concrete, quantified feature statements rather than persuasive prose, so
+only the header needed to change, not the content.
+
+Sourced the tech-stack section from the actual manifests rather than
+writing it from memory, `pyproject.toml`'s base and `agent` extra for
+the backend, `frontend/package.json`'s real `dependencies`/
+`devDependencies` for the frontend, so every named tool (LangGraph,
+Groq, DuckDB, fastembed, scipy, sqlglot on the backend; Next.js 16,
+React 19, Tailwind v4, Motion, Recharts on the frontend) is something
+actually installed and used, not an aspirational list.
+
+### Verification
+
+244 lines (up from 227, a real addition, not padding), scanned for
+em/en dashes (none introduced).
+
+### Same-slice follow-up: badges instead of prose
+
+The user then asked for the stack shown as visual "squares" like a
+common portfolio-site tech-stack widget, colored pill badges grouped by
+category, not the paragraph form just shipped.
+
+Rebuilt as shields.io `for-the-badge` images, grouped under real `###`
+subheadings (the earlier bold-text labels had already tripped a real
+markdownlint warning, `MD036`, emphasis used instead of a heading, worth
+fixing properly rather than leaving a linter complaint in a document
+meant to look polished).
+
+Didn't trust that a badge URL resolving (HTTP 200) means the logo
+actually renders, shields.io silently omits an unrecognized `logo=`
+slug rather than erroring, so a broken icon wouldn't show up as a fetch
+failure. Built a local HTML page with every candidate badge and rendered
+it through a real headless-Chromium screenshot (Playwright, the same
+ephemeral `uv run --with playwright` pattern from Slice 31/33, hit the
+same TLS-interception wall from DOCEXP's Slice 9b history along the way
+and fixed it the same documented way, `--native-tls`) before trusting
+any of them. Caught one real inaccuracy this way: the only available
+"SQL" badge icon was PostgreSQL's elephant, and this project uses
+DuckDB, not Postgres, keeping it would have been a small but real,
+avoidable misrepresentation. Dropped rather than kept for badge-count's
+sake.
+
+### Verification
+
+Every candidate badge visually confirmed rendering its correct icon in
+the screenshot before being added. The markdown linter's `MD036`
+warnings on the Tech stack section resolved by using real subheadings.
+275 lines, no em/en dashes introduced.
