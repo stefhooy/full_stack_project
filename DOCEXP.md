@@ -5404,3 +5404,141 @@ once more before handing it back.
 alongside the existing `push`/`pull_request` triggers. Clean-state
 sequence (`rm -rf .next`; lint, `next typegen`, `tsc --noEmit`) reran
 green.
+
+## Slice 36 — The same re-run gotcha, a second time, and the real Slice 30 confirmation it was blocking
+
+**Date:** 2026-08-30
+
+The user re-ran `Answer-Quality Evals` (the workflow behind the whole
+Slice 24/27/28/29/30 saga) and got a confusing result: 4/5, failing on
+`analysis_action_vs_f2p_not_mislabeled` again, with a failure message
+that didn't match the current code at all — "expected a
+compare_two_groups stats_result, got None" is the *original*, pre-Slice-30
+check's wording, not the rewritten one's ("expected either a
+compare_two_groups stats_result, or a plain-SQL column..."). The SQL in
+the failure was genuinely correct
+(`AVG(CASE WHEN price_usd = 0 THEN price_usd END) AS avg_freetoplay_price`)
+— exactly the false-failure pattern Slice 30 fixed.
+
+Recognized the shape immediately, from having just found it an hour
+earlier in Slice 35: this was the identical GitHub Actions "re-run
+pins the workflow to its original commit" behavior, in a second
+workflow. Confirmed rather than assumed — the Actions API for this run
+showed `run_attempt: 4` and a `head_sha` of `5f783fa`, the commit that
+*added* `run_evals.yml` at 19:04, a full two hours before the real fix
+landed in `4507500` at 21:14. Every "Re-run jobs" click had been
+replaying that original, pre-fix commit the whole time.
+
+A genuine bonus surfaced in the same run: it completed end to end with
+zero Groq rate-limit errors, meaning the Slice 33 daily-quota
+exhaustion had fully reset overnight — the first time this session the
+full 5-question-plus-judge suite ran without hitting some real Groq
+limit along the way.
+
+Told the user to use "Run workflow" instead of "Re-run jobs" — a
+genuinely fresh run against current `master`. Result: **5/5 route
+accuracy, 5/5 deterministic checks**. This is the real close of the
+loop that started back in Slice 24: the eval-check fix from Slice 30
+had only ever been confirmed locally until this run: the first
+CI-verified, ephemeral-runner, fresh-catalog confirmation that it
+actually works, not just that it works on this machine.
+
+### Verification
+
+The run itself is the verification — a real GitHub Actions run, fresh
+`--count 100` catalog, real Groq calls, 5/5 and 5/5, `head_sha`
+confirmed via the Actions API to be current `master`.
+
+## Slice 37 — The README stopped being a pitch somewhere around Slice 20
+
+**Date:** 2026-08-30
+
+Direct user feedback: "it's a bit too long, it doesn't really hook, it's
+just very long." True, and worth understanding why before just cutting
+text. The README had grown, slice by slice, the same way DOCEXP.md
+grows, one honest, heavily-qualified addition at a time, and nobody had
+ever stepped back to ask whether a document meant to be read cold by a
+recruiter in under a minute should look like a document meant to be read
+slowly by an engineer auditing every decision. Both documents existed.
+Only one of them should read like a lab notebook.
+
+### Process, not just output
+
+Loaded `superpowers:brainstorming` before touching the file, classified
+Bounded (an existing file, a well-scoped rewrite, no new subsystem), and
+actually used the gate rather than treating it as ceremony: read the
+whole current README (620 lines) and ARCHITECTURE.md's existing "Design
+choices, named" section first, then presented a concrete section-by-
+section outline in chat and stopped. Two real judgment calls surfaced
+that were worth the user's input rather than assuming: where the cut
+engineering-justification content should go (moved into ARCHITECTURE.md
+vs. just cut), and how aggressively to trim (150 to 200 lines vs. a more
+moderate pass keeping more of the existing depth). Both answered before
+a single line changed.
+
+### What actually changed
+
+The old README's problem wasn't inaccuracy, everything in it was true
+and verified, it was that the *pitch* (what is this, why does it matter,
+proof it works) was buried under the *justification* (why each internal
+decision was made, with slice citations). A recruiter skimming a
+portfolio project needs the first two sentences to answer "is this
+worth 30 more seconds," not to have already read past a parenthetical
+about `INGEST_GAME_COUNT`'s SteamSpy pagination ceiling.
+
+Rewrote around a direct hook: what separates this from a chatbot-wrapper
+portfolio project, stated in the first paragraph, not implied by a
+feature list. Replaced the old "What's here right now" wall of
+justification-heavy bullets with six quantified "why this matters for an
+AI Engineer role" bullets, each naming a real, checkable number (the
+measured recall@8, the CI-run route accuracy, the real cost-per-question
+figure) rather than a claim. Kept the Measured results table close to
+verbatim, it was already the strongest, most concrete section in the
+document. Condensed Quickstart, Architecture, MCP server, and Deploying
+down to what's needed to actually use each thing, cutting the extended
+"why" prose that DOCEXP.md and ARCHITECTURE.md already carry properly.
+Cut the "Not in this slice" section entirely, it duplicated PLAN.md's
+own "Dropped" section and mostly existed to correct claims an even
+older README snapshot had made, a correction ARCHITECTURE.md/DOCEXP.md
+don't need repeated a third time.
+
+Didn't just delete the cut content: pulled the genuinely new, non-
+duplicate design points into ARCHITECTURE.md's existing "Design choices,
+named" section (live-computed golden-question ground truth, the eval
+that checks a fact the label implies rather than parsing the model's
+prose, the LLM judge never gating CI's exit code, SSE per-node
+streaming over token-level streaming), so the reasoning didn't just
+disappear, it moved to the document that already exists specifically to
+hold it.
+
+### A real bug the rewrite surfaced
+
+While rewriting the example-questions list, noticed the old README's own
+internal inconsistency: that list still described the forecast route as
+"routed to an honest 'not supported yet'", while two other sections of
+that same README correctly described `run_forecast` (Slice 9b) as a real
+tool. Nobody had caught this because nobody had read the whole document
+end to end in one pass in a long time, exactly the kind of thing a
+620-line file makes easy to miss and a 227-line one doesn't. Fixed to
+describe the actual current behavior.
+
+### Repo cleanliness, checked rather than assumed
+
+The user also asked about cleaning up the repo more broadly. Checked
+before doing anything: `git ls-files` against the repo root showed
+nothing that shouldn't be there, `desktop.ini`, `.mypy_cache`,
+`.pytest_cache`, `.ruff_cache`, and `.venv` are all either already
+gitignored or simply never added, never actually tracked. `data/` and
+`docs/` are already minimal, exactly the files they need to be. There
+was no real cleanup work hiding here; the README was the actual, entire
+ask, correctly identified this time rather than manufacturing busywork
+to look thorough.
+
+### Verification
+
+Every link and referenced file checked to actually exist before
+publishing (`PLAN.md`, `ARCHITECTURE.md`, `DOCEXP.md`,
+`frontend/README.md`, `LICENSE`, `.env.example`,
+`frontend/.env.local.example`), and the new file scanned for em/en
+dashes (none), matching the project's own no-dash convention. Line count:
+620 to 227.

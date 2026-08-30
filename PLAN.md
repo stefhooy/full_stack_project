@@ -1794,6 +1794,70 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       parses correctly (`yaml.safe_load`) and re-ran the full clean-state
       sequence (`rm -rf .next`; lint, typegen, `tsc --noEmit`) once more
 
+## Slice 36 — Slice 30's fix finally confirmed for real in CI, and the same re-run gotcha caught it once more
+- [x] User re-ran `Answer-Quality Evals` via "Re-run jobs" and got a
+      confusing 4/5 with the *old*, pre-Slice-30 failure wording
+      ("expected a compare_two_groups stats_result, got None") on a SQL
+      query that was actually correctly filtered. Confirmed via the
+      GitHub Actions API (`head_sha`, `run_attempt: 4`) that this was the
+      exact Slice 35 gotcha recurring in a second workflow: "Re-run jobs"
+      was replaying the run pinned to `5f783fa` (19:04, the commit that
+      *created* `run_evals.yml`), over two hours before the actual fix
+      commit `4507500` (21:14)
+- [x] Real bonus finding along the way: that run also confirmed the
+      previous day's Groq daily token quota (Slice 33) had reset — the
+      full suite ran end to end with zero rate-limit errors for the
+      first time this session
+- [x] Told the user to use "Run workflow" (a genuinely new run against
+      current `master`) instead of "Re-run jobs" on the stale run — came
+      back **5/5 route accuracy, 5/5 deterministic checks**, the first
+      real, CI-verified (not just locally-verified) confirmation that
+      Slice 30's eval-check fix actually works end to end
+
+## Slice 37 — README rewritten for a recruiter hook, not an engineering diary
+- [x] User feedback, direct: README.md (620 lines) was too long and
+      didn't hook, dense engineering-justification prose (a ~130-line
+      "Why the repo is structured this way" section, heavily qualified
+      bullet-essays) was crowding out the pitch a recruiter or hiring
+      manager actually needs in the first 30 seconds
+- [x] Used `superpowers:brainstorming` (Bounded path) rather than just
+      rewriting on instinct: presented a concrete outline in chat first,
+      got explicit direction on the two real judgment calls (move the
+      deep "why" content into ARCHITECTURE.md vs. cut it; target ~150 to
+      200 lines vs. a more moderate trim) before touching the file
+- [x] Checked repo cleanliness before assuming there was work to do
+      there too: nothing junky is actually tracked (`desktop.ini`,
+      `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `.venv` all correctly
+      gitignored or simply never added), `data/`/`docs/` are already
+      minimal and sensible. Nothing to restructure beyond the README
+      itself
+- [x] Rewrote README.md: a direct hook (what separates this from a
+      chatbot-wrapper portfolio project, stated plainly in the first
+      paragraph), 6 quantified "why this matters for an AI Engineer
+      role" bullets replacing the old prose wall, the Measured results
+      table kept prominent, a condensed Quickstart/Architecture/MCP
+      server/Deploying, and a "More" section linking out to
+      PLAN.md/ARCHITECTURE.md/DOCEXP.md/frontend's own README for anyone
+      who wants the depth. 620 lines to 227
+- [x] Moved the genuinely new, non-duplicate design points from the cut
+      content into ARCHITECTURE.md's existing "Design choices, named"
+      section (live-computed golden-question ground truth; the eval
+      checking a fact the label implies rather than the model's prose;
+      the LLM judge never gating CI's exit code; SSE per-node streaming
+      over token-level streaming) instead of just deleting them
+- [x] Fixed a real, previously-unnoticed inconsistency while rewriting:
+      the old README's own example-questions list still described the
+      forecast route as "routed to an honest 'not supported yet'",
+      contradicting that same README's other two sections correctly
+      describing `run_forecast` (Slice 9b) as real. Corrected to the
+      actual current behavior
+- [x] Verified every link and referenced command target actually exists
+      before publishing: `PLAN.md`, `ARCHITECTURE.md`, `DOCEXP.md`,
+      `frontend/README.md`, `LICENSE`, `.env.example`,
+      `frontend/.env.local.example` all confirmed present; scanned the
+      new file for em/en dashes (none) matching the project's own
+      no-dash convention
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

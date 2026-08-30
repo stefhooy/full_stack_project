@@ -297,6 +297,29 @@ once here rather than re-derived from scattered comments:
   `rag/embeddings.py`) because Groq has no embeddings endpoint — conflating
   them would have made the embedding provider's default undefined the
   moment `MODEL_PROVIDER=groq`.
+- **Golden-question ground truth is computed live from the DB at eval
+  time, not hardcoded.** `build_golden_questions()` runs independent
+  reference queries against the current `games.duckdb` every time evals
+  run, so the suite stays correct after re-ingestion instead of silently
+  drifting against stale expected numbers.
+- **A regression check verifies a fact the label logically implies, not
+  whether the answer "sounds right."** The eval that catches Slice 4's
+  group-mislabeling bug doesn't parse the model's stated conclusion —
+  free-to-play means price = 0 by definition, so a group claiming that
+  label must have a ~$0 mean. Checking the number a correct label
+  guarantees, rather than the prose around it, is what makes the catch
+  reliable instead of lucky.
+- **The LLM judge is a second, qualitative signal — it never gates the
+  exit code.** Deterministic checks are what "regression check" means
+  here; a judge's own scoring noise shouldn't make CI flaky, but it's
+  still useful for catching things the deterministic checks don't
+  anticipate.
+- **Streaming is per-node progress events (SSE), not token-level
+  streaming of the final answer.** `stream_agent()` uses LangGraph's
+  `astream(..., stream_mode="updates")` to yield after each node
+  completes — the same node-based, explainable design as the visible
+  self-correction and RAG-retrieval nodes above, and it works the same
+  regardless of which node is currently running an LLM call.
 
 ## Directory map
 
