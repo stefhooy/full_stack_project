@@ -1994,6 +1994,60 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       reality) and the root README's Tech Stack gained a verified
       Three.js badge
 
+## Slice 40 — A real, confirmed-working forecast, and the real name-matching bug it exposed
+- [x] User pushback, again, on the forecast feature: a real screenshot
+      showed "How many players will Counter Strike have next year?"
+      failing with a false "no historical live-player snapshots for that
+      game" answer, plus a fair UX critique that the example-question
+      pill "How many players will this game have next year?" is
+      unanswerable as written (no game named) and "dumb" as a canned
+      example
+- [x] Rather than accept "the forecast tool doesn't work, remove it,"
+      diagnosed the actual failure locally, with full visibility a
+      screenshot alone can't give: reproduced the exact question against
+      the real 24-snapshot local catalog, captured `tool_errors: 1` and a
+      failed tool call
+- [x] Found the real root cause by testing the literal SQL pattern
+      `FORECAST_TOOL_GUIDANCE`'s own worked example teaches, directly
+      against the DB, not by guessing: `name ILIKE '%Counter Strike%'`
+      (a space) returns **zero rows** against the real title
+      `'Counter-Strike: Global Offensive'` (a hyphen and colon) —
+      `ILIKE` is a literal substring match, punctuation is never
+      normalized. Not a data problem (the 24 snapshots for that game are
+      real and correct), not a multi-row-ambiguity problem (first
+      hypothesized, then disproven by testing) — a punctuation-mismatch
+      bug in the guidance's own worked example
+- [x] Verified a fix before writing it into the prompt: confirmed
+      `REPLACE(REPLACE(name, '-', ' '), ':', ' ') ILIKE '%...%'`
+      correctly finds all 6 real "Counter-Strike"-family games, then
+      confirmed `ORDER BY peak_ccu DESC LIMIT 1` reliably picks the
+      right one (730, 1,013,936 peak_ccu) over the other 5 (highest
+      alternate: 7,323) — an order-of-magnitude margin, not a close call
+- [x] Fixed the guidance in two places, not one: `column:name`'s schema
+      chunk (`always_include=True`, read on every question regardless of
+      route, so this benefits lookup/analysis too, not just forecast)
+      and `FORECAST_TOOL_GUIDANCE`'s own worked example, both now
+      teaching the verified normalize-then-disambiguate pattern instead
+      of the naive one that seeded the bug
+- [x] Re-ran the exact original failing question after the fix: real
+      tool call succeeds (`tool_errors: 0`), correctly resolves to the
+      right game, and for an intentionally unreasonable 365-day horizon
+      from only ~11 days of history, correctly floors the projection at
+      0 and honestly flags `low_confidence: true` with a specific
+      reason, exactly the tool's designed behavior, not a new bug
+- [x] Fixed the actual UX complaint too: replaced the vague example pill
+      with a real, verified-working question using the catalog's real
+      name ("How many players will Counter-Strike: Global Offensive
+      have next month?"). Left `router.py`'s own "will this game have
+      next month" line alone, it's a classification-pattern example for
+      the router's intent recognition, not a user-facing question, a
+      different and legitimate use of similar wording
+- [x] Verified: `ruff`, `mypy`, full 88-test `pytest` suite, and the
+      RAG retrieval eval (a schema chunk text change regressed this
+      once before, in Slice 30) all clean/at-baseline after the prompt
+      changes; frontend `eslint`/`tsc` clean after the example-question
+      change
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

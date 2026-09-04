@@ -52,7 +52,22 @@ SCHEMA_CHUNKS: list[SchemaChunk] = [
     SchemaChunk(
         id="column:name",
         kind="column",
-        text=f"Column {GAMES_TABLE}.name: VARCHAR. Game title.",
+        text=(
+            f"Column {GAMES_TABLE}.name: VARCHAR. Game title. A plain "
+            "`name ILIKE '%<phrase>%'` is a literal substring match and breaks "
+            "on punctuation the user didn't type exactly, e.g. 'Counter Strike' "
+            "(a space) will NOT match the real title 'Counter-Strike: Global "
+            "Offensive' (a hyphen and colon) at all, real, confirmed bug. "
+            "Normalize both sides first: "
+            "REPLACE(REPLACE(name, '-', ' '), ':', ' ') ILIKE '%<phrase with "
+            "punctuation removed the same way>%'. That alone can still return "
+            "several real, differently-named games (e.g. 'Counter-Strike', "
+            "'Counter-Strike: Source', 'Counter-Strike: Global Offensive' are "
+            "three separate rows) — when a query needs exactly one, disambiguate "
+            "by the one actually being asked about in practice: "
+            "ORDER BY peak_ccu DESC LIMIT 1 picks the currently-relevant game "
+            "a user almost always means, not an old or minor variant."
+        ),
         # Semantic search alone misses this: a question naming a specific game
         # (e.g. "How many owners does Palworld have?") doesn't embed close to
         # a generic description like "Game title" — but nearly every question

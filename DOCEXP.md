@@ -5801,3 +5801,123 @@ the same way every other badge in that section was.
   Bounded for a page most users won't repeatedly navigate away from and
   back to within one session, but worth knowing if this pattern is ever
   reused elsewhere in the app.
+
+## Slice 40 — "Should we remove forecast?" turned into finding a real, fixable bug instead
+
+**Date:** 2026-09-04
+
+A screenshot showed the actual failure this time, not a description of
+one: "How many players will Counter Strike have next year?" came back
+"there are no historical live-player snapshots for that game" -- a
+direct contradiction of Slice 33's own finding that the poller had
+already accumulated 24 real snapshots by this point. The user's
+conclusion, reasonably, was "it doesn't work, should we remove it," and
+separately, a fair complaint that the example-question pill "How many
+players will this game have next year?" is a bad canned example -- it
+doesn't name a game, so it's unanswerable as written.
+
+### Diagnosing instead of accepting the surface reading
+
+The instinct to defend the forecast tool (it had just been proven
+working, twice, a few messages earlier) would have missed the point.
+Reproduced the exact failing question locally instead, where the real
+tool-call arguments and errors are visible, not just the final answer
+text a screenshot shows. Got `tool_errors: 1` -- a real failed tool
+call, not a false claim manufactured from nothing.
+
+### Two hypotheses, one disproven by actually testing it
+
+First hypothesis: multiple real "Counter-Strike"-named games (there are
+six: the original, Source, two rows both labeled Condition Zero, Global
+Offensive, and a Nexon spinoff) make the prompt's own scalar-subquery
+pattern (`WHERE appid = (SELECT appid FROM games WHERE name ILIKE
+'%...%')`) ambiguous, and DuckDB silently resolving to the wrong one.
+Tested this directly against the real DB rather than trusting the
+theory -- and it was wrong: `SELECT appid FROM games WHERE name ILIKE
+'%Counter Strike%'` returns zero rows, not six. The real cause is
+simpler and more fundamental: `ILIKE` is a literal substring match, and
+the real title is `'Counter-Strike: Global Offensive'` -- a hyphen and
+a colon, not spaces. "Counter Strike" (what a person naturally types)
+never matches it at all. Not a data problem (the 24 snapshots for
+appid 730 are real and correct, confirmed directly), not fundamentally
+an ambiguity problem -- a punctuation-literalism bug, present in
+`FORECAST_TOOL_GUIDANCE`'s own worked example, which taught exactly
+this fragile pattern.
+
+### Verifying the fix before writing a word of prompt text
+
+Two claims, both tested against the real database before being
+written into guidance meant to shape a model's behavior:
+
+1. `REPLACE(REPLACE(name, '-', ' '), ':', ' ') ILIKE '%counter
+   strike%'` -- confirmed it finds all six real "Counter-Strike" rows,
+   where the naive version found zero.
+2. That reintroduces the original six-way ambiguity, so also confirmed
+   `ORDER BY peak_ccu DESC LIMIT 1` reliably picks the right one:
+   Counter-Strike: Global Offensive at 1,013,936 peak_ccu, an order of
+   magnitude past the next-highest real contender (Counter-Strike:
+   Source, 7,323). Not a close call this heuristic could get wrong for
+   this game or, plausibly, most others: the currently-popular variant
+   of a franchise is almost always what "the game" means in a casual
+   question.
+
+### Fixed in the leveraged place, not just the obvious one
+
+`FORECAST_TOOL_GUIDANCE`'s worked example got the direct fix. But the
+same fragile `ILIKE '%name%'` pattern is exactly what `run_sql`/
+`run_stats` would reach for too, for any lookup or analysis question
+naming a specific game -- this was never actually forecast-specific,
+just first noticed there. Fixed it in `column:name`'s schema chunk
+instead of only in the forecast guidance: that chunk is marked
+`always_include=True` (added in an earlier slice specifically because
+semantic retrieval alone under-ranks a plain "Game title" description
+against a question naming a specific title), meaning every single
+question, regardless of route, sees this guidance now, not just
+forecast-routed ones. One fix, reused everywhere the same failure mode
+could otherwise recur silently.
+
+Checked before assuming the schema chunk edit was safe: Slice 30 (and
+Slice 22's own retrieval eval) already learned the hard way that
+editing schema-chunk text can shift its embedding enough to change
+retrieval ranking. Re-ran `tests/test_retrieval_eval.py` after the
+edit -- still at its locked baseline, not regressed.
+
+### Confirmed fixed, not assumed fixed
+
+Re-ran the exact original failing question after the prompt change:
+`tool_errors: 0`, the real query now includes the normalize-and-
+disambiguate pattern verbatim, resolves to the correct game, and
+returns a real forecast. Pushed the test further on purpose, asking for
+a 365-day projection from ~11 days of real history (a genuinely
+unreasonable extrapolation) specifically to check the tool's *honesty*
+under a harder case, not just its happy path: it correctly floors the
+negative-slope projection at 0 and reports `low_confidence: true` with
+the specific, correct reason ("projecting 365 day(s) ahead from only
+10.81 day(s) of observed history"), and the model's own answer
+faithfully passed that caveat through rather than stating 0 with false
+confidence. That is the tool behaving exactly as designed under stress,
+not a new failure to explain away.
+
+### The example-question fix
+
+Replaced "How many players will this game have next year?" (unanswerable
+as written) with "How many players will Counter-Strike: Global
+Offensive have next month?" -- the real catalog name, a horizon close
+enough to the real observed history to give a confident answer rather
+than an immediate low-confidence caveat, and now genuinely verified
+working, not just plausible-sounding. Left `router.py`'s similarly-
+worded "will this game have next month" line untouched -- it is a
+classification-pattern example teaching the router what forecast-intent
+phrasing looks like, not a question anyone is meant to literally send,
+a different and legitimate use of near-identical wording that doesn't
+share the pill's problem.
+
+### Verification
+
+`ruff`, `mypy`, the full 88-test `pytest` suite, and
+`tests/test_retrieval_eval.py` all clean/at-baseline after the prompt
+and schema-chunk changes. Frontend `eslint`/`tsc` clean after the
+example-question change. The real end-to-end re-test against the actual
+24-snapshot local catalog is the substantive verification, not the
+linters -- a real tool call, zero errors, a real number, an honest
+confidence caveat.

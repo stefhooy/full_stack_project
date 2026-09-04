@@ -29,7 +29,7 @@ const EXAMPLE_QUESTIONS = [
   "What are the 5 highest rated games with more than 1000 positive reviews?",
   "Is the price difference between Action games and other games statistically significant?",
   "Are there any games with an unusually high number of concurrent players compared to the rest?",
-  "How many players will this game have next year?",
+  "How many players will Counter-Strike: Global Offensive have next month?",
 ];
 
 const ROUTE_LABELS: Record<string, string> = {
