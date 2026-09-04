@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party source (liquid-glass-js), not this project's
+    // own code -- see public/vendor/liquid-glass/LICENSE.
+    "public/vendor/**",
   ]),
 ]);
 

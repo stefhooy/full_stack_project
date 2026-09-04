@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 data/db/*.duckdb
+data/db/*.duckdb.wal
 data/raw/*.json
 !data/db/.gitkeep
 !data/raw/.gitkeep

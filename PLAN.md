@@ -1890,6 +1890,110 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       misleading for a project that uses DuckDB, not Postgres, dropped
       rather than kept for the sake of having one more badge
 
+## Slice 39 — Real Apple-style glass, a real animated 3D gradient, and two vendored/installed third-party libraries with real integration problems found and fixed
+- [x] Native CSS/SVG "liquid glass" implemented first, exactly as
+      specified: an SVG `#liquid-glass` filter (`feTurbulence
+      type="fractalNoise"` into `feDisplacementMap`, defined once in
+      `app/layout.tsx`) fed into `backdrop-filter`, with a plain
+      blur+saturate value declared first as a Safari/Firefox fallback
+      (they don't support an SVG filter reference inside
+      `backdrop-filter`, and CSS discards the whole declaration, not
+      just the unsupported part, if it doesn't parse). Applied to the
+      ask bar and the sticky nav via a new `.glass` utility
+- [x] User then asked specifically for two real third-party libraries
+      instead of the native version on the Ask button, and a shadergradient-based
+      animated background: checked both for real fit before integrating
+      either, rather than assuming a GitHub link means "npm install and
+      go"
+- [x] **shadergradient**: a real npm/React package
+      (`@shadergradient/react` + `@react-three/fiber` v9 + `three` +
+      `three-stdlib` + `camera-controls`, ~20 packages, verified
+      compatible with this project's real Next.js 16/React 19). Read the
+      installed package's own shipped `.d.ts` for the real prop surface
+      rather than guessing at shader parameters. First tuning pass
+      (stock-bright colors, `brightness: 1.1`) made the hero's own body
+      text nearly unreadable, caught with a real screenshot, not
+      assumed. Fixed with two independent changes, not just one: dimmed
+      and darkened the shader itself, and layered a semi-transparent
+      radial-gradient scrim (darkest directly behind the text column,
+      lighter at the edges) between the canvas and the page content, so
+      text contrast doesn't depend on which exact animated frame is
+      showing
+- [x] **liquid-glass-js**: not an npm package at all -- plain
+      `<script>` globals, `class Container`/`class Button` declared at
+      the top level of a classic script. Read the actual source
+      (`container.js`/`button.js`, fetched directly, not summarized)
+      before integrating, and found real, concrete facts that changed
+      the plan: `addChild()` re-parents whatever DOM element you hand
+      it (a real React-reconciler crash risk if done to an existing
+      React-owned node), the glass refracts a ONE-TIME `html2canvas`
+      snapshot cached statically across every instance (not a live
+      re-render), and it has no public destroy/cleanup method at all --
+      the scroll listener its render loop registers on `window` is
+      never removed
+- [x] Given those real constraints, built `LiquidGlassAskButton.tsx` as
+      its own component rather than wrapping the existing `<button>`:
+      React owns exactly one empty mount `<div>` (a real
+      `useRef<HTMLDivElement>`) and nothing else; the library's Button
+      is constructed imperatively inside it, queried fresh via
+      `querySelector` in each effect rather than threaded across
+      effects as a stored class-instance ref (the pattern the newly-
+      installed `eslint-plugin-react-hooks@7.1.1`'s stricter
+      `react-hooks/refs`/`react-hooks/immutability` rules specifically
+      flagged and required restructuring away from)
+- [x] Vendored `container.js`/`button.js` under
+      `public/vendor/liquid-glass/` with a real MIT `LICENSE` file
+      (fetched the actual license text and copyright holder, not
+      assumed), loaded in strict dependency order (html2canvas before
+      container.js before button.js) by a new `lib/loadLiquidGlass.ts`,
+      memoized so React Strict Mode's double-invoked effects don't
+      double-inject scripts. `glass.css` moved into the real bundled
+      source tree (`app/liquid-glass.css`, imported normally) rather
+      than vendored as a static asset, since Next's own lint rule
+      objects to raw `<link rel="stylesheet">` tags and a stylesheet
+      has none of the script load-order constraints the two `.js` files
+      do
+- [x] Found and fixed a real bug during verification, not assumed
+      working from the code alone: `window.Button` was always
+      `undefined` even after all scripts loaded, because a top-level
+      `class` declaration in a classic script creates a global lexical
+      binding, not a `window` property (unlike `var`). Fixed with a
+      small bridging inline script
+      (`window.Container = Container; window.Button = Button;`) that
+      runs in the same shared global scope. Caught by an actual
+      Playwright run against the real dev server, not by reasoning about
+      the code
+- [x] Found and fixed a second real bug the same way: a naive
+      `useEffect(..., [label])` meant to keep the button's displayed
+      text in sync raced the async script-loading, and initial page
+      load stuck on the sizing placeholder ("Asking…") instead of "Ask"
+      until the user's first real state change. Fixed with ref-backed
+      current values applied immediately after the button is actually
+      created, not just synced on prop change
+- [x] Found and fixed a real accessibility regression the switch away
+      from a semantic `<button>` introduced: liquid-glass-js's generated
+      element has no `tabindex`, `role`, or keyboard handling at all.
+      Patched `tabIndex`, `role="button"`, `aria-label`/`aria-disabled`
+      (kept in sync on every label/disabled change), and an Enter/Space
+      keydown handler onto the generated element directly, with a
+      `disabled` guard inside the activation function itself (not just
+      a `pointer-events: none` style, which a keyboard press ignores
+      entirely)
+- [x] Verified end to end against a real local dev server (backend +
+      frontend both actually running), not just lint/build: a real
+      Playwright click through the actual liquid-glass button, through
+      the real streaming `ask()` flow, to a real Groq-backed answer
+      rendering, confirmed zero page errors and the button's text
+      correctly cycling Ask -> Asking... -> Ask. Separately confirmed
+      keyboard activation (tab to the button, real `role`/`tabIndex`/
+      `aria-label`, Enter key) through the same shared activation path
+- [x] `ruff`/`mypy`/`eslint`/`tsc`/`next build` all clean throughout;
+      credited both libraries with real links and real explanations in
+      `frontend/README.md` (which also had its own stale claim, "No
+      WebGL/3D, no fixed animated background layer," fixed to match
+      reality) and the root README's Tech Stack gained a verified
+      Three.js badge
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

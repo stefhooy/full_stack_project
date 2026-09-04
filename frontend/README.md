@@ -143,8 +143,43 @@ deleted full Roman identity.
   `prefers-reduced-motion` automatically.
 - Animation: [Motion](https://motion.dev) for every state-driven UI
   transition (hero entrance, card hover, `AnimatePresence`, the blur
-  transitions between panels, `FilmStrip`'s infinite sliding loop). No
-  WebGL/3D, no fixed animated background layer.
+  transitions between panels, `FilmStrip`'s infinite sliding loop).
+- `components/GradientBackground.tsx` — a real animated 3D gradient
+  behind the homepage hero (WebGL via
+  [ShaderGradient](https://github.com/ruucm/shadergradient) /
+  `@react-three/fiber`/three.js), this app's own accent green and a deep
+  turquoise over its own near-black background, not the library's stock
+  presets. A first pass at full brightness made the hero's own body text
+  hard to read against it, checked with a real screenshot, not assumed;
+  fixed by dimming the shader itself and layering a semi-transparent
+  dark scrim between the canvas and the page content, rather than either
+  alone. Mounted only on `/` (`next/dynamic`, `ssr: false` — WebGL needs
+  a real browser context), never site-wide: `/catalog`'s dense data
+  table needs a quiet background to stay readable.
+- `components/LiquidGlassAskButton.tsx` — the homepage's Ask button is a
+  real [liquid-glass-js](https://github.com/dashersw/liquid-glass-js)
+  `Button` (WebGL, refracting an `html2canvas` snapshot of the real page
+  behind it), not a CSS approximation. The library ships only as plain
+  `<script>` globals (no npm package), vendored under
+  `public/vendor/liquid-glass/` (MIT, see the `LICENSE` alongside it)
+  and loaded in strict order by `lib/loadLiquidGlass.ts`. It fully owns
+  the DOM subtree it creates, so React is only ever responsible for one
+  empty mount `<div>`, never for a node the library relocated — see the
+  component's own file comment for why, and for two real, documented
+  limitations of the library itself (no public destroy method, and its
+  glass refracts a one-time page snapshot, not a live re-render).
+- `app/liquid-glass.css` — liquid-glass-js's own base styles for the
+  `.glass-container`/`.glass-button` elements it generates, vendored
+  verbatim and imported as a real stylesheet (not a `<link>` tag, which
+  doesn't need the same script load-order handling).
+- The rest of the app's chrome (`.glass`, the ask bar's own frosted
+  panel and the sticky nav) uses a separate, native CSS/SVG technique
+  instead of either library: `feTurbulence`/`feDisplacementMap` (defined
+  once in `app/layout.tsx`) fed into `backdrop-filter`, with a plain
+  blur+saturate fallback declared first for Safari/Firefox, which don't
+  support an SVG filter reference inside `backdrop-filter`. Zero
+  dependencies, chosen for everything that isn't the two flourishes
+  above specifically.
 - Type: Rajdhani (Slice 17, replacing Geist directly on request for
   "professional but also gamer like" — a technical, esports/gaming-HUD-
   adjacent sans with clean enough weights to still work as body copy)

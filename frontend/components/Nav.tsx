@@ -17,7 +17,7 @@ export default function Nav() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/85 backdrop-blur-md">
+    <header className="glass sticky top-0 z-50">
       <nav className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
         <Link href="/" className="font-medium text-sm tracking-tight">
           Ludo

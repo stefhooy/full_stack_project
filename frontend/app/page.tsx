@@ -1,11 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
 import FilmStrip from "@/components/FilmStrip";
 import GenreShowcase from "@/components/GenreShowcase";
 import HeroPreview from "@/components/HeroPreview";
+import LiquidGlassAskButton from "@/components/LiquidGlassAskButton";
 import Markdown from "@/components/Markdown";
 import MeetLudo from "@/components/MeetLudo";
 import TraceSteps from "@/components/TraceSteps";
@@ -16,6 +18,12 @@ import {
   type StatsResult,
   type StreamEvent,
 } from "@/lib/api";
+
+// WebGL needs a real browser context -- ssr:false keeps @react-three/fiber's
+// Canvas out of the server render entirely rather than crashing it.
+const GradientBackground = dynamic(() => import("@/components/GradientBackground"), {
+  ssr: false,
+});
 
 const EXAMPLE_QUESTIONS = [
   "What are the 5 highest rated games with more than 1000 positive reviews?",
@@ -261,6 +269,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen font-sans">
+      <GradientBackground />
       {/* Hero: headline first, then the film strip of real catalog covers
           as its own framed visual band right below it. */}
       <section className="relative border-b border-[var(--border)]">
@@ -325,24 +334,18 @@ export default function Home() {
           }}
           className="mb-3"
         >
-          <div className="panel flex items-center gap-2 rounded-lg px-3 py-1 transition-colors focus-within:border-[var(--border-strong)]">
+          <div className="glass flex items-center gap-2 rounded-lg px-3 py-1 transition-colors focus-within:border-[var(--border-strong)]">
             <input
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="Ask about the games catalog…"
               className="flex-1 bg-transparent px-1 py-2.5 text-sm outline-none placeholder:text-[var(--muted)]"
             />
-            <motion.button
-              type="submit"
+            <LiquidGlassAskButton
+              label={loading ? "Asking…" : "Ask"}
               disabled={loading || !question.trim()}
-              whileHover={loading || !question.trim() ? undefined : { scale: 1.03 }}
-              whileTap={loading || !question.trim() ? undefined : { scale: 0.97 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
-              className="rounded-md px-4 py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
-            >
-              {loading ? "Asking…" : "Ask"}
-            </motion.button>
+              onActivate={() => ask(question)}
+            />
           </div>
         </motion.form>
 

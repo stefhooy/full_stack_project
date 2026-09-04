@@ -5601,3 +5601,203 @@ Every candidate badge visually confirmed rendering its correct icon in
 the screenshot before being added. The markdown linter's `MD036`
 warnings on the Tech stack section resolved by using real subheadings.
 275 lines, no em/en dashes introduced.
+
+## Slice 39 — "Let's try some cool glass" turned into two real dependency-integration investigations
+
+**Date:** 2026-08-30
+
+The request started simply: an Apple-style liquid-glass effect on the
+Ask button, specified precisely (`feTurbulence type="fractalNoise"` into
+`feDisplacementMap`, fed into `backdrop-filter`, with an edge highlight).
+Built exactly that first: a `#liquid-glass` SVG filter defined once in
+`app/layout.tsx`, a `.glass` utility in `globals.css` applying it via
+`backdrop-filter: url(#liquid-glass) blur(8px) saturate(150%)`, with a
+plain `blur()`/`saturate()` value declared *first* as the real fallback
+-- Safari and Firefox don't support an SVG filter reference inside
+`backdrop-filter` at all, and CSS discards an entire declaration it
+can't parse, not just the unsupported part, so the fallback has to be a
+separate, earlier declaration of the same property, never merged into
+one value. Applied to the ask bar and the sticky nav. Lint clean, done.
+
+Then came the actual pivot: two named GitHub repos, `liquid-glass-js`
+for the Ask button specifically, `shadergradient` for an animated
+green/turquoise/black background. Neither got installed on the strength
+of the user naming them -- both got read first.
+
+### Checking fit before integrating, twice
+
+`liquid-glass-js` turned out not to be an npm package at all: plain
+`<script>` tags, WebGL 2.0, `html2canvas` sampling the DOM into a
+texture. Fetched its actual README, then (once the README's own summary
+raised real questions) its actual source files directly, not another
+paraphrase. `shadergradient` was the opposite story: a real, standard
+React package, but pulling in three.js + `@react-three/fiber` +
+`camera-controls`, roughly 600KB of new dependencies in a project that
+had shipped zero 3D/WebGL libraries until this slice, and whose own
+README (rewritten just one slice ago) leads with restraint as a
+differentiator.
+
+Presented both trade-offs plainly rather than picking silently: for the
+glass effect, keep the already-built native version, or attempt the
+real library despite the DOM-sampling mismatch with a continuously
+scrolling, dynamically updating page; for the background, a lightweight
+CSS gradient, or the real three.js-backed shader. The user chose the
+heavier option both times. Both got built for real, not built partway
+and hand-waved.
+
+### shadergradient: a real dependency, tuned against a real screenshot
+
+Installed `@shadergradient/react@2.4.20`, `@react-three/fiber@9.7.0`
+(the v9 line specifically -- the package's own docs are explicit that
+R8 is structurally incompatible with the App Router's React 19), `three`,
+`three-stdlib`, `camera-controls`. Read the installed package's own
+shipped `index.d.mts` for the real `ShaderGradient`/`ShaderGradientCanvas`
+prop surface (`type`, `color1`/`color2`/`color3`, `uSpeed`/`uStrength`,
+`cDistance`/`cPolarAngle`, `grain`, etc.) rather than guessing at what a
+"waterPlane" preset needed.
+
+The first real screenshot of it running (not assumed correct from the
+code) showed a real problem: full-brightness, saturated stock colors
+made the hero's own body copy close to unreadable against the moving
+background. Fixed with two independent changes, deliberately not just
+one: dimmed and darkened the shader itself (`brightness` down from 1.1
+to eventually 0.85, `color1`/`color2` swapped for deep forest-green and
+teal instead of the bright accent hex directly), and added a second,
+separate layer -- a semi-transparent radial-gradient scrim between the
+canvas and the actual page content, shaped darkest directly behind the
+text column and lighter toward the edges, so contrast doesn't depend on
+catching the shader at a dim frame. Re-screenshotted after each real
+change until the hero text was cleanly legible with the gradient still
+visibly present and moving, not tuned once and assumed good.
+
+### liquid-glass-js: read the real source before writing a line of integration code
+
+This is the slice's real depth. Rather than trust the README's own
+AI-generated summary of "how to use it," fetched `container.js` and
+`button.js` directly and read them in full. Three concrete facts came
+out of that read that changed the plan:
+
+1. **`addChild()` re-parents whatever DOM element you pass it** into the
+   library's own tree. Doing that to an existing React-rendered node is
+   exactly the kind of DOM surgery that crashes React's reconciler later
+   (`NotFoundError: Failed to execute removeChild`) when React tries to
+   remove a node from where it thinks that node still lives.
+2. **The glass refracts a single `html2canvas` snapshot of the page**,
+   cached statically across every instance (`Container.pageSnapshot`),
+   not a live re-render -- `startRenderLoop()` renders once, then only
+   again on `scroll` events, not every frame. Cheaper than first feared,
+   but also meant a naive "wrap the ask bar" plan would go visibly stale
+   the moment a result streamed in below it.
+3. **There is no public destroy or cleanup method at all.** The scroll
+   listener the render loop registers on `window` is never removed by
+   the library itself, for the life of the page.
+
+Surfaced all three to the user with a concrete recommendation (skip it,
+or use it somewhere genuinely standalone) before writing any React code
+-- this was a case where the *first* answer ("try it anyway") had been
+given before these specific facts were known, so it was worth asking
+again with the real information rather than silently building around it
+or silently overriding the user's stated preference. Told again to force
+it onto the Ask button anyway, with the risks understood.
+
+### Building around the constraints instead of ignoring them
+
+Given `addChild()`'s re-parenting behavior, `LiquidGlassAskButton.tsx`
+never wraps the existing `<button>`. React owns exactly one thing: an
+empty mount `<div>` via a real `useRef<HTMLDivElement>`. The library's
+`Button` instance is constructed imperatively inside a `useEffect` and
+appended into that div; every other effect that needs to touch it
+queries fresh via `mountRef.current?.querySelector(...)` rather than
+threading a stored class-instance ref across effects.
+
+That last detail wasn't stylistic. The project's installed
+`eslint-plugin-react-hooks@7.1.1` ships the newer, stricter React-
+Compiler-era rules (`react-hooks/refs`, `react-hooks/immutability`), and
+a first draft that stored the `Button` instance in its own ref and
+mutated properties on it from a second effect hit real lint *errors*,
+not warnings: "Cannot access refs during render" and "This value cannot
+be modified." Restructured to the single-DOM-ref-plus-querySelector
+pattern specifically because that's the one the rule is built to trust,
+not because it was the only way to write the code.
+
+Vendored `container.js`/`button.js` under
+`public/vendor/liquid-glass/` with a real `LICENSE` file (fetched the
+actual MIT text and copyright holder from the repo, not assumed),
+loaded in the strict order the library actually requires -- html2canvas,
+then container.js, then button.js -- by a new `lib/loadLiquidGlass.ts`
+that memoizes the loading promise so React Strict Mode's double-invoked
+effects in dev don't inject the scripts twice. `glass.css` went into the
+real bundled source tree (`app/liquid-glass.css`) instead of staying a
+vendored static asset loaded via `<link>`, once Next's own lint rule
+(`@next/next/no-css-tags`) objected to a raw stylesheet tag and a plain
+`import` turned out to be the correct fix anyway, since CSS has none of
+the load-order constraints the two scripts do.
+
+### Two real bugs, found by actually running it, not by re-reading the code
+
+**Bug one**: after wiring everything up, `.glass-button` count was zero
+in a real Playwright run. `window.Button` was `undefined` even though
+the console showed all three scripts loading successfully. The actual
+cause, confirmed by checking the vendored source's first line
+(`class Button extends Container`, at the top level of a classic,
+non-module script): a top-level `class` declaration creates a binding in
+the shared global *lexical* scope, reachable as a bare identifier from
+another classic script in the same document, but it is NOT added as a
+property of `window` -- unlike `var`, which is. Fixed with a small
+inline bridging script (`window.Container = Container; window.Button =
+Button;`) that runs in that same shared scope and explicitly assigns
+them where the app's real ES modules can reach them.
+
+**Bug two**, found immediately after fixing the first one and actually
+looking at the result: the button displayed "Asking..." (the long
+placeholder text used purely for initial pill sizing) on first page
+load, instead of "Ask." The `useEffect(() => {...}, [label])` meant to
+keep the button's text synced ran synchronously right after mount, long
+before the async script-loading chain (html2canvas, then two more
+scripts, then a bridge script) had actually created the button element
+-- so it found nothing in the DOM and no-opped, and never got a second
+chance to run since `label` itself never changed again until the user's
+first real interaction. Fixed by keeping `label`/`disabled` in
+always-current refs and applying them immediately once the button is
+actually created, not relying solely on the prop-change effect to catch
+up.
+
+### A real accessibility regression, caught before it shipped
+
+The `<button>` this replaced was keyboard-accessible for free. The
+library's generated `<div class="glass-button">` has no `tabindex`, no
+`role`, and no keyboard handling of any kind -- confirmed by reading the
+source, not assumed from the demo working with a mouse. Patched
+`tabIndex`, `role="button"`, `aria-label` (kept in sync with the visible
+label on every change), `aria-disabled`, and a real `keydown` handler
+for Enter/Space directly onto the generated element, sharing the exact
+same `activate()` function the click handler uses, itself gated on a
+`disabled` check -- `pointer-events: none` alone blocks a mouse click
+while disabled but does nothing to stop a keyboard Enter press, so the
+guard had to live in the activation function itself, not just in a
+style.
+
+### Verification
+
+Full local stack actually running (real backend, real frontend dev
+server), not just `lint`/`build`: a real Playwright click through the
+actual liquid-glass button, through the real streaming `ask()` flow, to
+a real Groq-backed answer, zero page errors, button text confirmed
+cycling Ask -> Asking... -> Ask correctly. A second, separate Playwright
+run confirmed real keyboard access: `tabIndex: 0`, `role: button`,
+`aria-label: Ask`, focus landing on the correct element, Enter
+triggering the same activation path. `ruff`, `mypy`, `eslint`, `tsc`,
+and a full `next build` all clean throughout. Both libraries credited
+with real links and real explanations in `frontend/README.md`, which
+also had its own now-false claim ("No WebGL/3D, no fixed animated
+background layer") corrected to match what actually shipped, and the
+root README's Tech Stack gained a Three.js badge, verified rendering
+the same way every other badge in that section was.
+
+### Open questions (new)
+
+- **liquid-glass-js's permanent per-mount scroll-listener leak.** Real,
+  documented, and left as-is: the library has no destroy method to call.
+  Bounded for a page most users won't repeatedly navigate away from and
+  back to within one session, but worth knowing if this pattern is ever
+  reused elsewhere in the app.

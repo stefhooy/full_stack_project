@@ -37,6 +37,34 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${rajdhani.variable} ${plexMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        {/* Defines the "liquid glass" distortion filter referenced by the
+            .glass utility in globals.css (feTurbulence's
+            fractalNoise warps the backdrop via feDisplacementMap, instead
+            of a flat blur). Rendered once, globally, purely as a filter
+            definition -- 0x0, no visible output of its own. See
+            globals.css's own comment on the block for the real reason
+            this lives as an SVG url() reference rather than a CSS
+            backdrop-filter value alone: Chromium supports url(#id) inside
+            backdrop-filter, Safari/Firefox don't, and a plain blur
+            fallback is declared first for those. */}
+        <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+          <filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.008 0.012"
+              numOctaves={2}
+              seed={7}
+              result="noise"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="noise"
+              scale={22}
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </svg>
         <MotionProvider>
           <Nav />
           {children}

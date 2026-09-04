@@ -21,7 +21,7 @@ faith.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 37** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 39** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the full engineering log).
 
@@ -58,6 +58,7 @@ system, and [DOCEXP.md](DOCEXP.md) for the full engineering log).
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
 ![Motion](https://img.shields.io/badge/Motion-0055FF?style=for-the-badge&logo=framer&logoColor=white)
 ![Recharts](https://img.shields.io/badge/Recharts-22B5BF?style=for-the-badge&logo=recharts&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
 
 ### Tooling and CI/CD
 
