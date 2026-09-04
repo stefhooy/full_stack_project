@@ -2048,6 +2048,40 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       changes; frontend `eslint`/`tsc` clean after the example-question
       change
 
+## Slice 41 — The live forecast staleness explained, and its actual root cause fixed
+- [x] User saw the fixed forecast working live (Vercel-deployed frontend,
+      Slice 40's real example question), but with "≈0 players" projected
+      and only 8 snapshots/6.3 days of history, far less than the 24+
+      snapshots/10.8+ days already accumulated by then. Explained the
+      "0" first: a floored (`max(0.0, ...)`) negative-slope extrapolation
+      from a weak fit (R²=0.063), not a real claim the game will have no
+      players, exactly the tool's designed honesty under a bad trend,
+      not a new bug
+- [x] Traced the real staleness to its actual cause rather than treating
+      it as expected: `refresh_catalog.yml` is the ONLY thing that ever
+      triggers a Render rebuild (Vercel only serves the frontend and was
+      already current), and it runs weekly, a schedule its own comment
+      explains was chosen for slow-moving catalog facts (price,
+      reviews) — but `player_counts` (fast-moving, added later in Slice
+      7) shares that exact same trigger, so the live forecast tool could
+      lag real accumulated history by up to 7 days
+- [x] Checked Render's actual free-tier docs before recommending a
+      cadence, rather than assuming more-frequent-is-free: build-
+      pipeline minutes have an undisclosed monthly cap that bills for
+      overage, unlike GitHub Actions minutes on this public repo, which
+      are genuinely unlimited. Presented three real cadence options with
+      that real cost tradeoff named, not just picked one
+- [x] Changed `refresh_catalog.yml`'s schedule from weekly
+      (`0 3 * * 1`) to daily (`0 4 * * *`), deliberately not matched to
+      `poll_player_counts.yml`'s own 6-hour cadence — closes the
+      staleness window from up to 7 days down to at most 1, at roughly
+      30 real build-minutes/day rather than ~4x that. Verified the YAML
+      still parses correctly (a `yaml.safe_load` check on a bare `on:`
+      key returns `None` under PyYAML's own boolean-coercion quirk for
+      `on`/`off`/`yes`/`no` — re-checked against `d.get(True)` instead
+      of treating that as a real parse failure, GitHub's own Actions
+      parser is unaffected by this Python-library-specific gotcha)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

@@ -5921,3 +5921,110 @@ example-question change. The real end-to-end re-test against the actual
 24-snapshot local catalog is the substantive verification, not the
 linters -- a real tool call, zero errors, a real number, an honest
 confidence caveat.
+
+## Slice 41 — Explaining a "0", then fixing why the live site was stale at all
+
+**Date:** 2026-09-04
+
+The user tried the just-fixed forecast question live, on the deployed
+Vercel frontend, and got a real result: "Counter-Strike: Global
+Offensive is projected to have about 0 concurrent players... based on
+only eight live-player snapshots covering roughly 6.3 days." Two
+things worth separating in that one screenshot, and the second turned
+out to matter more than the first.
+
+### Explaining the "0" honestly, not defensively
+
+A big "0 players" for one of Steam's most-played games looks alarming.
+Explained the actual mechanism rather than reflexively reassuring:
+`_forecast()` fits a line through the real (short, noisy) history,
+found a negative slope, and `projected = max(0.0, fit.slope * x_target
++ fit.intercept)` floors an extrapolation that would otherwise go
+negative, an impossible player count. Paired with R²=0.063 and
+`low_confidence: true`, the "0" is the model saying "this trend, taken
+literally 30 days out, breaks down," not "this game will have no
+players." That's the tool being honest about a bad fit, exactly its
+job description, not a new failure to explain away.
+
+### The more important question: why only 8 snapshots?
+
+By the time this screenshot was taken, the real, committed history was
+already 24+ snapshots spanning 10.8+ days (confirmed directly, Slice
+40). 8 snapshots over 6.3 days is real, but stale data. Asked directly
+which environment produced it: the live Vercel-deployed frontend.
+Worth naming precisely, since it's an easy thing to conflate: Vercel
+only serves the frontend. The forecast computation and `player_counts`
+itself live entirely on the Render backend, which only ever sees new
+snapshots at Docker build time. The frontend having already picked up
+the new example-question pill (a real, recent push) said nothing about
+whether the *backend* had rebuilt recently enough to reflect the newer
+snapshot commits.
+
+### Root-caused the actual mechanism, not just noted it as expected
+
+Read `refresh_catalog.yml` again rather than assume it was already
+tuned for this: it's the *only* thing that ever triggers a Render
+rebuild, and its own comment explains why it was set to weekly --
+catalog facts like price and reviews change slowly. That reasoning was
+sound when written (Slice 7), but `player_counts` was folded into the
+same trigger without revisiting the cadence, and player counts change
+far faster than catalog metadata. A live forecast could legitimately
+lag the real accumulated history by up to 7 days, exactly what this
+screenshot caught in the act.
+
+### Checking real costs before recommending a fix
+
+The instinct to just match `poll_player_counts.yml`'s own 6-hour
+cadence (freshest data, simplest mental model) got checked against
+Render's actual free-tier documentation first, not assumed free the
+same way GitHub Actions is on this public repo. Real finding: Render's
+free tier has an *undisclosed* monthly cap on build-pipeline minutes,
+and exceeding it bills for the overage unless a spend limit is set.
+Each rebuild is a full Docker build plus ingestion, roughly 20 to 30
+real minutes. Six-hourly would mean roughly 4x the build-minute spend
+of daily, against a cap whose actual size isn't published anywhere
+this session could find. Presented three real cadences (weekly/as-is,
+daily, every 6h) with that specific cost tradeoff named plainly, rather
+than picking the technically-purest option and hoping the free tier
+absorbed it.
+
+### The fix
+
+Changed `refresh_catalog.yml`'s schedule from `0 3 * * 1` (weekly,
+Monday) to `0 4 * * *` (daily, 04:00 UTC). Deliberately not matched to
+the poller's 6-hour cadence, for the cost reason above -- daily closes
+the real staleness window from up to a week down to at most a day,
+at a small, predictable ~30 build-minutes/day instead of scaling
+linearly with every single poll.
+
+A small, worth-naming verification wrinkle: a first `yaml.safe_load`
+check of the edited file returned `None` for the `on:` key, which
+looked like a real parse failure for a second. It wasn't -- PyYAML
+(like most YAML 1.1 parsers) coerces the bare, unquoted key `on` to the
+boolean `True`, a well-known quirk of that spec's implicit typing
+(`on`/`off`/`yes`/`no`/`true`/`false` are all boolean literals unless
+quoted). Re-checked against `d.get(True)`, which returned the real
+`schedule`/`workflow_dispatch` structure correctly. GitHub's own
+Actions YAML parser is unaffected by this, it treats `on:` as the
+trigger keyword regardless, so the workflow itself was never actually
+broken, only this particular verification script's naive read of it.
+Worth remembering the next time a `.github/workflows/*.yml` file needs
+a Python-side sanity check.
+
+### Verification
+
+YAML re-validated correctly via `d.get(True)`. No other file in the
+repo referenced the old weekly cadence in prose that would now be
+stale (checked directly, not assumed). The real test of this fix is
+external and can't be verified from inside this session: whether
+tomorrow's 04:00 UTC run actually redeploys the backend with fresher
+data, since this session has no Render dashboard access to confirm a
+build's real outcome.
+
+### Open questions (new)
+
+- **Render's actual build-pipeline-minute allowance is still unknown.**
+  Not found in public docs; only checkable from the account's own
+  billing page. Worth confirming directly at some point that daily
+  rebuilds comfortably fit within it, rather than assuming the
+  conservative choice is automatically safe.

@@ -11,12 +11,24 @@ name: Refresh catalog (trigger backend redeploy)
 # No-ops cleanly (green checkmark, not a failure) until DEPLOY_HOOK_URL is
 # set -- add it as a repo secret once you've actually deployed (Render and
 # Fly.io both provide a deploy-hook URL in their dashboards) to turn this
-# on. Weekly by default since catalog facts (price, reviews, owners) move
-# far slower than live player counts.
+# on.
+#
+# Daily as of Slice 40, not weekly: this is the ONLY thing that ever
+# rebuilds the backend, and player_counts (Slice 7) shares this same
+# trigger with the catalog -- weekly meant the live site's forecast tool
+# could lag the real accumulated snapshot history by up to 7 days, which
+# is exactly what surfaced this (a live forecast using 8 snapshots when
+# 30+ already existed). Deliberately not matched to
+# poll_player_counts.yml's own 6-hour cadence: each rebuild is a real
+# Docker build (~20-30 min of Render's own build-pipeline minutes, an
+# undisclosed monthly free-tier allowance that bills you for overage,
+# unlike GitHub Actions minutes on this public repo, which are free and
+# unlimited). Daily keeps that cost real and small (~30 min/day) while
+# still closing the staleness window from a week down to at most a day.
 
 on:
   schedule:
-    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+    - cron: "0 4 * * *" # daily, 04:00 UTC
   workflow_dispatch: {}
 
 jobs:
