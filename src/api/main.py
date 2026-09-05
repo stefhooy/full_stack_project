@@ -51,6 +51,20 @@ FRIENDLY_ERROR_MESSAGE = (
     "We're experiencing high demand right now. Please try again in a moment."
 )
 
+DAILY_BUDGET_MESSAGE = (
+    "This demo has reached its shared daily usage cap and will reset soon. "
+    "Thanks for your patience -- please try again later."
+)
+
+
+class DailyBudgetExceeded(Exception):
+    """Raised by _run_with_cache when the global daily token budget
+    (settings.daily_token_budget) has been reached -- deliberately a
+    distinct type, not a plain HTTPException raised at the check site:
+    ask()'s own except Exception below overwrites any exception's detail
+    with FRIENDLY_ERROR_MESSAGE in production, which would otherwise
+    silently swallow this specific, honest, expected message."""
+
 
 @app.on_event("startup")
 def check_db_exists() -> None:
@@ -187,6 +201,12 @@ def _run_with_cache(question: str) -> tuple[AgentResult, bool]:
             logger.info("cache hit: %r ~ %r", question, matched_question)
             return cached_result, True
 
+    # Checked only on a real cache miss, deliberately: a cached answer
+    # costs nothing, so it should keep working even once the shared
+    # budget below is exhausted for the day.
+    if _run_stats.total_tokens >= settings.daily_token_budget:
+        raise DailyBudgetExceeded()
+
     result = run_agent(question)
     _record_real_run(result)
     if settings.semantic_cache_enabled:
@@ -203,6 +223,8 @@ def ask(request: AskRequest) -> AskResponse:
         )
     try:
         result, cached = _run_with_cache(request.question)
+    except DailyBudgetExceeded:
+        raise HTTPException(status_code=503, detail=DAILY_BUDGET_MESSAGE) from None
     except Exception as exc:
         logger.exception("Agent run failed")
         detail = str(exc) if settings.debug else FRIENDLY_ERROR_MESSAGE
@@ -241,6 +263,13 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                     payload = _to_response(cached_result, cached=True)
                     yield _sse({"type": "final", "result": payload.model_dump()})
                     return
+
+            # Same check and same reasoning as _run_with_cache's -- only
+            # on a real cache miss, so a cached answer above still works
+            # even once the shared budget is exhausted for the day.
+            if _run_stats.total_tokens >= settings.daily_token_budget:
+                yield _sse({"type": "error", "message": DAILY_BUDGET_MESSAGE})
+                return
 
             final_result: AgentResult | None = None
             async for event in stream_agent(request.question):

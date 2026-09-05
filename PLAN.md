@@ -2348,6 +2348,44 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       reduction, only a *when-it-loads* and *does-it-leak* fix, and is
       reported as such rather than implying a size win that didn't happen
 
+## Slice 48 — Path to 9/10, item 6: closing the last item — a global daily budget guard on /ask
+- [x] Presented the real tradeoff before building anything: full auth
+      (login) would kill the point of a public portfolio demo; a shared
+      secret shipped to the browser isn't real security unless proxied
+      server-side (a bigger architectural change); per-IP rate limiting
+      already exists but is explicitly named in the audit as trivially
+      bypassed by multiple source IPs. Chose the option that protects the
+      actual shared resource directly: a global (not per-IP) daily token
+      budget, checked against `RunStats`' already-tracked `total_tokens`
+- [x] Added `daily_token_budget` (180,000 -- real headroom under Groq's
+      actual 200,000 tokens/day cap) to `Settings`. `/ask` and
+      `/ask/stream` both check it on a confirmed cache miss (checked
+      *after* the cache lookup, not before, so a cached answer -- free by
+      definition -- keeps working even once the shared budget is
+      exhausted for the day) and return a distinct, honest message
+      instead of calling Groq at all once it's reached
+- [x] Added `DailyBudgetExceeded`, a distinct exception type, rather than
+      raising `HTTPException` directly at the check site: `/ask`'s own
+      `except Exception` already overwrites any exception's detail with
+      the generic "high demand" message in production, which would have
+      silently swallowed this specific, expected, honest message
+- [x] Added 4 new tests: the 503/error-event path itself, that the
+      message survives even with `debug=True` (a real regression risk
+      given the distinct-exception-type reasoning above), and that a
+      cache hit still succeeds even while over budget
+- [x] Found and fixed a real, pre-existing test-isolation gap while
+      adding these: `src/api/rate_limit.py`'s `_limiter` is a genuine
+      module-level singleton shared across every test in the process,
+      and this file's now-larger `/ask`/`/ask/stream` call count crossed
+      the real 10-requests/60s limit for the first time, failing later
+      tests with a genuine 429 unrelated to what they were testing. Fixed
+      by clearing `_limiter._hits` in an autouse fixture, the same
+      "covered by its own test file, isolated here" pattern this file
+      already used for the semantic cache
+- [x] Verified for real: `ruff`/`mypy` clean, 170/170 tests pass
+      (166 + 4 new), full suite re-run twice to confirm the isolation fix
+      is real, not a fluke. `.env.example` updated with the new setting
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

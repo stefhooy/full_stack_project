@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agent.graph import AgentResult
-from src.api import main
+from src.api import main, rate_limit
 from src.config import settings
 
 
@@ -26,6 +26,19 @@ def _disable_cache(monkeypatch):
     # keeps these tests focused on this layer and independent of the real
     # embedder / any state left over from a previous test.
     monkeypatch.setattr(settings, "semantic_cache_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    # rate_limit._limiter (src/api/rate_limit.py) is a real, module-level
+    # singleton shared across every test in this process -- its own
+    # behavior is covered by test_rate_limit.py. Without this, enough
+    # /ask and /ask/stream calls accumulating across this file's tests (a
+    # real count this project just crossed for the first time when
+    # Slice 48 added 4 more) eventually trips the real 10-requests/60s
+    # limit partway through a run, failing later tests with a genuine 429
+    # that has nothing to do with what they're actually testing.
+    rate_limit._limiter._hits.clear()
 
 
 @pytest.fixture()
@@ -183,6 +196,61 @@ def test_ask_records_self_correction_stats_only_for_real_non_cached_runs(
     assert stats_after == stats_before + 1
 
 
+# --- daily token budget (Slice 48) --------------------------------------
+
+
+def test_ask_returns_a_friendly_503_when_the_daily_budget_is_exceeded(
+    client, monkeypatch, games_db
+):
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setattr(main._run_stats, "total_tokens", settings.daily_token_budget)
+    called = False
+
+    def _should_not_be_called(question):
+        nonlocal called
+        called = True
+        return _fake_result()
+
+    monkeypatch.setattr(main, "run_agent", _should_not_be_called)
+    resp = client.post("/ask", json={"question": "anything"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == main.DAILY_BUDGET_MESSAGE
+    assert not called  # never spend more once the budget is already hit
+
+
+def test_ask_daily_budget_message_is_returned_even_with_debug_on(client, monkeypatch, games_db):
+    # DailyBudgetExceeded is deliberately a distinct exception type from a
+    # real agent failure -- this is the regression test for exactly that:
+    # without it, ask()'s generic `except Exception` would swallow this
+    # message the same way it swallows a real error's detail in debug=False,
+    # or (in debug=True, tested here) replace it with a confusing
+    # str(DailyBudgetExceeded()) instead of the real, honest message.
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(main._run_stats, "total_tokens", settings.daily_token_budget)
+    resp = client.post("/ask", json={"question": "anything"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == main.DAILY_BUDGET_MESSAGE
+
+
+def test_ask_still_serves_a_cache_hit_when_over_the_daily_budget(client, monkeypatch, games_db):
+    # A cache hit costs nothing, so it should keep working even once the
+    # shared budget is exhausted for the day -- the whole point of
+    # checking budget only after a confirmed cache miss.
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setattr(settings, "semantic_cache_enabled", True)  # override the autouse fixture
+    monkeypatch.setattr(main._run_stats, "total_tokens", settings.daily_token_budget)
+    main._cache.put("What is the most popular game?", _fake_result())
+
+    def _should_not_be_called(question):
+        raise AssertionError("run_agent should not be called for a cache hit")
+
+    monkeypatch.setattr(main, "run_agent", _should_not_be_called)
+    resp = client.post("/ask", json={"question": "What is the most popular game?"})
+    assert resp.status_code == 200
+    assert resp.json()["cached"] is True
+
+
 # --- /ask/stream -------------------------------------------------------
 
 
@@ -227,3 +295,25 @@ def test_ask_stream_reports_a_friendly_error_event_when_the_agent_raises(
     ]
     assert events[-1]["type"] == "error"
     assert events[-1]["message"] == main.FRIENDLY_ERROR_MESSAGE
+
+
+def test_ask_stream_reports_the_daily_budget_message_when_over_budget(
+    client, monkeypatch, games_db
+):
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setattr(main._run_stats, "total_tokens", settings.daily_token_budget)
+
+    async def _should_not_be_called(question):
+        raise AssertionError("stream_agent should not be called once over budget")
+        yield  # pragma: no cover -- makes this a generator function; never reached
+
+    monkeypatch.setattr(main, "stream_agent", _should_not_be_called)
+    resp = client.post("/ask/stream", json={"question": "anything"})
+    assert resp.status_code == 200  # same convention as the error-event case above
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in resp.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["message"] == main.DAILY_BUDGET_MESSAGE

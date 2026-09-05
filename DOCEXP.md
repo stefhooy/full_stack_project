@@ -6809,3 +6809,130 @@ wasn't re-run needlessly.
   without a real user-perceivable downside. Not tuned against real field
   data, the same honest caveat Slice 44's `SPACING_SECONDS` and Slice
   46's 48h threshold both got.
+
+## Slice 48 — Working the 9/10 list, item six (the last one): a global budget, not a login wall
+
+**Date:** 2026-09-05
+
+Item 6, the last of the six: "no authentication on /ask, a real,
+cost-incurring LLM endpoint, reachable directly, bypassing the frontend
+entirely... given this project already had one real incident where a
+shared daily Groq quota got exhausted (Slice 33), this is a live, not
+hypothetical, exposure."
+
+### Naming what "fixing" this actually means before building anything
+
+The word "authentication" in the audit's own finding could mean several
+very different things, with very different costs. Worked through the
+real options rather than reaching for the first one:
+
+- **A real login wall** would technically satisfy "add auth," but
+  directly defeats the point of a public portfolio piece a recruiter
+  should be able to try in ten seconds, no signup. Rejected immediately,
+  not seriously considered.
+- **A shared secret shipped from the frontend** (an API key in a request
+  header) sounds like a fix but isn't one on its own: anything sent from
+  browser JS is visible in the Network tab to anyone who opens DevTools,
+  so it stops nothing but the most casual accidental discovery. A *real*
+  version of this needs a server-side proxy (a Next.js API route holding
+  the actual secret, forwarding to the FastAPI backend) — a genuinely
+  bigger architectural change, and even then it only gates *who* can
+  spend the budget, not *how much* gets spent by legitimate frontend
+  traffic itself.
+- **Per-IP rate limiting** already exists (`InMemoryRateLimiter`,
+  10 requests/60s) — but the audit's own wording is precise about why
+  that's not enough: "trivially bypassed by multiple source IPs." It
+  protects against one abusive client hammering the endpoint, not
+  against the actual shared resource (Groq's real 200,000 tokens/day
+  cap, already exhausted for real once, Slice 33) being exhausted by
+  *any* combination of traffic.
+
+Presented this reasoning directly to the user rather than picking one
+silently: a global (not per-IP) daily token budget is the option that
+protects the actual thing at risk, regardless of how many IPs, whether
+traffic comes through the real frontend or a direct `curl`, or any other
+detail about *who* is asking — it closes the specific, real, previously-
+experienced failure mode named in the finding, without adding login
+friction a demo can't afford. Got explicit confirmation before building.
+
+### The implementation, and one real subtlety in getting the error message right
+
+`RunStats` (Slice 26) already tracks `total_tokens` cumulatively across
+every real (non-cached) run — the exact number needed, already there,
+nothing new to instrument. Added `daily_token_budget=180_000` to
+`Settings` (real headroom under Groq's actual 200,000 cap, room for the
+router's own small classification calls and other traffic sharing the
+same key) and checked it in both `/ask` and `/ask/stream`, specifically
+*after* a confirmed cache miss — checking before the cache lookup would
+have blocked cached answers too, which cost nothing and have no reason
+to stop working just because the *real* budget is exhausted.
+
+The one real subtlety: `/ask`'s existing `except Exception as exc:`
+block already exists specifically to turn any unexpected failure into a
+clean 503 with a generic "high demand" message in production (hiding
+real internal error detail from users, per `settings.debug`). Raising a
+plain `HTTPException` with the honest daily-budget message directly at
+the check site would have been caught by that *same* generic handler and
+had its message overwritten — silently turning an honest, specific,
+non-error condition into the same vague message as a genuine crash.
+Fixed by giving it its own exception type, `DailyBudgetExceeded`, caught
+explicitly before the generic handler. Wrote the regression test for
+exactly this (`test_ask_daily_budget_message_is_returned_even_with_debug_on`)
+rather than trusting the reasoning alone — this is precisely the kind of
+"looks obviously right" code that silently breaks the first time an
+edge case (debug=True, here) is actually exercised.
+
+### A real, pre-existing bug the new tests surfaced, unrelated to the budget logic itself
+
+Adding 4 new tests that each make a real `/ask`/`/ask/stream` call
+pushed `tests/test_api_main.py`'s total call count in one run high enough
+to trip something that had never actually fired before: `src/api/
+rate_limit.py`'s `_limiter` is a genuine module-level singleton, created
+once at import time and shared by every test in the process (not just
+every request in production) — its own dedicated test file
+(`test_rate_limit.py`) covers its behavior directly, but nothing had
+ever reset its accumulated state between tests in *this* file, because
+the total request count across all of `test_api_main.py`'s pre-existing
+tests had simply never crossed the real 10-requests/60-second threshold
+before. Adding 4 more tipped it over for the first time, and two tests
+later in the file started failing with a genuine 429 that had nothing to
+do with what they were actually testing (an unrelated agent failure, and
+the new budget check itself).
+
+Fixed at the root, not by trimming test count to dodge the threshold:
+added an autouse fixture clearing `rate_limit._limiter._hits` before
+each test, the same "this behavior is covered by its own file, isolate
+it here" pattern this file already used for the semantic cache
+(`_disable_cache`). Re-ran the full suite twice after the fix to confirm
+it was real and not a fluke of test ordering.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 170/170 tests pass (166 from
+Slice 47, +4 new). `.env.example` updated with the new setting so a
+fresh clone's documented configuration surface stays complete, matching
+how every other tunable in `Settings` is already mirrored there.
+
+### Open questions (new)
+
+- **Whether 180,000 is the right number**, or whether it should account
+  more precisely for the router's own per-question token cost rather
+  than a round-number guess at headroom. Same honest caveat as every
+  other first-guess threshold this project has shipped and later
+  revisited against real evidence (`SPACING_SECONDS`, the 48h deploy-
+  staleness threshold).
+- **Whether a server-side proxy (the heavier option presented and not
+  chosen) is worth adding later**, specifically to stop non-frontend
+  traffic from consuming the shared budget at all, rather than just
+  capping total spend once it's already being consumed. Not needed to
+  close this item honestly, but a real remaining gap if direct API abuse
+  (as opposed to shared-budget exhaustion) becomes an actual observed
+  problem rather than a named risk.
+- **This closes the 9/10 audit's sixth and final named item.** Whether
+  the project is now actually at a 9/10, or whether working through
+  these six surfaced enough *new* real findings (the router resilience
+  gap, the forecast regex bug, the shadergradient scroll-listener
+  non-leak, this file's own rate-limiter test-isolation gap, among
+  others) that a fresh review is warranted before calling it settled, is
+  a real open question for whoever picks this up next -- not assumed
+  here either way.

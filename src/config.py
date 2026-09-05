@@ -123,6 +123,22 @@ class Settings(BaseSettings):
     rate_limit_max_requests: int = 10
     rate_limit_window_seconds: float = 60.0
 
+    daily_token_budget: int = 180_000
+    """Global (not per-IP) ceiling on real, non-cached /ask token usage
+    per process lifetime -- checked against RunStats' already-tracked
+    total_tokens (src/api/run_stats.py). Added in Slice 48: per-IP rate
+    limiting alone doesn't protect the actual shared resource (Groq's
+    real 200,000 tokens/day cap, already exhausted for real once, Slice
+    33) against multiple source IPs, which the audit named directly as
+    a live exposure. 180,000 leaves real headroom under the 200,000 cap
+    for the router's own small classification calls and any other
+    traffic (eval runs, etc.) sharing the same key. "Per process
+    lifetime" rather than strictly per-calendar-day is an honest
+    approximation, not a precise guarantee -- same in-memory,
+    single-process reasoning already used for rate_limit.py/cache.py,
+    good enough because Slice 46's daily backend rebuild restarts the
+    process on roughly the same cadence anyway."""
+
     cors_allowed_origins: str = "http://localhost:3000"
     """Comma-separated list of origins allowed to call the API — the
     Next.js frontend's dev/deployed URL(s)."""
