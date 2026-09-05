@@ -6260,3 +6260,102 @@ and the coverage/bundle-size numbers underlying this audit were all
 measured directly against the real local environment this session, not
 estimated or recalled from memory. `ruff`, `mypy`, and the full 92-test
 suite (88 existing + 4 new) all clean after the `agent_node` fix.
+
+## Slice 43 — Working the 9/10 list, item one: the serving layer's tests
+
+**Date:** 2026-09-05
+
+Chose to work the audit's path-to-9/10 list one item at a time rather
+than everything at once, starting with test coverage, the item with the
+most concrete evidence behind it (the Slice 30 incident) and the
+clearest scope (the specific files the audit named at 0%).
+
+### Starting where the incident already happened
+
+`evals/checks.py` got the first, and most carefully written, tests.
+Slice 30's whole saga was a wrong check failing the same golden question
+across four slices before anyone realized the check itself, not the
+model, was broken — and it took that long specifically because nothing
+had ever asserted the check function's own correctness independent of a
+real LLM run. Wrote both real paths of
+`_check_action_vs_f2p_not_mislabeled` directly: `compare_two_groups`
+correct and mislabeled, plain-SQL correct and mislabeled, and the
+fallback case, all via a hand-built `AgentResult`, no LLM, no DB. This
+is, concretely, the test that would have caught the Slice 4 bug (or
+proven the Slice 24/27/28 "failures" were false alarms) on the very
+first run, not the fourth.
+
+### The rest of the serving layer
+
+`run_stats.py`, `rate_limit.py`, and `cache.py` each got their own
+focused test file, pure logic or a real local embedder, no mocks of
+this project's own layers, same standing rule the DB-fixture tests
+already followed. `run_stats.py`'s tests deliberately pin down the exact
+edge case its own docstring calls out (a long, error-free tool chain
+that happens to hit the attempts cap must never be misclassified as a
+self-correction failure) and the "recovered" rate's real intersection
+semantics (never able to go negative by construction, now actually
+verified, not just argued for in a comment).
+
+`test_api_main.py` was the biggest piece: FastAPI's `TestClient`
+against the real app, `run_agent`/`stream_agent` mocked (no real LLM
+calls, matching this project's `live`-exclusion convention), covering
+`/health`, every DB-backed route's missing-DB 503, `/ask`'s real
+response shape, both branches of debug-mode error detail, and
+`/ask/stream`'s SSE framing for the normal and the error case.
+
+### A second real bug, found the same way the first one was
+
+Writing MCP server tests (the last 0% item on the list) surfaced
+something genuinely unplanned: a query too malformed to even parse
+(`"SELECT this is not valid sql at all"`) crashed both `run_sql`'s test
+and, on inspection, would have crashed the real MCP tool call and the
+real agent's `execute_tools_node` identically. Checked why directly
+rather than patching the test to dodge it: `sqlglot.parse()` raises its
+own `sqlglot.errors.ParseError`, confirmed via its actual `__mro__` to
+not be a `ValueError` subclass, so it passed straight through
+`execute_tools_node`'s and the MCP server's identical
+`except (UnsafeQueryError, duckdb.Error, ValueError)` catches, both
+uncaught, the same class of gap Slice 42 found and fixed a few hours
+earlier in a different node (`agent_node`'s model-call failure).
+
+Fixed once, at the root, not at each of the two call sites that happened
+to be found: `_parse_single_select` in `db/connection.py` now catches
+`sqlglot.errors.ParseError` and re-raises as `UnsafeQueryError`, which
+already *is* a `ValueError` subclass, so every existing catch site
+(and any future one) gets the fix automatically. This is exactly the
+"fix it once where the safety boundary already lives" pattern this
+module's own docstring already commits to; extending that principle to
+error handling, not just the parsing logic itself, was the right call
+rather than special-casing this one exception type at each caller.
+
+Added the direct regression test at the actual source
+(`test_sql_guard.py`), not just the MCP test that happened to surface
+it, so the fix is pinned down where it structurally belongs.
+
+### Verified with real numbers, not the "add tests until it feels done" instinct
+
+Installed `pytest-cov` ephemerally (not a new permanent dependency) and
+ran a real coverage report before and conceptually compared it to the
+audit's own numbers: **46% to 69% overall**, and specifically, every
+file the audit named at 0% is now at 79-100%
+(`main.py` 79%, `rate_limit.py`/`run_stats.py`/`schemas.py`/`cache.py`
+100%, `mcp_server/server.py` 96%, `evals/checks.py` 100%). 153/153 tests
+pass (88 to 153, all new tests additive, nothing removed or weakened),
+`ruff`/`mypy` clean throughout.
+
+Named what this did NOT close, rather than letting a big percentage
+jump imply everything was solved: `evals/judge.py` (needs a real LLM
+call to test meaningfully) and `evals/run_evals.py` (orchestration,
+harder to unit test in isolation) are still at 0%, along with a few
+ingestion scripts. These weren't the specific files the audit named,
+so treated as a real, separate, lower-priority follow-up rather than
+folded into this item's "done" claim.
+
+### Open questions (new)
+
+- **Whether `evals/judge.py`/`run_evals.py` and the remaining 0%
+  ingestion scripts are worth a dedicated follow-up item**, or
+  acceptable as-is given their harder-to-unit-test nature (real LLM
+  calls, thin orchestration). Not decided; flagged for whenever the
+  9/10 list's first six items are otherwise exhausted.

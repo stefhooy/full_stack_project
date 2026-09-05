@@ -42,7 +42,20 @@ def get_read_only_connection(db_path: str) -> duckdb.DuckDBPyConnection:
 
 
 def _parse_single_select(sql: str) -> exp.Select:
-    statements = [s for s in sqlglot.parse(sql, read="duckdb") if s is not None]
+    # sqlglot.parse() raises its own sqlglot.errors.ParseError for SQL that
+    # doesn't even parse (as opposed to SQL that parses fine but fails the
+    # SELECT-only/allowlist checks below) -- a real, previously-unhandled
+    # gap, not a hypothetical one: ParseError isn't a ValueError subclass,
+    # so it passed straight through execute_tools_node's
+    # (UnsafeQueryError, duckdb.Error, ValueError) catch and the MCP
+    # server's matching one, crashing both instead of feeding a normal,
+    # self-correctable error back. Re-raising as UnsafeQueryError (itself
+    # a ValueError) fixes every call site at once, at the one place this
+    # safety boundary already lives, rather than patching each catcher.
+    try:
+        statements = [s for s in sqlglot.parse(sql, read="duckdb") if s is not None]
+    except sqlglot.errors.ParseError as e:
+        raise UnsafeQueryError(f"Could not parse SQL: {e}") from e
     if len(statements) != 1:
         raise UnsafeQueryError(
             f"Expected exactly one SQL statement, found {len(statements)}. "

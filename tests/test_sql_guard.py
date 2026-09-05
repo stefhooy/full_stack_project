@@ -43,6 +43,20 @@ def test_rejects_anything_that_is_not_a_select(sql):
         validate_select_only(sql, max_rows=200)
 
 
+def test_rejects_sql_that_does_not_even_parse():
+    # A real, previously-unhandled gap found while adding MCP server
+    # tests (Slice 42): sqlglot.parse() raises its own ParseError for SQL
+    # that fails to parse at all, distinct from SQL that parses fine but
+    # fails the SELECT-only/allowlist checks below. ParseError isn't a
+    # ValueError subclass, so it passed straight through every caller's
+    # except (UnsafeQueryError, duckdb.Error, ValueError) -- both
+    # execute_tools_node and the MCP server's run_sql/run_stats -- and
+    # crashed instead of returning a normal, self-correctable error.
+    # Fixed by re-raising as UnsafeQueryError at the source.
+    with pytest.raises(UnsafeQueryError):
+        validate_select_only("SELECT this is not valid sql at all", max_rows=200)
+
+
 def test_rejects_multiple_statements():
     with pytest.raises(UnsafeQueryError, match="one SQL statement"):
         validate_select_only("SELECT 1; DROP TABLE games", max_rows=200)

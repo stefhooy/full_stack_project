@@ -2141,6 +2141,56 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       not estimated. Scored 7/10 with a concrete, prioritized path to
       9/10
 
+## Slice 43 — Path to 9/10, item 1: real coverage on the serving layer and eval harness
+- [x] User chose to work through the 9/10 path one item at a time,
+      starting with test coverage. Wrote 65 new tests across 7 new files
+      (`test_evals_checks.py`, `test_run_stats.py`, `test_rate_limit.py`,
+      `test_cache.py`, `test_api_main.py`, `test_mcp_server.py`, plus an
+      addition to `test_sql_guard.py`), targeting exactly the areas the
+      audit named at 0%: `api/main.py`, `api/rate_limit.py`,
+      `api/run_stats.py`, `api/schemas.py`, `agent/cache.py`,
+      `mcp_server/server.py`, and `evals/checks.py` (the module directly
+      behind Slice 30's incident)
+- [x] `evals/checks.py`'s tests specifically recreate the Slice 30
+      incident as a permanent regression test: both real paths of
+      `_check_action_vs_f2p_not_mislabeled` (compare_two_groups and plain
+      SQL), both correct and mislabeled for each, and the fallback case,
+      all constructed directly via `AgentResult` with no LLM/DB call —
+      exactly the missing test that would have caught the original bug
+      on its first occurrence instead of its fourth
+- [x] `test_cache.py` uses the real local embedder (fastembed, no
+      network) rather than a mock, including a real test that a natural
+      paraphrase hits at the actual default similarity threshold and
+      misses at a stricter one — the threshold's real behavior, not an
+      assumption of it
+- [x] `test_api_main.py` covers `/health`, DB-missing 503s across every
+      DB-backed route, `/ask`'s real response shape, empty-question
+      rejection, both branches of debug-mode error detail, self-
+      correction stats only recording real (non-cached) runs, and
+      `/ask/stream`'s SSE framing for both the progress-then-final case
+      and the error case — mocking `run_agent`/`stream_agent` (no real
+      LLM calls), matching this project's `live`-test-exclusion
+      convention
+- [x] Writing real MCP server tests surfaced a second real bug of the
+      same class as Slice 42's `agent_node` fix: `sqlglot.errors.ParseError`
+      (genuinely malformed SQL, distinct from SQL that parses but fails
+      the safety checks) isn't a `ValueError` subclass, so it passed
+      straight through `execute_tools_node`'s and the MCP server's
+      identical `except (UnsafeQueryError, duckdb.Error, ValueError)`
+      catches uncaught in both places. Fixed once, at the actual safety
+      boundary (`db/connection.py`'s `_parse_single_select`,
+      re-raising as `UnsafeQueryError`), so every current and future
+      caller is covered, not patched per call site
+- [x] Verified with a real, fresh coverage report (ephemeral
+      `pytest-cov`, not assumed): **46% to 69% overall**, every
+      specifically-named 0% file now at 79-100%. 153/153 tests pass,
+      `ruff`/`mypy` clean
+- [x] Named honestly what this did NOT close: `evals/judge.py` (needs a
+      real LLM call to test meaningfully) and `evals/run_evals.py` (pure
+      orchestration) remain at 0%, along with a few ingestion scripts —
+      real gaps, but not the specific ones the audit named, treated as a
+      lower-priority follow-up rather than silently claimed as done
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
