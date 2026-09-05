@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -70,6 +71,17 @@ def health() -> dict:
         "cache_entries": len(_cache),
         "self_correction": _run_stats.as_dict(),
         "usage": _run_stats.usage_as_dict(),
+        "deploy_commit": os.environ.get("RENDER_GIT_COMMIT"),
+        # Render injects RENDER_GIT_COMMIT automatically for any service
+        # deployed from a connected git repo (confirmed against Render's
+        # own docs, Slice 45) -- no Dockerfile change needed. None locally
+        # and in any environment that isn't Render itself, which is
+        # honest: there's no deploy commit to report outside Render.
+        # Added specifically so a live staleness question (see DOCEXP.md's
+        # Slice 32/41 entries: is the deployed backend actually running
+        # recent code, or did Auto-Deploy silently stop working) can be
+        # checked automatically instead of requiring Render dashboard
+        # access this session/CI has never had.
     }
 
 

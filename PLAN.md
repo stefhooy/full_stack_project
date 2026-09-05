@@ -2272,6 +2272,38 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified for real: `ruff`/`mypy` clean, 164/164 tests pass
       (160 + 4 new)
 
+## Slice 46 — Path to 9/10, item 4: closing both recurring process gaps for real
+- [x] Gap A (GitHub Actions "Re-run jobs" replays the pinned original
+      commit, not current master — Slices 35/36): the per-workflow fix
+      (`workflow_dispatch: {}`) had been applied ad hoc to
+      `frontend-ci.yml`, `run_evals.yml`, and `poll_player_counts.yml` as
+      each was individually caught, but **never to `test.yml`**, the main
+      backend CI gate that runs on every push/PR — the exact same trap,
+      just not yet rediscovered a third time. Added it there too
+- [x] Gap B (Render deploy staleness — Slice 32 left open, unverifiable
+      from this session: is Auto-Deploy even enabled, is
+      `DEPLOY_HOOK_URL` set): confirmed against Render's own docs that it
+      automatically injects `RENDER_GIT_COMMIT` into any service deployed
+      from a connected git repo, no Dockerfile change needed. `/health`
+      now echoes it as `deploy_commit` (`None` outside Render, honestly)
+- [x] Added `check_deploy_freshness.yml`: a new scheduled workflow
+      (`workflow_dispatch` included from day one this time, not added
+      after the fact) that queries the live `/health`, looks up the
+      reported commit's real age via GitHub's own API, and fails loudly
+      if it's stale beyond 48h (generous over `refresh_catalog.yml`'s
+      daily rebuild cadence, tight enough to catch a genuinely stuck
+      Auto-Deploy) or if `deploy_commit` is missing entirely. Turns
+      Slice 32's permanently-open dashboard-only question into an
+      automated, continuously-checked signal
+- [x] Added 2 new tests for `/health`'s new field (real value passed
+      through, `None` when the env var is unset) plus the `test.yml`
+      change, verified via `yaml.safe_load` handling PyYAML's `on:` →
+      boolean-`True` quirk (same check as Slice 41's)
+- [x] Verified for real: `ruff`/`mypy` clean, 166/166 tests pass
+      (164 + 2 new). The new workflow's shell logic (JSON extraction,
+      date-diff arithmetic) tested directly against real sample input
+      before being trusted inside CI, not just reasoned about
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

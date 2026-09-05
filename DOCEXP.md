@@ -6583,3 +6583,106 @@ a live call either.
   wasn't in scope for this pass. Worth a deliberate sweep if "production
   resilience" is revisited again, rather than assuming these two were
   the only two.
+
+## Slice 46 — Working the 9/10 list, item four: two recurring process gaps, closed for real this time
+
+**Date:** 2026-09-05
+
+Item 4 was "two process gaps rediscovered twice each" — the GitHub
+Actions re-run staleness trap (Slices 35, 36) and Render deploy
+staleness (Slices 32, 41). Both had real fixes already landed, but
+neither had been closed in a way that actually prevents a third
+recurrence — one was patched per-workflow as each was individually
+caught, the other fixed its symptom (cadence) without ever answering
+the actual open question underneath it.
+
+### Gap A: checked whether the fix pattern had actually been applied everywhere
+
+Slice 35 added `workflow_dispatch: {}` to `frontend-ci.yml` after "Re-run
+jobs" was found to replay the pinned original commit instead of picking
+up a fix already on master. Slice 36 hit the identical thing in
+`run_evals.yml` the very same day. Rather than assume a third workflow
+couldn't have the same gap just because it hadn't been *caught* yet,
+checked every workflow file directly: `poll_player_counts.yml` and
+`refresh_catalog.yml` already had `workflow_dispatch` (added when they
+were first written, unrelated to this bug). `test.yml` — the workflow
+that actually gates every push and PR, arguably the most important one
+in the repo — did not. This is exactly the shape of "rediscovered
+twice": the fix pattern was known, just not applied systematically.
+Added it there too, with a comment pointing back at Slices 35/36 so the
+next person (or the next slice) doesn't have to re-derive why it matters.
+
+### Gap B: the real open question from Slice 32 finally gets an automated answer
+
+Slice 41 fixed `refresh_catalog.yml`'s cadence (weekly to daily), which
+closed the *specific* symptom that slice caught (a live forecast lagging
+real history by up to 7 days). It didn't touch the actual open question
+Slice 32 left sitting: is Auto-Deploy even enabled on Render, is
+`DEPLOY_HOOK_URL` set at all — both literally unverifiable from inside
+any session or CI run, since this project has no Render dashboard/API
+access. A tighter cadence makes staleness *less likely*, but says
+nothing about whether the mechanism causing it is actually fixed or
+just hasn't happened to fail again recently.
+
+Rather than accept "we can't check this" as final, looked for a real
+signal that doesn't need dashboard access. Checked Render's own
+documentation directly (not assumed): it automatically injects
+`RENDER_GIT_COMMIT` (and `RENDER_GIT_BRANCH`, `RENDER_GIT_REPO_SLUG`)
+into any service deployed from a connected git repo — no Dockerfile
+change, no build-arg plumbing needed. Added `deploy_commit` to `/health`
+reading that env var directly.
+
+That alone doesn't close the loop — someone still has to look at
+`/health` and notice a stale commit. So added `check_deploy_freshness.yml`:
+queries the live `/health`, takes whatever commit it reports, looks up
+that commit's *real* committed-at timestamp via GitHub's API (`gh api
+repos/.../commits/$SHA`, using the workflow's automatic token — no new
+secret needed), and fails the job if it's older than 48 hours. That
+threshold is deliberately generous over `refresh_catalog.yml`'s daily
+cadence (real slack for a slow build or scheduling jitter) while still
+being tight enough to catch a genuinely broken Auto-Deploy within a
+day or two, not weeks.
+
+Presented the whole design to the user before writing any of it — a new
+scheduled workflow with a specific staleness threshold is a real,
+ongoing behavior decision, not a pure bug fix — and got explicit
+confirmation, same as Slice 45's router-resilience change.
+
+### A small but real verification step: testing the shell logic against real input first
+
+The workflow's own logic (extract `deploy_commit` from a JSON response,
+compute an age in hours from an ISO timestamp) is exactly the kind of
+thing that looks obviously correct and then breaks the first time it
+actually runs in CI, with no local feedback loop to catch it beforehand.
+Tested both pieces directly against real sample input before trusting
+them inside the workflow: the JSON-extraction one-liner against a
+literal `{"deploy_commit": "abc123"}` and a `null` case, and the date-
+diff arithmetic (`date -u -d "<iso-timestamp>" +%s`) against a real
+timestamp, confirming Git Bash's `date` here behaves the same way the
+GNU `date` on GitHub's Ubuntu runners will. Cheap to do, and exactly the
+kind of thing Slice 41's own `on:`-as-boolean YAML surprise already
+proved is worth checking rather than assuming.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 166/166 tests pass (164 from
+Slice 45, +2 new for `/health`'s `deploy_commit` field). Both new/changed
+YAML files re-validated with `yaml.safe_load` (handling PyYAML's `on:` →
+boolean `True` coercion the same way Slice 41 already learned to). What
+could NOT be verified from inside this session, named honestly rather
+than assumed: whether `check_deploy_freshness.yml`'s first real
+scheduled run actually reaches the live `/health` endpoint and reports a
+sensible commit — that only happens on Render's own infrastructure,
+tomorrow at 07:00 UTC.
+
+### Open questions (new)
+
+- **Whether the live deploy is currently fresh at all** — genuinely
+  unknown until `check_deploy_freshness.yml`'s first real run. If it
+  fails immediately, that's itself a real, useful answer to Slice 32's
+  long-open question (Auto-Deploy/`DEPLOY_HOOK_URL` may in fact not be
+  configured), not a bug in this new workflow.
+- **The 48h threshold is a first real guess, not a tuned constant.**
+  Worth revisiting once a few real runs' worth of actual staleness
+  numbers exist, the same way `SPACING_SECONDS` (Slice 44) started as a
+  guess and got corrected against real evidence.

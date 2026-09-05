@@ -67,6 +67,7 @@ def test_health_reports_the_real_shape(client, monkeypatch, games_db):
     assert body["db_exists"] is True
     assert "self_correction" in body
     assert "usage" in body
+    assert "deploy_commit" in body
 
 
 def test_health_reports_db_exists_false_when_it_is_missing(client, monkeypatch, tmp_path):
@@ -74,6 +75,20 @@ def test_health_reports_db_exists_false_when_it_is_missing(client, monkeypatch, 
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["db_exists"] is False
+
+
+def test_health_reports_deploy_commit_from_render_env_var(client, monkeypatch, games_db):
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc1234")
+    resp = client.get("/health")
+    assert resp.json()["deploy_commit"] == "abc1234"
+
+
+def test_health_reports_deploy_commit_as_none_outside_render(client, monkeypatch, games_db):
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    resp = client.get("/health")
+    assert resp.json()["deploy_commit"] is None
 
 
 # --- DB-missing 503s, shared behavior across every DB-backed route ------

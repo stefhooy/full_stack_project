@@ -1,0 +1,89 @@
+name: Check deploy freshness
+
+# Closes a real, previously-unverifiable gap (see DOCEXP.md's Slice 32
+# entry): the live backend serving stale code has happened before, and
+# from inside a session/CI run there's no Render dashboard access to
+# check whether Auto-Deploy is actually enabled or whether
+# DEPLOY_HOOK_URL (refresh_catalog.yml) is even set. This workflow makes
+# that an automated, continuously-checked signal instead of a manual
+# dashboard check nobody has access to.
+#
+# How: Render automatically injects RENDER_GIT_COMMIT into any service
+# deployed from a connected git repo (confirmed against Render's own
+# docs, Slice 45) -- no Dockerfile change needed to expose it. /health
+# echoes it back as deploy_commit. This workflow reads that, looks up
+# the real commit date via GitHub's API, and fails loudly if the live
+# deploy is older than a generous threshold.
+#
+# 48h threshold: refresh_catalog.yml rebuilds daily (04:00 UTC), so a
+# healthy deploy is at most ~1 day + build time old. 48h gives real
+# slack for a slow build or a slightly-delayed schedule before treating
+# it as broken, without being so loose it'd miss a genuinely stuck
+# Auto-Deploy for days.
+#
+# Scheduled a few hours after refresh_catalog.yml's 04:00 UTC run, to
+# give the ~20-30 min Docker build (see refresh_catalog.yml) time to
+# actually land before checking.
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily, 07:00 UTC
+  workflow_dispatch: {} # manual runs from the Actions tab -- added from
+    # the start this time (see DOCEXP.md's Slice 35/36 entries for why
+    # every workflow needs this from day one, not added after the fact)
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query the live /health endpoint
+        id: health
+        run: |
+          # Render's free tier spins a service down after inactivity and
+          # takes ~30-60s to cold-start the next request -- retry rather
+          # than treat a slow first response as "the deploy is down."
+          body=""
+          for attempt in 1 2 3 4 5; do
+            if body=$(curl -fsS --max-time 30 https://ai-game-analyst-api.onrender.com/health); then
+              break
+            fi
+            echo "Attempt $attempt failed (cold start?), retrying in 20s..."
+            sleep 20
+          done
+          if [ -z "$body" ]; then
+            echo "::error::Could not reach the live /health endpoint after 5 attempts."
+            exit 1
+          fi
+          echo "Live /health response: $body"
+          sha=$(echo "$body" | python3 -c "import json,sys; print(json.load(sys.stdin).get('deploy_commit') or '')")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check the deployed commit exists and isn't too old
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.health.outputs.sha }}
+        run: |
+          if [ -z "$SHA" ]; then
+            echo "::error::/health has no deploy_commit. RENDER_GIT_COMMIT is unset,"
+            echo "meaning either this deploy predates Slice 45's /health field, or"
+            echo "Auto-Deploy/DEPLOY_HOOK_URL may not be configured on Render at all"
+            echo "(see DOCEXP.md's Slice 32 entry -- this is exactly the question"
+            echo "that was left open there, unverifiable without dashboard access)."
+            exit 1
+          fi
+          committed_at=$(gh api "repos/${{ github.repository }}/commits/$SHA" --jq .commit.committer.date)
+          if [ -z "$committed_at" ]; then
+            echo "::error::Commit $SHA reported by the live deploy doesn't exist on GitHub."
+            exit 1
+          fi
+          now_s=$(date -u +%s)
+          committed_s=$(date -u -d "$committed_at" +%s)
+          age_hours=$(( (now_s - committed_s) / 3600 ))
+          echo "Live deploy is running commit $SHA, committed $committed_at ($age_hours hours ago)."
+          if [ "$age_hours" -gt 48 ]; then
+            echo "::error::Live deploy is $age_hours hours stale (>48h)."
+            echo "refresh_catalog.yml rebuilds daily -- this likely means Auto-Deploy"
+            echo "is disabled or DEPLOY_HOOK_URL is missing/wrong on Render, not just"
+            echo "an unlucky delay. See DOCEXP.md's Slice 32 entry."
+            exit 1
+          fi

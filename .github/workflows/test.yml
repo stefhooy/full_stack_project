@@ -15,6 +15,15 @@ on:
   push:
     branches: [main, master]
   pull_request: {}
+  workflow_dispatch: {} # manual runs from the Actions tab -- e.g. to
+    # re-verify a workflow-file-only fix. Without this, "Re-run jobs" on
+    # an old run replays the workflow *definition* pinned to that run's
+    # original commit, not whatever is now on master -- a real, confirmed
+    # GitHub Actions gotcha (see DOCEXP.md's Slice 35/36 entries, found
+    # in frontend-ci.yml and run_evals.yml respectively). Added here too
+    # so this workflow -- the one that actually gates every push/PR --
+    # doesn't sit as the one instance of the same trap nobody happened to
+    # rediscover yet.
 
 jobs:
   test:
