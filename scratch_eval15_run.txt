@@ -1,0 +1,40 @@
+
+ID                               PASS   JUDGE   LATENCY  TOKENS   COST       DETAIL
+----------------------------------------------------------------------------------------------------
+lookup_top_ccu                   PASS   4/5       17.0s     3880 $0.00068   expected route='lookup', got 'lookup'; expected 'Counter-Strike: Global Offensive' in answer (found=True): 'The game with the highest peak concurrent player count is **Counter-Strike: Global Offensive**, with a peak of **1,013,9'
+                                        judge: The answer correctly identifies Counter-Strike: Global Offensive as the game with the highest peak concurrent player count, but it adds an unsupported specific peak number that is not present in the reference facts.
+lookup_high_review_count         PASS   5/5        3.6s     3766 $0.00065   expected route='lookup', got 'lookup'; found 434.0 in answer, matches expected 434
+                                        judge: The answer correctly states the count of games with review_score > 0.9 as 434, matching the reference facts.
+analysis_action_vs_f2p_not_mislabeled FAIL   1/5        4.8s      513 $0.00011   expected route='analysis', got 'analysis'; expected either a compare_two_groups stats_result, or a plain-SQL column labeled free-to-play with a real returned value; got stats_result=None, columns=None, sql=None
+                                        judge: The AI did not provide any answer or data, thus it does not address the question or reflect the reference facts.
+analysis_ccu_outliers            FAIL   1/5       15.7s      566 $0.00014   expected route='analysis', got 'analysis'; expected 'Counter-Strike: Global Offensive' in answer (found=False): "I ran into a repeated error trying to answer this question and can't complete it right now. Please try rephrasing it or "
+                                        judge: The answer does not provide the factual information that Counter-Strike: Global Offensive is the clear outlier with the highest peak_ccu, instead claiming an error, which contradicts the reference facts.
+needs_clarification_ambiguous    PASS   5/5        1.2s      554 $0.00014   expected route='needs_clarification', got 'needs_clarification'; expected no sql/stats_result, got sql=None, stats_result=None
+                                        judge: The answer asks for clarification about which game, matching the reference guidance.
+lookup_avg_strategy_price        FAIL   1/5        9.8s      543 $0.00013   expected route='lookup', got 'lookup'; expected a number near 16.27722772277221 in the answer; found []
+                                        judge: The AI did not provide the average price and claimed it could not answer, contradicting the reference fact that the average price is $16.28.
+lookup_linux_count               FAIL   1/5        9.6s      542 $0.00013   expected route='lookup', got 'lookup'; expected a number near 253 in the answer; found []
+                                        judge: The AI did not provide the correct count of 253 games supporting Linux, instead stating it cannot answer.
+analysis_f2p_vs_paid_review_scores PASS   2/5       32.4s     5442 $0.00102   expected route='analysis', got 'analysis'; expected 'significant' in answer (found=True): 'Paid games have a higher average review score than free-to-play games.  \nFree-to-play games (66 titles) average a review'
+                                        judge: The answer gives incorrect average review scores (0.765 vs 0.772 and 0.895 vs 0.871), which contradicts the reference facts, even though the conclusion about significance is correct.
+analysis_price_outliers          FAIL   4/5       32.3s     5267 $0.00098   expected route='analysis', got 'analysis'; expected 'EA SPORTS FC 24' in answer (found=False): 'Yes. The only game that stands out as unusually expensive is **EA\u202fSPORTS\u202fFC\u202f24**, which is priced at **$69.99**. This pr'
+                                        judge: The answer correctly identifies EA SPORTS FC 24 as the outlier, but it adds an unsupported specific price ($69.99) and a statistical claim not present in the reference facts.
+forecast_csgo_next_month         FAIL   1/5       52.8s     5609 $0.00102   expected route='forecast', got 'forecast'; expected a real forecast_result with insufficient_history=False, got None
+                                        judge: The answer claims an error and inability to answer, contradicting the reference that sufficient data exists for a projection.
+forecast_hoi4_next_week          FAIL   1/5       16.8s      506 $0.00011   expected route='forecast', got 'forecast'; expected a real forecast_result with insufficient_history=False, got None
+                                        judge: The answer provides no projection and claims an error, contradicting the reference that sufficient data exists for a projection.
+forecast_insufficient_history_is_honest FAIL   5/5       16.5s      510 $0.00011   expected route='forecast', got 'forecast'; expected forecast_result with insufficient_history=True, got None
+                                        judge: The AI correctly indicates it cannot provide a forecast due to lack of data, matching the reference that no projection can be made.
+needs_clarification_best_game    PASS   5/5        1.2s      561 $0.00014   expected route='needs_clarification', got 'needs_clarification'; expected no sql/stats_result, got sql=None, stats_result=None
+                                        judge: The answer correctly asks for clarification on the criterion for 'best', aligning with the reference guidance.
+needs_clarification_compare_prices PASS   5/5        1.3s      532 $0.00012   expected route='needs_clarification', got 'needs_clarification'; expected no sql/stats_result, got sql=None, stats_result=None
+                                        judge: The AI correctly responded by asking for clarification about which games to compare, matching the reference guidance.
+needs_clarification_should_i_buy PASS   5/5        1.5s      579 $0.00015   expected route='needs_clarification', got 'needs_clarification'; expected no sql/stats_result, got sql=None, stats_result=None
+                                        judge: The answer correctly asks for clarification about which game, matching the reference guidance.
+----------------------------------------------------------------------------------------------------
+route accuracy:        15/15
+deterministic checks:   7/15
+avg judge score:        3.1/5
+avg /ask latency:       14.4s  (n=15, real full-graph runs, not a formal percentile)
+avg cost per question:  $0.00038  (Groq on-demand list price, router+agent calls only)
+

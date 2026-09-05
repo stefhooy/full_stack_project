@@ -13,11 +13,21 @@ calls.
 
 from __future__ import annotations
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agent import graph as graph_module
 from src.agent.graph import agent_node
 from src.config import settings
+
+
+@pytest.fixture(autouse=True)
+def _skip_the_real_retry_backoff(monkeypatch):
+    # agent_node sleeps settings.agent_retry_backoff_seconds (a real few
+    # seconds, Slice 44) before its retry, so a rate-limit window has an
+    # actual chance to clear in production. These tests exercise the real
+    # code path, not a real rate limit, so there's nothing to wait for.
+    monkeypatch.setattr(graph_module.time, "sleep", lambda seconds: None)
 
 
 class _FailingModel:

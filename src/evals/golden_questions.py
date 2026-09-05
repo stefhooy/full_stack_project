@@ -31,6 +31,8 @@ from src.evals.checks import (
     all_of,
     contains_number,
     contains_text,
+    forecast_has_real_projection,
+    forecast_reports_insufficient_history,
     no_data_fabricated,
     route_is,
 )
@@ -116,6 +118,43 @@ def build_golden_questions() -> list[GoldenQuestion]:
             conn, "SELECT COUNT(*) FROM games WHERE review_score > 0.9"
         )
         f2p_count = _query_one(conn, "SELECT COUNT(*) FROM games WHERE price_usd = 0")
+        strategy_avg_price = _query_one(
+            conn, "SELECT AVG(price_usd) FROM games WHERE genre LIKE '%Strategy%'"
+        )
+        linux_count = _query_one(
+            conn, "SELECT COUNT(*) FROM games WHERE platforms LIKE '%linux%'"
+        )
+        price_outlier_name = _query_one(
+            conn, "SELECT name FROM games ORDER BY price_usd DESC LIMIT 1"
+        )
+        f2p_review_mean = _query_one(
+            conn, "SELECT AVG(review_score) FROM games WHERE price_usd = 0"
+        )
+        paid_review_mean = _query_one(
+            conn, "SELECT AVG(review_score) FROM games WHERE price_usd > 0"
+        )
+        csgo_snapshots = _query_one(
+            conn,
+            "SELECT COUNT(DISTINCT pc.polled_at) FROM player_counts pc "
+            "JOIN games g ON g.appid = pc.appid "
+            "WHERE g.name = 'Counter-Strike: Global Offensive'",
+        )
+        hoi4_snapshots = _query_one(
+            conn,
+            "SELECT COUNT(DISTINCT pc.polled_at) FROM player_counts pc "
+            "JOIN games g ON g.appid = pc.appid WHERE g.name = 'Hearts of Iron IV'",
+        )
+        # Whichever real, currently most-popular game the poller hasn't
+        # tracked yet -- queried live, not hardcoded, so this stays correct
+        # as the poller's own tracked set grows over time (see DOCEXP.md's
+        # Slice 43 entry for why a fixed game name here would eventually
+        # go stale).
+        untracked_game = _query_one(
+            conn,
+            "SELECT g.name FROM games g "
+            "WHERE g.appid NOT IN (SELECT DISTINCT appid FROM player_counts) "
+            "ORDER BY g.peak_ccu DESC LIMIT 1",
+        )
     finally:
         conn.close()
 
@@ -173,6 +212,127 @@ def build_golden_questions() -> list[GoldenQuestion]:
             reference_facts=(
                 "The question doesn't name a game, so the correct response is a clarifying "
                 "question asking which game — not a guess."
+            ),
+        ),
+        # Slice 43: grown from 5 to 15 questions (a 5-question set was sound
+        # methodology but smoke-test statistical weight -- see DOCEXP.md).
+        # The 10 below add real coverage of a data dimension not touched
+        # above (platforms, genre pricing), a second, numerically robust
+        # analysis comparison (the first, Action vs Strategy review scores,
+        # had a borderline p=0.03 that a small re-ingestion could flip),
+        # forecast (removed in Slice 27 when it had no real tool behind it,
+        # restored now that Slice 40/41 confirmed it genuinely works), and
+        # two more genuinely distinct needs_clarification phrasings.
+        GoldenQuestion(
+            id="lookup_avg_strategy_price",
+            question="What is the average price of games tagged as Strategy?",
+            expected_route="lookup",
+            check=all_of(
+                route_is("lookup"), contains_number(strategy_avg_price, tolerance=0.5, rel=False)
+            ),
+            reference_facts=(
+                f"AVG(price_usd) WHERE genre LIKE '%Strategy%' is ${strategy_avg_price:.2f}."
+            ),
+        ),
+        GoldenQuestion(
+            id="lookup_linux_count",
+            question="How many games support Linux?",
+            expected_route="lookup",
+            check=all_of(
+                route_is("lookup"), contains_number(linux_count, tolerance=0.5, rel=False)
+            ),
+            reference_facts=f"COUNT(*) WHERE platforms LIKE '%linux%' is {linux_count}.",
+        ),
+        GoldenQuestion(
+            id="analysis_f2p_vs_paid_review_scores",
+            question=(
+                "Is there a significant difference in review scores between free-to-play "
+                "and paid games?"
+            ),
+            expected_route="analysis",
+            check=all_of(route_is("analysis"), contains_text("significant")),
+            reference_facts=(
+                f"Free-to-play games (price_usd = 0) average review_score "
+                f"{f2p_review_mean:.3f}; paid games average {paid_review_mean:.3f}. A real "
+                "Welch's t-test on this data finds p << 0.001 -- an unambiguous, robust "
+                "difference, not a borderline call."
+            ),
+        ),
+        GoldenQuestion(
+            id="analysis_price_outliers",
+            question="Are there any games with an unusually high price compared to the rest?",
+            expected_route="analysis",
+            check=all_of(route_is("analysis"), contains_text(price_outlier_name)),
+            reference_facts=(
+                f"{price_outlier_name!r} has the single highest price_usd in the dataset and "
+                "should be flagged as a clear outlier."
+            ),
+        ),
+        GoldenQuestion(
+            id="forecast_csgo_next_month",
+            question="How many players will Counter-Strike: Global Offensive have next month?",
+            expected_route="forecast",
+            check=all_of(route_is("forecast"), forecast_has_real_projection()),
+            reference_facts=(
+                f"Counter-Strike: Global Offensive has {csgo_snapshots} real historical "
+                "live-player snapshots, enough to fit a real (if not necessarily high-"
+                "confidence) linear-trend projection -- the tool should NOT report "
+                "insufficient_history for this game."
+            ),
+        ),
+        GoldenQuestion(
+            id="forecast_hoi4_next_week",
+            question="How many players will Hearts of Iron IV have next week?",
+            expected_route="forecast",
+            check=all_of(route_is("forecast"), forecast_has_real_projection()),
+            reference_facts=(
+                f"Hearts of Iron IV has {hoi4_snapshots} real historical live-player "
+                "snapshots, enough for a real projection over this short (7-day) horizon -- "
+                "the tool should NOT report insufficient_history for this game."
+            ),
+        ),
+        GoldenQuestion(
+            id="forecast_insufficient_history_is_honest",
+            question=f"How many players will {untracked_game} have next month?",
+            expected_route="forecast",
+            check=all_of(route_is("forecast"), forecast_reports_insufficient_history()),
+            reference_facts=(
+                f"{untracked_game!r} has zero real historical live-player snapshots (it "
+                "isn't in the set of games the live-player poller currently tracks). The "
+                "only honest answer is that there isn't enough history to forecast from -- "
+                "any specific projected number would be fabricated."
+            ),
+        ),
+        GoldenQuestion(
+            id="needs_clarification_best_game",
+            question="What's the best game?",
+            expected_route="needs_clarification",
+            check=all_of(route_is("needs_clarification"), no_data_fabricated()),
+            reference_facts=(
+                "\"Best\" by what criterion (reviews, players, price) is undefined, and no "
+                "game or genre is named -- the correct response asks what the user actually "
+                "means, not a guess at a single \"best\" game."
+            ),
+        ),
+        GoldenQuestion(
+            id="needs_clarification_compare_prices",
+            question="Compare the prices of these games.",
+            expected_route="needs_clarification",
+            check=all_of(route_is("needs_clarification"), no_data_fabricated()),
+            reference_facts=(
+                "\"These games\" doesn't name any games at all -- the correct response asks "
+                "which games to compare, not a guess at which ones \"these\" refers to."
+            ),
+        ),
+        GoldenQuestion(
+            id="needs_clarification_should_i_buy",
+            question="Should I buy it?",
+            expected_route="needs_clarification",
+            check=all_of(route_is("needs_clarification"), no_data_fabricated()),
+            reference_facts=(
+                "\"It\" doesn't name a game, and \"should I buy\" isn't a fact this dataset "
+                "can answer even once a game is named -- the correct response asks which "
+                "game, not a guess."
             ),
         ),
     ]

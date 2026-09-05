@@ -49,9 +49,22 @@ def contains_number(expected: float, tolerance: float = 0.05, rel: bool = True) 
     return check
 
 
+def _normalize_whitespace(text: str) -> str:
+    # Real, observed behavior (Slice 44): the model sometimes renders a
+    # brand name using a Unicode narrow-no-break-space character between
+    # words rather than a plain ASCII space (e.g. a stylized rendering of
+    # "EA SPORTS FC 24"), which a plain substring check misses even
+    # though the answer is factually correct. re's \s matches these
+    # Unicode space variants (confirmed empirically), a literal `in`
+    # check doesn't.
+    return re.sub(r"\s+", " ", text)
+
+
 def contains_text(expected_substring: str) -> Check:
     def check(result: AgentResult) -> CheckResult:
-        found = expected_substring.lower() in result.answer.lower()
+        answer_norm = _normalize_whitespace(result.answer).lower()
+        expected_norm = _normalize_whitespace(expected_substring).lower()
+        found = expected_norm in answer_norm
         return CheckResult(
             found,
             f"expected {expected_substring!r} in answer (found={found}): {result.answer[:120]!r}",
@@ -65,6 +78,40 @@ def route_is(expected_route: str) -> Check:
         return CheckResult(
             result.route == expected_route,
             f"expected route={expected_route!r}, got {result.route!r}",
+        )
+
+    return check
+
+
+def forecast_has_real_projection() -> Check:
+    """For a forecast question where enough real history exists: the tool
+    must have actually run and produced a real (not insufficient-history)
+    projection, not the model answering from schema-level guesswork alone
+    (a real, previously-observed failure mode — see DOCEXP.md's Slice 32
+    entry)."""
+
+    def check(result: AgentResult) -> CheckResult:
+        fr = result.forecast_result
+        ok = fr is not None and fr.get("insufficient_history") is False
+        return CheckResult(
+            ok, f"expected a real forecast_result with insufficient_history=False, got {fr!r}"
+        )
+
+    return check
+
+
+def forecast_reports_insufficient_history() -> Check:
+    """For a forecast question about a game with too little (or no) real
+    history: the tool must honestly report that, not fabricate a number.
+    This is the tool's own core design promise (src/tools/forecast_tool.py),
+    checked here as a real regression test of it, not just asserted in a
+    docstring."""
+
+    def check(result: AgentResult) -> CheckResult:
+        fr = result.forecast_result
+        ok = fr is not None and fr.get("insufficient_history") is True
+        return CheckResult(
+            ok, f"expected forecast_result with insufficient_history=True, got {fr!r}"
         )
 
     return check

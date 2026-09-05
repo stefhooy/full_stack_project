@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Annotated, TypedDict, cast
 
@@ -183,6 +184,15 @@ def agent_node(state: AgentState) -> dict:
     # retry regardless of its exact type.
     attempts = state["attempts"] + 1
     tool_errors = state["tool_errors"] + 1
+    # A same-instant retry is genuinely useful against a one-off malformed-
+    # generation error, but close to useless against a real rate limit --
+    # confirmed for real in Slice 44, growing the golden question set
+    # reproduced this exact failure repeatedly, small token counts and
+    # this node's own degraded-fallback text on question after question,
+    # the signature of the retry landing in the same still-exceeded TPM
+    # window as the original call. A few real seconds gives that window a
+    # genuine chance to roll forward first.
+    time.sleep(settings.agent_retry_backoff_seconds)
     try:
         # One retry with no tools bound -- forces a plain-text answer,
         # sidestepping the exact failure mode (malformed tool-call

@@ -104,7 +104,7 @@ predicted value:
   SELECT polled_at, player_count FROM player_counts
   WHERE appid = (
     SELECT appid FROM games
-    WHERE regexp_replace(name, '[-:]', ' ', 'g') ILIKE '%counter strike%'
+    WHERE regexp_replace(name, '[-:\\s]+', ' ', 'g') ILIKE '%counter strike%'
     ORDER BY peak_ccu DESC LIMIT 1
   )
   ORDER BY polled_at
@@ -112,7 +112,11 @@ predicted value:
   silently matches zero rows whenever the user's phrasing and the real title differ by
   punctuation (e.g. "Counter Strike" vs the real title "Counter-Strike: Global
   Offensive"), producing a false "no historical snapshots" answer instead of a real
-  forecast. Always normalize punctuation on both sides AND disambiguate with
+  forecast. The `+` after `[-:\\s]` matters too, not just the character class: matching
+  punctuation and whitespace ONE AT A TIME (no `+`) turns "Strike: Global" (colon then
+  space) into "Strike  Global" (TWO spaces), which then fails to match a normal
+  single-spaced phrase — this is itself a real, previously-confirmed bug in this exact
+  guidance, not a hypothetical one. Always normalize punctuation on both sides AND disambiguate with
   ORDER BY peak_ccu DESC LIMIT 1 when a name could match more than one real game
   (e.g. "Counter-Strike", "Counter-Strike: Source", and "Counter-Strike: Global
   Offensive" are three separate, real rows), see column:name's own schema note for

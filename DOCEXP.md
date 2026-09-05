@@ -6359,3 +6359,146 @@ folded into this item's "done" claim.
   acceptable as-is given their harder-to-unit-test nature (real LLM
   calls, thin orchestration). Not decided; flagged for whenever the
   9/10 list's first six items are otherwise exhausted.
+
+## Slice 44 — Working the 9/10 list, item two: growing the golden set found three more real bugs
+
+**Date:** 2026-09-05
+
+Item two on the audit's list: 5 golden questions "carries real statistical
+weight as a smoke test, but not much more." Chose 15 as the target size
+(4 lookup / 4 analysis / 4 needs_clarification / 3 forecast) after being
+upfront about the real cost tradeoff — more questions means more real
+Groq calls, and this account runs on the free tier's daily token cap.
+
+### Growing the set the same way the original one was built
+
+Every new reference fact is computed live from the DB inside
+`build_golden_questions()`, never hardcoded — Strategy's real average
+price, Linux game count, the free-to-play/paid review-score comparison
+(deliberately chosen over Action-vs-Strategy after checking both: p≈1e-10
+and Cohen's d=-1.13 for f2p-vs-paid is numerically robust in a way a
+p=0.03 borderline result isn't, so the golden question won't flip on
+re-ingestion), and — new in this slice — dynamically picking *which*
+untracked game to use for the "insufficient history" case, so it stays
+correct as the poller's tracked set grows rather than naming one game
+that could eventually get tracked and silently invalidate the question.
+
+Added two new check builders, `forecast_has_real_projection()` and
+`forecast_reports_insufficient_history()`, both asserting on
+`forecast_result` directly rather than just the answer text — the
+specific thing they guard against is the model answering a forecast
+question correctly *in prose* without the tool having actually run,
+which turned out, later in this same slice, to not be a hypothetical
+concern at all.
+
+### First real run: the rate limit fix from Slice 42 wasn't enough on its own
+
+The first live 15-question run came back route accuracy 15/15 but
+deterministic checks only 7/15, judge 3.1/5. Looked at the actual
+failures rather than assuming "the new questions are just harder":
+eight of them showed `agent_node`'s own hardcoded degraded-fallback text
+("I ran into a repeated error...") sitting next to suspiciously small
+token counts (500-600 vs. a normal 3000-8000+) — the exact signature of
+a call that got rate-limited before it ever generated a real answer, not
+a quality problem with the questions themselves.
+
+Root cause: `run_evals.py`'s `SPACING_SECONDS` was still 5.0, tuned back
+when the set had 5 questions. Several of the new ones run 5000-8000+
+tokens, well above the old set's average, so two heavy questions landing
+in the same rolling 60-second window was now common instead of rare.
+Raised it to 20.0. Also gave `agent_node`'s own retry (the one Slice 42
+added for a failed model call) a real backoff — `agent_retry_backoff_seconds`,
+3.0s — since a same-instant retry has zero chance against a TPM window
+that's still exceeded; it needs a moment to actually roll forward.
+
+Re-ran for real: **12/15 deterministic checks (up from 7/15), judge
+4.1/5 (up from 3.1)**, and not one of the 12 passing results carries the
+degraded-fallback signature anymore. A real, measured improvement, not
+an assumption that raising a constant would obviously help.
+
+### The other three failures were not one bug wearing three disguises
+
+The temptation after a fix like that is to assume the remaining failures
+are just "more of the same, needs more tuning." Checked each individually
+instead, and they turned out to be three unrelated things:
+
+**1. A whitespace bug in the check itself, not the model.** The price-
+outliers question's answer correctly named "EA SPORTS FC 24" — but the
+model rendered it with a Unicode narrow-no-break-space (U+202F) between
+words instead of a plain space, which `contains_text`'s literal substring
+check missed even though the answer was factually right. Fixed by
+normalizing whitespace on both sides of the comparison
+(`re.sub(r"\s+", " ", text)` — confirmed empirically that `\s` matches
+U+202F even though `in` doesn't). Regression test built the stylized
+string with `chr(0x202F)` rather than typing the literal character,
+since the literal character itself tripped `ruff`'s own
+ambiguous-character lint (`RUF001`/`RUF003`) the first two times this
+was attempted — worth a note since it wasted real time before landing.
+
+**2. A real, live-confirmed bug in Slice 42's own forecast-guidance fix.**
+The CS:GO next-month forecast failed with `tool_errors: 2`, forecast
+tool never producing a result. Rather than guess, captured the actual
+message trace directly (same technique as Slice 42's original crash
+diagnosis): the model correctly wrote
+`regexp_replace(name, '[-:]', ' ', 'g') ILIKE '%counter strike global
+offensive%'` — the exact pattern Slice 42 taught it — but that pattern
+turns `"Counter-Strike: Global Offensive"` into `"Counter Strike  Global
+Offensive"`, TWO spaces before "Global" (the colon becomes a space
+immediately next to the literal space that already followed it in the
+real title), which then fails to match the model's own single-spaced
+search phrase. Zero rows, `execute_run_forecast` raises `ValueError`,
+self-correction retries exhaust, honest degradation. Fixed by matching
+*runs* of punctuation/whitespace instead of single characters —
+`'[-:\s]+'` — in both `FORECAST_TOOL_GUIDANCE` and the `column:name`
+schema chunk. Verified live, directly, not just by reasoning about the
+regex: re-ran the exact same question, got 1 attempt, 0 tool errors, and
+a real projection (`n_snapshots: 24`, `low_confidence: true` — correctly
+flagged, since 30 days out from only ~11 days of real history is exactly
+the low-confidence case the tool's own design already accounts for).
+
+**3. Genuinely inconclusive — and said so rather than guessed.** The
+third failure (`forecast_insufficient_history_is_honest`) showed the
+same hardcoded degraded-fallback text. First assumed this was leftover
+rate-limiting from testing the CS:GO fix moments earlier, and re-ran it
+in isolation after a real 65-second wait. Same failure. Bypassed
+`agent_node`'s swallowed exception directly (called `model.invoke()`
+outside its try/except) to see the actual error rather than continuing
+to guess, and found: `groq.RateLimitError`, but on **tokens per day**
+(TPD 200,000, 198,557 already used), not the per-minute limit Slice 42's
+fix targets — this session's own cumulative live-verification testing
+today, not a code bug. This means the original design concern the check
+was written to catch (the model answering correctly in prose without
+the tool having actually run) is still **unverified**, not confirmed
+either way, and is written up here as exactly that rather than silently
+folded into "item 2 is done" or guessed at without evidence.
+
+### What this slice's own experience says about the audit's underlying finding
+
+Two of three remaining failures here were bugs in the verification layer
+itself (the check's whitespace handling) or in a previous slice's own
+prompt-engineering fix (the double-space regex) — not in the questions
+newly added. This is the same shape as Slice 30's incident and Slice 43's
+`sqlglot.ParseError` find: expanding real test/eval surface keeps finding
+real bugs that were already there, just previously unexercised. The
+audit's coverage argument is, once again, borne out by its own remedy.
+
+### Verified for real before writing any of this down
+
+`ruff check .` and `uv run mypy src` clean throughout every step, not
+just at the end. 160/160 tests pass (159 from Slice 43, +1 new regression
+test for the whitespace-normalization fix). The two live-confirmed fixes
+(rate-limit spacing/backoff, and the forecast regex) were each verified
+against a real Groq call showing the specific failure gone, not inferred
+from the code change alone.
+
+### Open questions (new)
+
+- **Whether the 3rd failure (`forecast_insufficient_history_is_honest`)
+  is a real design gap or was always going to pass** — genuinely
+  unknown until the daily Groq quota resets and it can be re-run in
+  isolation, ideally as close to the top of the daily quota as possible
+  so a real TPD-related false failure can be ruled out cleanly.
+- **Whether item 2 should be considered "done"** given this open
+  question, or held open until the third failure is actually resolved
+  one way or the other — a call for whoever picks this list back up,
+  not assumed here.

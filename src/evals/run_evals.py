@@ -52,7 +52,20 @@ from src.evals.judge import JudgeVerdict, judge_answer
 # alone isn't enough. Groq's own error message told us the wait needed
 # was tiny (412.5ms) that one time, but a rolling-window limit can need up
 # to the whole window to clear, so backoff is seconds, not milliseconds.
-SPACING_SECONDS = 5.0
+#
+# Raised from 5.0 to 20.0 in Slice 44, when growing the golden set from 5
+# to 15 questions (several of the new ones are 5000-8000+ tokens each,
+# bigger on average than the original set) reproduced the exact same
+# class of failure the comment above already describes: a real eval run
+# came back 7/15 deterministic checks, most of the failures showing
+# agent_node's own degraded fallback text and suspiciously small token
+# counts, both signatures of a rate-limited call that never got to
+# generate a real answer. 5s between questions was never really enough
+# once the set includes several genuinely large questions back to back;
+# 20s keeps any two heavy questions from landing in the same rolling
+# TPM window in the first place, rather than leaning entirely on
+# _call_with_retry to clean up after the fact.
+SPACING_SECONDS = 20.0
 
 
 def _call_with_retry[T](fn: Callable[..., T], *args: object, max_attempts: int = 3) -> T:

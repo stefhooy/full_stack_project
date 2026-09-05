@@ -2191,6 +2191,60 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       real gaps, but not the specific ones the audit named, treated as a
       lower-priority follow-up rather than silently claimed as done
 
+## Slice 44 — Path to 9/10, item 2: golden question set grown 5 → 15, plus three more real bugs found along the way
+- [x] Grew the golden question set from 5 to 15 (4 lookup / 4 analysis /
+      4 needs_clarification / 3 forecast), every new reference fact
+      computed live from the DB at eval time (never hardcoded), including
+      dynamically picking which currently-popular game the poller hasn't
+      tracked yet for the "insufficient history" case, so the suite stays
+      correct across re-ingestion. Added two new reusable check builders,
+      `forecast_has_real_projection()`/`forecast_reports_insufficient_history()`,
+      that assert the forecast tool actually ran (not the model answering
+      from schema-level guesswork alone)
+- [x] First real 15-question run: route accuracy 15/15, but deterministic
+      checks only 7/15 and judge 3.1/5 — several failures showed
+      `agent_node`'s own degraded-fallback text alongside suspiciously
+      small token counts, the signature of a rate-limited call that never
+      got to generate a real answer
+- [x] Diagnosed and fixed: `run_evals.py`'s `SPACING_SECONDS` (5.0, tuned
+      for the old 5-question set) was insufficient once several new
+      questions ran 5000-8000+ tokens each — raised to 20.0. Also added
+      `agent_retry_backoff_seconds` (3.0s) to `agent_node`'s own retry —
+      a same-instant retry is close to useless against a still-exceeded
+      TPM window, a real few seconds gives it a genuine chance to clear
+- [x] Re-ran for real: **12/15 deterministic checks (up from 7/15), judge
+      4.1/5 (up from 3.1)**, and the degraded-fallback/tiny-token failure
+      signature is gone entirely
+- [x] Of the 3 remaining failures, found and fixed two more real bugs,
+      not just re-tuned constants:
+  - `contains_text()` failed a factually-correct answer ("EA SPORTS FC 24")
+    because the model rendered it with a Unicode narrow-no-break-space
+    between words instead of a plain ASCII space — fixed by normalizing
+    whitespace on both sides before comparing, with a regression test
+    built from `chr(0x202F)` rather than a literal character
+  - The CS:GO next-month forecast failed with `tool_errors: 2,
+    forecast_result: None` — traced via a direct message-trace capture to
+    the exact query the model wrote:
+    `regexp_replace(name, '[-:]', ' ', 'g')` turns `"Counter-Strike:
+    Global Offensive"` into `"Counter Strike  Global Offensive"` — TWO
+    spaces before "Global", because the colon becomes a space right next
+    to the literal space that already followed it in the source title —
+    which then fails to match the model's own single-spaced `ILIKE`
+    pattern. A real, confirmed bug in Slice 42's own "fix" for the
+    JSON-escaping issue, not a hypothetical one. Fixed by matching runs
+    of punctuation/whitespace instead of single characters: `[-:\s]+`.
+    Verified live, directly: 1 attempt, 0 tool errors, a real projection
+    (n_snapshots=24) where the buggy version had exhausted all retries
+- [x] The 3rd remaining failure (`forecast_insufficient_history_is_honest`)
+      could NOT be conclusively diagnosed today: bypassing the swallowed
+      exception showed the real cause is `groq.RateLimitError` on **tokens
+      per day** (TPD 200,000, 198,557 already used) — this session's own
+      cumulative live-verification testing, not a code bug. Documented
+      honestly as unresolved pending a quota reset, rather than guessed at
+      or silently dropped
+- [x] Full verification, real: `ruff`/`mypy` clean, 160/160 tests pass
+      (159 + 1 new regression test for the whitespace-normalization fix)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

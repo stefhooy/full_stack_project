@@ -84,6 +84,15 @@ class Settings(BaseSettings):
     # --- agent guardrails ---
     sql_max_retries: int = 3
     sql_max_rows: int = 200
+    agent_retry_backoff_seconds: float = 3.0
+    """Delay before agent_node's one retry after a model-call failure
+    (src/agent/graph.py). Added in Slice 44: a same-instant retry is
+    genuinely useful against a one-off malformed-generation error, but
+    close to useless against a real TPM rate limit -- the window that
+    just got exceeded hasn't had a chance to roll forward yet. A few
+    seconds is a real compromise for a live request (unlike
+    run_evals.py's own much longer backoff, which a live user isn't
+    sitting through)."""
 
     # --- ingestion ---
     steamspy_user_agent: str = "ai-game-analyst-ingest/0.1"

@@ -17,7 +17,15 @@ it -- see DOCEXP.md's Slice 42 entry for the audit finding this closes.
 from __future__ import annotations
 
 from src.agent.graph import AgentResult
-from src.evals.checks import all_of, contains_number, contains_text, no_data_fabricated, route_is
+from src.evals.checks import (
+    all_of,
+    contains_number,
+    contains_text,
+    forecast_has_real_projection,
+    forecast_reports_insufficient_history,
+    no_data_fabricated,
+    route_is,
+)
 from src.evals.golden_questions import _check_action_vs_f2p_not_mislabeled
 
 
@@ -85,6 +93,19 @@ def test_contains_text_fails_when_absent():
     check = contains_text("Portal 2")
     result = _result(answer="the top game is Counter-Strike: Global Offensive")
     assert not check(result).passed
+
+
+def test_contains_text_matches_across_typographic_spacing():
+    # Real, observed failure (Slice 44): the model rendered a brand name
+    # using narrow no-break spaces (U+202F) between words instead of plain
+    # ASCII spaces, a factually correct answer a plain substring check
+    # missed. Built with chr(0x202F) rather than a literal character in
+    # this source file, so the character stays unambiguous to ruff/editors.
+    nnbsp = chr(0x202F)
+    stylized_name = nnbsp.join(["EA", "SPORTS", "FC", "24"])
+    check = contains_text("EA SPORTS FC 24")
+    result = _result(answer=f"the outlier is {stylized_name} at $69.99")
+    assert check(result).passed
 
 
 # --- route_is --------------------------------------------------------------
@@ -217,3 +238,44 @@ def test_f2p_check_fails_cleanly_when_neither_real_path_is_present():
     outcome = _check_action_vs_f2p_not_mislabeled(result)
     assert not outcome.passed
     assert "expected either" in outcome.detail
+
+
+# --- forecast_has_real_projection / forecast_reports_insufficient_history ---
+
+
+def test_forecast_has_real_projection_passes_on_a_real_projection():
+    check = forecast_has_real_projection()
+    result = _result(forecast_result={"insufficient_history": False, "projected_value": 1000.0})
+    assert check(result).passed
+
+
+def test_forecast_has_real_projection_fails_when_history_was_insufficient():
+    check = forecast_has_real_projection()
+    result = _result(forecast_result={"insufficient_history": True})
+    assert not check(result).passed
+
+
+def test_forecast_has_real_projection_fails_when_the_tool_was_never_called():
+    check = forecast_has_real_projection()
+    result = _result(forecast_result=None)
+    assert not check(result).passed
+
+
+def test_forecast_reports_insufficient_history_passes_on_the_honest_degradation():
+    check = forecast_reports_insufficient_history()
+    result = _result(forecast_result={"insufficient_history": True, "n_snapshots": 0})
+    assert check(result).passed
+
+
+def test_forecast_reports_insufficient_history_fails_on_a_real_projection():
+    # The inverse case matters just as much: a check that always passes
+    # regardless of the flag's actual value would be worthless.
+    check = forecast_reports_insufficient_history()
+    result = _result(forecast_result={"insufficient_history": False})
+    assert not check(result).passed
+
+
+def test_forecast_reports_insufficient_history_fails_when_the_tool_was_never_called():
+    check = forecast_reports_insufficient_history()
+    result = _result(forecast_result=None)
+    assert not check(result).passed
