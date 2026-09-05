@@ -85,8 +85,10 @@ class Settings(BaseSettings):
     sql_max_retries: int = 3
     sql_max_rows: int = 200
     agent_retry_backoff_seconds: float = 3.0
-    """Delay before agent_node's one retry after a model-call failure
-    (src/agent/graph.py). Added in Slice 44: a same-instant retry is
+    """Delay before a single retry after a model-call failure -- shared by
+    agent_node (added Slice 44) and router_node (added Slice 44's item-3
+    follow-up), the two places in the graph that call an LLM directly and
+    have to survive it failing outright. A same-instant retry is
     genuinely useful against a one-off malformed-generation error, but
     close to useless against a real TPM rate limit -- the window that
     just got exceeded hasn't had a chance to roll forward yet. A few

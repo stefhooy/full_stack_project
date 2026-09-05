@@ -6502,3 +6502,84 @@ from the code change alone.
   question, or held open until the third failure is actually resolved
   one way or the other — a call for whoever picks this list back up,
   not assumed here.
+
+## Slice 45 — Working the 9/10 list, item three: the router had agent_node's old blind spot
+
+**Date:** 2026-09-05
+
+Item 3 on the audit's list was "production resilience blind spot (model-
+call failure path never tested/handled)." At first glance this looked
+already closed — Slice 42 fixed exactly that, in `agent_node`, with 4
+regression tests. Rather than mark it done on that assumption, went
+looking for whether Slice 42's fix was actually the *only* unprotected
+LLM call in the production request path, or just the first one found.
+
+### The router has its own LLM call, and it had never been touched
+
+`classify_question` (`src/agent/router.py`) is the very first LLM call
+in the entire graph — a structured-output classification into one of
+four routes — and it's a completely separate call from `agent_node`'s.
+Checked it directly: zero error handling, no try/except at all. Any
+Groq failure here (a rate limit, a malformed structured-output parse,
+the same class of thing Slice 42 found for the tool-calling turn) would
+propagate straight out of `router_node` unhandled.
+
+Checked whether this was actually reaching users as a crash before
+treating it as urgent: it wasn't, quite — `main.py`'s `/ask` and
+`/ask/stream` both wrap the whole agent run in a blanket
+`except Exception`, turning anything unhandled into a clean 503 rather
+than a leaked stack trace. So this was never a literal crash reaching a
+client. But it was a real asymmetry: the exact same class of failure
+that `agent_node` recovers from gracefully (retry once, degrade to an
+honest answer) failed the *entire* request for `router_node`, relying
+entirely on a generic "high demand" 503 instead of the better behavior
+already built for the other node. Presented this finding and the fix to
+the user directly before implementing (this is a production error-
+handling behavior change, not a pure bug fix) and got explicit
+confirmation to proceed.
+
+### The fix, deliberately identical in shape to Slice 42's
+
+`router_node` now catches a `classify_question` failure, sleeps
+`agent_retry_backoff_seconds` (the same setting Slice 44 added for
+`agent_node`, now shared and its docstring updated to say so), retries
+once, and — if that also fails — degrades to `needs_clarification` with
+an honest message asking the user to rephrase, instead of letting the
+API's blanket catch-all be the only thing standing between a router
+hiccup and a bare 503. Reusing the exact same setting and the exact same
+shape (try, sleep, retry, degrade) rather than inventing a parallel
+mechanism was a deliberate choice: this is the same problem in a second
+location, not a new problem needing its own solution.
+
+Added 4 new regression tests (`test_router_node_llm_errors.py`), mocking
+`classify_question` directly rather than `get_llm()` — cheaper and more
+direct, since `router_node` calls `classify_question` by name and
+`graph.py` imports it into its own namespace, so patching
+`graph_module.classify_question` is enough, no need to reach through to
+the LLM object itself. Covers the recovery path, the fully-degraded
+path, a clean call never retrying, and — the one case Slice 42's test
+file didn't need an equivalent for — a *real*, successful
+`needs_clarification` decision still passing through completely
+unaffected by the new error-handling wrapper around it.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 164/164 tests pass (160 from
+Slice 44, +4 new). No live Groq calls were made to verify this — the
+daily quota was still near-exhausted from Slice 44's own live
+verification earlier the same day, and unlike that slice's forecast-
+regex fix, this one didn't need a live call to confirm: the failure mode
+being tested (an LLM call raising an exception) is exercised directly
+and deterministically via a mocked `classify_question`, the same
+reasoning that justified `test_agent_node_llm_errors.py` never needing
+a live call either.
+
+### Open questions (new)
+
+- **Whether any other LLM call sites in the production request path
+  remain unaudited.** Checked router_node and agent_node specifically
+  (the two direct chat-model calls in the graph); `retrieve_schema_node`
+  calls a local embedder (no network, a different failure class) and
+  wasn't in scope for this pass. Worth a deliberate sweep if "production
+  resilience" is revisited again, rather than assuming these two were
+  the only two.

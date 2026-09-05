@@ -2245,6 +2245,33 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Full verification, real: `ruff`/`mypy` clean, 160/160 tests pass
       (159 + 1 new regression test for the whitespace-normalization fix)
 
+## Slice 45 — Path to 9/10, item 3: the router had the same blind spot agent_node used to have
+- [x] Item 3 on the audit's list was largely already closed by Slice 42's
+      `agent_node` fix, but auditing it specifically (rather than assuming
+      "done") found a real, previously-undiscovered asymmetry:
+      `classify_question` (`src/agent/router.py`) — the router's own LLM
+      call, and the very first one in the graph — had zero error handling
+      at all, unlike `agent_node`'s model call
+- [x] Confirmed this wasn't a client-visible crash (the API layer's
+      blanket `except Exception` at `/ask`/`/ask/stream` already turns any
+      unhandled exception into a 503), but it meant a single router-level
+      hiccup failed the *entire* request generically, instead of the
+      retry-then-degrade-honestly behavior `agent_node` already gets —
+      a real gap in resilience quality, not just a missing test
+- [x] Fixed `router_node` with the same pattern as `agent_node`: catch,
+      sleep `agent_retry_backoff_seconds`, retry once, and on repeated
+      failure degrade to `needs_clarification` with an honest message
+      asking the user to rephrase, rather than relying entirely on the
+      API's generic 503. `agent_retry_backoff_seconds`'s docstring updated
+      to reflect it's now shared by both call sites
+- [x] Added 4 new regression tests (`test_router_node_llm_errors.py`),
+      mocking `classify_question` directly (no real LLM calls), covering
+      the recovery path, the fully-degraded path, a clean call never
+      retrying, and a genuine `needs_clarification` decision still passing
+      through unaffected
+- [x] Verified for real: `ruff`/`mypy` clean, 164/164 tests pass
+      (160 + 4 new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

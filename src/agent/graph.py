@@ -102,7 +102,31 @@ class AgentState(TypedDict):
 
 
 def router_node(state: AgentState) -> dict:
-    decision = classify_question(state["question"])
+    try:
+        decision = classify_question(state["question"])
+    except Exception:  # noqa: BLE001 -- same reasoning as agent_node's catch below
+        # This is the exact class of gap Slice 42 found and fixed in
+        # agent_node, but classify_question is a separate LLM call
+        # (structured-output classification, not the tool-calling agent
+        # turn) that had never gotten the same protection -- found while
+        # auditing item 3 of the path-to-9/10 list ("production resilience
+        # blind spot"), not hypothetically. Without this, a single router-
+        # level hiccup (a rate limit, a malformed structured-output parse)
+        # failed the entire request with a generic 503 at the API layer,
+        # instead of the retry-then-degrade-honestly behavior agent_node
+        # already gets for its own model call.
+        time.sleep(settings.agent_retry_backoff_seconds)
+        try:
+            decision = classify_question(state["question"])
+        except Exception:  # noqa: BLE001 -- same reasoning as agent_node's catch below
+            return {
+                "route": "needs_clarification",
+                "clarifying_question": (
+                    "I ran into a repeated error trying to understand this "
+                    "question. Could you try rephrasing it or asking again "
+                    "in a moment?"
+                ),
+            }
     return {
         "route": decision.category,
         "clarifying_question": decision.clarifying_question or None,
