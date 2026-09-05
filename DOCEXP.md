@@ -6686,3 +6686,126 @@ tomorrow at 07:00 UTC.
   Worth revisiting once a few real runs' worth of actual staleness
   numbers exist, the same way `SPACING_SECONDS` (Slice 44) started as a
   guess and got corrected against real evidence.
+
+## Slice 47 — Working the 9/10 list, item five: the frontend regression the audit named directly
+
+**Date:** 2026-09-05
+
+Item 5 was the audit naming its own prior work as a real tension: "a
+project whose own README leads with restraint as a differentiator just
+spent real, measured weight and a known leak on two decorative
+flourishes" — Slice 39's shadergradient integration (2.4MB total client
+JS, a single 1.1MB chunk, loaded unconditionally) and liquid-glass-js's
+permanent per-mount scroll-listener leak, both accepted at the time as
+deliberate, documented trade-offs. Working this item meant deciding
+whether "documented and accepted" was actually the right final answer,
+or just where the investigation had stopped.
+
+### The leak wasn't actually as fixed-forever as it sounded
+
+Slice 39's own writeup said "the library has no destroy method to call"
+— true, but worth checking what "the library" actually meant here.
+`liquid-glass-js` isn't an npm dependency; it's vendored, plain
+`<script>`-global source checked directly into
+`public/vendor/liquid-glass/`. There is no upstream release cadence to
+wait on, no maintainer to file an issue with — it's this repo's own
+file, editable the same as anything else in `src/`.
+
+Read `container.js` directly to find the actual leak mechanism rather
+than trusting the prior description alone: `startRenderLoop()` registers
+`window.addEventListener('scroll', handleScroll, ...)` and never stores
+a reference to `handleScroll` anywhere, so nothing could ever call
+`removeEventListener` on it even in principle. A second, independent
+leak source sat right next to it, previously unmentioned: `Container`'s
+constructor pushes `this` onto a static `Container.instances` array that
+nothing else in either vendored file ever reads — dead weight whose only
+real effect is keeping every instance ever constructed reachable
+forever, regardless of the listener.
+
+Added a real `destroy()` to `Container`: removes the (now-stored)
+scroll listener, explicitly frees the WebGL context via the standard
+`WEBGL_lose_context` extension rather than waiting on GC, removes the
+instance from that static array, recursively destroys children, detaches
+the DOM element. Wired `LiquidGlassAskButton`'s existing unmount cleanup
+to call it, optional-chained so a future re-vendoring that drops
+`destroy()` again degrades to the old (already-documented) leak instead
+of throwing.
+
+### The bundle-size fix, and being honest about what it actually changes
+
+`GradientBackground`'s dynamic import (`next/dynamic`, `ssr:false`) was
+already correctly code-split — confirmed directly via the build's
+`react-loadable-manifest.json`, which showed the 1.1MB chunk tied only to
+the home page, never leaking into `/catalog`'s bundle. What was missing
+wasn't code-splitting; it was *scheduling*. Nothing deferred *when* the
+client fetched that chunk once the component rendered, so it competed
+with the actual hero content for bandwidth and main-thread time on every
+single visit to "/", for a background flourish with zero functional
+weight.
+
+Added `useDeferredMount()` (`lib/`): flips a boolean once
+`requestIdleCallback` fires (falling back to `setTimeout` where
+unsupported, notably Safari), and `page.tsx` gates `GradientBackground`'s
+render behind it instead of mounting unconditionally. Deliberately not
+framed as a size reduction anywhere in this writeup or in PLAN.md's
+entry: the chunk is still 1.1MB, the total build is still 2.4MB. What
+changed is *when* the browser has to deal with it, not how much there is
+to deal with — claiming otherwise would be exactly the kind of
+overclaim this project's own review process exists to catch.
+
+### Verified in a real browser, not reasoned about from the source
+
+Installed Playwright ephemerally (`npm install --no-save`, same pattern
+as Python's ephemeral `pytest-cov` installs elsewhere in this project;
+removed afterward) against a real `next build` + `next start`, not the
+dev server, so timing numbers reflect production behavior.
+
+Confirmed the deferral directly: the known shadergradient chunk's
+network request lands ~1.4 seconds after the page's `load` event fires,
+not before or during it — a real number captured from a real response
+event, not inferred from the `useDeferredMount` timeout value.
+
+Confirmed the leak fix by testing across real client-side navigations
+(`next/link`, clicking through "Catalog" and back to "Ask Ludo" in the
+actual rendered nav) rather than `page.goto()` reloads — a hard reload
+would trivially "pass" this test by destroying the whole JS realm along
+with any leaked listener, proving nothing about whether the component's
+own cleanup actually works. A `window.addEventListener`/
+`removeEventListener` monkeypatch tracked the live count across 5 real
+navigate-away-and-back cycles: flat, never growing.
+
+A genuinely useful thing surfaced by instrumenting this broadly rather
+than narrowly: the shadergradient chunk turned out to register its
+*own*, entirely separate `window` scroll listener (visible directly in a
+captured stack trace: `Button.startRenderLoop` for the known
+liquid-glass one, and a separate, minified `@react-three/fiber`-internal
+call chain for the other). Worth checking whether this was a *second*
+undiscovered leak rather than assuming the audit's finding was
+exhaustive — it wasn't: the count went 2 (both mounted on "/") to 0
+(navigated to "/catalog", where neither component mounts) back to 2
+(returned to "/"), never 3 or 4. `@react-three/fiber`'s own Canvas
+lifecycle already disposes correctly; only liquid-glass-js's listener
+was ever actually leaking.
+
+### Verified for real
+
+`npx tsc --noEmit` and `npx eslint .` clean across every changed file.
+A real `next build` still succeeds, same 2.4MB total (unchanged, as
+expected and as reported above). No backend files touched this slice,
+so the Python suite (166/166, `ruff`/`mypy` clean) is unaffected and
+wasn't re-run needlessly.
+
+### Open questions (new)
+
+- **Whether the `WEBGL_lose_context` call in the new `destroy()` is
+  strictly necessary** versus letting the browser's own GC reclaim the
+  GPU context once nothing references it. Included as defensive best
+  practice (explicit is better than waiting on GC for a scarce resource
+  like a WebGL context, and browsers do cap how many can exist
+  simultaneously), not because a specific failure was observed without
+  it.
+- **Whether `useDeferredMount`'s default 200ms timeout is the right
+  number**, or whether a longer one would defer even more aggressively
+  without a real user-perceivable downside. Not tuned against real field
+  data, the same honest caveat Slice 44's `SPACING_SECONDS` and Slice
+  46's 48h threshold both got.

@@ -657,9 +657,52 @@ class Container {
 
     const handleScroll = () => render()
     window.addEventListener('scroll', handleScroll, { passive: true })
+    // Stored so destroy() can actually remove it -- previously nothing
+    // held a reference to this closure outside this function, so it (and
+    // everything it closes over: this, this.gl_refs, the WebGL context)
+    // leaked for the life of the page, once per Container ever created.
+    this._handleScroll = handleScroll
 
     // Store render function for external calls
     this.render = render
+  }
+
+  // Real teardown, not previously present at all: removes the render
+  // loop's scroll listener (the actual permanent leak -- see
+  // frontend/components/LiquidGlassAskButton.tsx), explicitly frees the
+  // GPU-side WebGL context instead of waiting on GC, detaches from the
+  // static instance registry (which otherwise keeps every instance ever
+  // created reachable forever, regardless of the listener), and destroys
+  // any children so a Container holding nested Buttons doesn't leak
+  // through them either. Deliberately does NOT touch
+  // Container.pageSnapshot -- that cache is meant to outlive any single
+  // instance (see LiquidGlassAskButton.tsx's own comment on it).
+  destroy() {
+    if (this._handleScroll) {
+      window.removeEventListener('scroll', this._handleScroll)
+      this._handleScroll = null
+    }
+    this.render = null
+
+    if (this.gl) {
+      this.gl.getExtension('WEBGL_lose_context')?.loseContext()
+      this.gl = null
+    }
+    this.gl_refs = {}
+
+    const idx = Container.instances.indexOf(this)
+    if (idx > -1) Container.instances.splice(idx, 1)
+
+    for (const child of [...this.children]) {
+      if (typeof child.destroy === 'function') child.destroy()
+    }
+    this.children = []
+
+    if (this.element?.parentNode) {
+      this.element.parentNode.removeChild(this.element)
+    }
+    this.element = null
+    this.canvas = null
   }
 
   createProgram(gl, vsSource, fsSource) {

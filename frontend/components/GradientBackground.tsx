@@ -25,6 +25,14 @@ import { ShaderGradient, ShaderGradientCanvas } from "@shadergradient/react";
 // matching this project's existing instinct to spend a visual flourish
 // in one place rather than everywhere (the same reasoning FilmStrip's
 // hero treatment and the genre palette validation already followed).
+//
+// Also, as of Slice 47, deliberately NOT rendered on page.tsx's very
+// first paint: this component's dynamic import pulls in a real 1.1MB
+// three.js/shadergradient chunk, and there was previously nothing
+// deferring *when* that fetch+parse+execute happened, so it competed
+// with the hero's own critical content for bandwidth/main-thread time on
+// every visit. page.tsx gates rendering this behind useDeferredMount()
+// (lib/useDeferredMount.ts) instead, so the real content paints first.
 export default function GradientBackground() {
   return (
     <>

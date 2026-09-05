@@ -18,6 +18,7 @@ import {
   type StatsResult,
   type StreamEvent,
 } from "@/lib/api";
+import { useDeferredMount } from "@/lib/useDeferredMount";
 
 // WebGL needs a real browser context -- ssr:false keeps @react-three/fiber's
 // Canvas out of the server render entirely rather than crashing it.
@@ -223,6 +224,10 @@ export default function Home() {
   // (Meet Ludo, the genre showcase) with nothing near the input itself
   // indicating a question was even running.
   const resultAnchorRef = useRef<HTMLDivElement | null>(null);
+  // Slice 47: don't fetch/mount the ~1.1MB shadergradient chunk until the
+  // browser is idle (or 200ms have passed), so a pure decorative
+  // background flourish never competes with the hero's own first paint.
+  const showGradientBackground = useDeferredMount();
 
   async function ask(q: string) {
     if (!q.trim() || loading) return;
@@ -269,7 +274,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen font-sans">
-      <GradientBackground />
+      {showGradientBackground && <GradientBackground />}
       {/* Hero: headline first, then the film strip of real catalog covers
           as its own framed visual band right below it. */}
       <section className="relative border-b border-[var(--border)]">

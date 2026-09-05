@@ -2304,6 +2304,50 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       date-diff arithmetic) tested directly against real sample input
       before being trusted inside CI, not just reasoned about
 
+## Slice 47 — Path to 9/10, item 5: the frontend regression, fixed for real, not just described
+- [x] Fixed the memory leak first (`liquid-glass-js`'s permanent per-
+      mount scroll listener, Slice 39): confirmed it's vendored source
+      under `public/vendor/liquid-glass/`, not an npm dependency, so
+      "the library has no destroy method" was never actually a hard
+      wall. Added a real `destroy()` directly to the vendored
+      `container.js` (removes the `window` scroll listener via a newly-
+      stored reference, explicitly frees the WebGL context via
+      `WEBGL_lose_context`, detaches from a static instance registry that
+      was separately keeping every instance ever created reachable
+      forever, destroys children). Wired `LiquidGlassAskButton`'s
+      existing unmount cleanup to call it
+- [x] Deferred the shadergradient/three.js chunk (2.4MB total client JS,
+      1.1MB single chunk, previously loaded unconditionally on every
+      visit to "/"): added `useDeferredMount()` (`lib/`), gating
+      `GradientBackground`'s render behind `requestIdleCallback` (with a
+      `setTimeout` fallback for browsers without it), so the fetch/parse/
+      execute of that chunk happens after the page's real content has
+      painted, not competing with it
+- [x] Verified all of this for real, in a real browser (Playwright,
+      against a real `next build` + `next start`), not just reasoned
+      about from reading the source:
+  - the known shadergradient chunk's own request now happens ~1.4s
+    *after* the page's `load` event, confirmed via direct network-timing
+    capture, not assumed from the code change
+  - discovered a related, previously-unknown fact while instrumenting
+    this: the shadergradient/`@react-three/fiber` chunk registers its
+    *own* separate `window` scroll listener — checked whether *that* one
+    also leaked (it would have been a second real bug), and confirmed it
+    doesn't: listener count went 2 (mounted) → 0 (navigated to
+    `/catalog`, where neither component mounts) → 2 again (back on `/`),
+    never accumulating. The only real leak was liquid-glass-js's
+  - the liquid-glass fix itself verified the same way: 5 real client-side
+    navigate-away-and-back cycles (via `next/link`, not a hard reload,
+    since a hard reload would trivially "fix" a leak by destroying the
+    whole JS realm) held the listener count flat, not growing by one
+    per cycle as it would have before this fix
+- [x] `ruff` doesn't apply to frontend code; verified with this
+      project's actual frontend toolchain instead: `tsc --noEmit` and
+      `eslint` clean, a real `next build` still succeeds. Total bundle
+      size is honestly unchanged (2.4MB) -- this was never a size
+      reduction, only a *when-it-loads* and *does-it-leak* fix, and is
+      reported as such rather than implying a size win that didn't happen
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

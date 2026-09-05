@@ -16,6 +16,14 @@ interface LiquidGlassButtonOptions {
 interface LiquidGlassButtonInstance {
   element: HTMLDivElement;
   textElement: HTMLDivElement;
+  // Added directly to the vendored public/vendor/liquid-glass/container.js
+  // (Slice 47) -- the library shipped with no teardown API at all, which
+  // is what made its scroll listener leak permanent in the first place.
+  // Optional here because it's new: older cached copies of the vendored
+  // file (or a future re-vendoring that drops it again) shouldn't hard-
+  // crash the caller, just silently skip cleanup -- see
+  // LiquidGlassAskButton.tsx's `?.destroy?.()` call site.
+  destroy?: () => void;
 }
 
 interface Window {

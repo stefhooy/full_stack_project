@@ -23,26 +23,23 @@ import "@/app/liquid-glass.css";
 // querySelector in each effect rather than threaded across effects as a
 // stored class-instance ref, which is what that rule objects to.
 //
-// Two real, documented limitations of the library itself, not bugs in
-// this integration:
-//   1. It has no public destroy/cleanup method at all, and the scroll
-//      listener its render loop registers on `window` is never removed.
-//      Unmounting this component removes its DOM element (stopping it
-//      from being visible or doing further GL work that matters), but
-//      the listener closure itself leaks for the life of the page --
-//      each mount of this component (e.g. navigating away from and
-//      back to "/") adds one more. Bounded and minor for a page a user
-//      isn't cycling through hundreds of times, not something this
-//      integration can clean up without the library exposing a real
-//      teardown API.
-//   2. The glass refracts a ONE-TIME html2canvas snapshot of the page
-//      background, cached statically across every instance
-//      (Container.pageSnapshot), not a live re-render. Fine for this
-//      button specifically, since nothing behind its own bounding box
-//      changes when a result streams in further down the page; would
-//      NOT be fine for a surface whose own background changes after
-//      mount (which is exactly why this isn't also used for the ask
-//      bar's result panel).
+// One real, documented limitation of the library itself, not a bug in
+// this integration: the glass refracts a ONE-TIME html2canvas snapshot
+// of the page background, cached statically across every instance
+// (Container.pageSnapshot), not a live re-render. Fine for this button
+// specifically, since nothing behind its own bounding box changes when a
+// result streams in further down the page; would NOT be fine for a
+// surface whose own background changes after mount (which is exactly
+// why this isn't also used for the ask bar's result panel).
+//
+// A second limitation used to live here: the library shipped with no
+// destroy/cleanup method at all, so the scroll listener its render loop
+// registers on `window` leaked permanently, once per mount, for the life
+// of the page. Fixed directly (Slice 47), not worked around: added a
+// real destroy() to the vendored public/vendor/liquid-glass/container.js
+// itself (it's vendored source in this repo, not an npm dependency --
+// there was nothing stopping this), called from this component's own
+// cleanup below.
 //
 // Text updates (Ask -> Asking...) go straight through the generated
 // .glass-button-text node rather than recreating the button, since
@@ -72,6 +69,7 @@ export default function LiquidGlassAskButton({
 
   useEffect(() => {
     let cancelled = false;
+    let liveButton: LiquidGlassButtonInstance | null = null;
     const mount = mountRef.current;
 
     loadLiquidGlass().then(() => {
@@ -92,6 +90,7 @@ export default function LiquidGlassAskButton({
         tintOpacity: 0.4,
         onClick: activate,
       });
+      liveButton = button;
       mount.appendChild(button.element);
       button.textElement.textContent = labelRef.current;
       button.element.style.opacity = disabledRef.current ? "0.4" : "1";
@@ -116,6 +115,14 @@ export default function LiquidGlassAskButton({
 
     return () => {
       cancelled = true;
+      // destroy() (Slice 47, added directly to the vendored container.js)
+      // removes the render loop's `window` scroll listener and frees the
+      // WebGL context explicitly -- previously nothing did either, so
+      // every mount of this component leaked both for the life of the
+      // page. Optional-chained: a future re-vendoring that drops
+      // destroy() again should degrade to the old (still real, still
+      // documented) leak, not crash the cleanup.
+      liveButton?.destroy?.();
       while (mount?.firstChild) mount.removeChild(mount.firstChild);
     };
     // Constructed once; label/disabled are pushed into the live DOM by
