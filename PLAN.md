@@ -2082,6 +2082,65 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       of treating that as a real parse failure, GitHub's own Actions
       parser is unaffected by this Python-library-specific gotcha)
 
+## Slice 42 — Forecast latency's real cause, an uncaught crash it exposed, and a full engineering audit
+- [x] User asked to improve forecast latency. Measured all three routes for
+      real before guessing: lookup 16.3s, analysis 3.8s, forecast 56.4s
+      (`attempts: 2, tool_errors: 1`) — forecast's own self-correction
+      retry loop, not raw model/network speed, is the direct cause
+- [x] Captured the real raw message trace (not just AgentResult's final
+      state) to see the actual failed tool call: `groq.BadRequestError:
+      Failed to parse tool call arguments as JSON` — the model
+      backslash-escaping single quotes inside the SQL string value, which
+      JSON never requires and does not allow, directly traceable to
+      Slice 40's own fix having taught a quote-heavy query pattern
+      (5 single-quoted literals in one call)
+- [x] Simplified the taught pattern from nested `REPLACE(REPLACE(...))`
+      to a single `regexp_replace(name, '[-:]', ' ', 'g')` (verified
+      identical correctness first) and added an explicit instruction
+      about JSON's real escaping rules, in both `FORECAST_TOOL_GUIDANCE`
+      and the always-included `column:name` schema chunk
+- [x] Re-testing surfaced a second, more serious real bug: a different
+      Groq rejection (`Tool choice is none, but model called a tool`)
+      crashed `run_agent()` with an **unhandled exception** — traced to
+      `agent_node`'s `model.invoke()` call having zero error handling at
+      all. `execute_tools_node`'s self-correction try/except only ever
+      covered a tool that ran and failed; a failure of the model call
+      itself, before any tool call was even validly formed, had no
+      handling and no path back into the retry loop
+- [x] Fixed `agent_node` directly: catches the model-call failure, retries
+      once with no tools bound (sidestepping the exact JSON-escaping
+      failure mode by forcing plain text), and degrades to an honest,
+      clean answer if that also fails, incrementing `attempts`/
+      `tool_errors` the same way `execute_tools_node` already does so
+      `/health`'s self-correction stats stay meaningful. Broad
+      `except Exception` used deliberately here (with a `# noqa: BLE001`
+      and a comment explaining why), unlike the narrower tool-execution
+      catch: there's no portable cross-provider exception hierarchy to
+      catch instead
+- [x] Added 4 new real regression tests (`test_agent_node_llm_errors.py`,
+      mocked LLM, matching this project's own `live`-test-exclusion
+      convention) covering the recovery path, the fully-degraded path,
+      the clean-call path (no false counters), and the already-at-cap
+      path. 92/92 tests pass, `ruff`/`mypy` clean
+- [x] Verified honestly, not oversold: the crash is fully fixed
+      (confirmed via a real repeat run — no exception, graceful
+      degradation), but the underlying JSON-escaping tendency is only
+      partially mitigated by the prompt simplification, a repeat test
+      still showed `tool_errors: 2` in both runs. This is a probabilistic
+      LLM behavior a prompt tweak alone couldn't fully eliminate, not a
+      claim that forecast is now uniformly as fast as lookup/analysis
+- [x] Delivered a full structural audit at the user's request (see
+      DOCEXP.md's Slice 42 entry for the complete writeup): real,
+      measured test coverage is 46% overall, with the entire API layer
+      (`main.py`, `rate_limit.py`, `run_stats.py`, `schemas.py`), the
+      semantic cache, the MCP server, and the whole eval harness itself
+      at 0% direct unit coverage (measured via an ephemeral
+      `pytest-cov` install, not assumed from the "92 tests" headline
+      number). Real production client JS is 2.4MB total with a single
+      1.1MB chunk (three.js), quantified via a real production build,
+      not estimated. Scored 7/10 with a concrete, prioritized path to
+      9/10
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

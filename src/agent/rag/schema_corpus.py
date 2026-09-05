@@ -59,14 +59,20 @@ SCHEMA_CHUNKS: list[SchemaChunk] = [
             "(a space) will NOT match the real title 'Counter-Strike: Global "
             "Offensive' (a hyphen and colon) at all, real, confirmed bug. "
             "Normalize both sides first: "
-            "REPLACE(REPLACE(name, '-', ' '), ':', ' ') ILIKE '%<phrase with "
+            "regexp_replace(name, '[-:]', ' ', 'g') ILIKE '%<phrase with "
             "punctuation removed the same way>%'. That alone can still return "
             "several real, differently-named games (e.g. 'Counter-Strike', "
             "'Counter-Strike: Source', 'Counter-Strike: Global Offensive' are "
             "three separate rows) — when a query needs exactly one, disambiguate "
             "by the one actually being asked about in practice: "
             "ORDER BY peak_ccu DESC LIMIT 1 picks the currently-relevant game "
-            "a user almost always means, not an old or minor variant."
+            "a user almost always means, not an old or minor variant. Write the "
+            "query argument as a plain string value, with the single quotes SQL "
+            "needs left bare: JSON never requires a backslash before a single "
+            "quote (only before a double quote or a backslash itself), so "
+            "backslash-escaping one anyway produces invalid JSON, a real, "
+            "confirmed way this exact tool call has failed before, not a "
+            "hypothetical one."
         ),
         # Semantic search alone misses this: a question naming a specific game
         # (e.g. "How many owners does Palworld have?") doesn't embed close to

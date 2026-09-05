@@ -6028,3 +6028,235 @@ build's real outcome.
   billing page. Worth confirming directly at some point that daily
   rebuilds comfortably fit within it, rather than assuming the
   conservative choice is automatically safe.
+
+## Slice 42 — Forecast latency traced to a real crash, and a full honest audit
+
+**Date:** 2026-09-05
+
+Asked to improve forecast latency and, separately, for a full structural
+audit with a score out of 10 against a 9/10 goal. Both turned out to be
+more connected than expected, and the audit is recorded here in full,
+not just summarized in PLAN.md.
+
+### Measuring instead of guessing at latency
+
+Ran all three routes for real before touching anything: lookup 16.3s,
+analysis 3.8s, forecast 56.4s (`attempts: 2, tool_errors: 1`). The gap
+wasn't raw model speed, it was forecast's own self-correction loop
+firing, a real, avoidable failed-attempt-plus-full-retry cost, not
+inherent slowness.
+
+### The real root cause, and how it traces back to this project's own last slice
+
+Captured the raw message trace (invoking the compiled graph directly,
+not just reading `AgentResult`'s final state) to see the actual failed
+tool call, not just its aftermath: `groq.BadRequestError: Failed to
+parse tool call arguments as JSON`, with the failed generation showing
+the model backslash-escaping single quotes inside a SQL string value.
+JSON never requires escaping a single quote, and doesn't allow a bare
+`\'` at all, that's what failed to parse.
+
+Directly traceable to Slice 40's own name-matching fix: the taught query
+pattern (`REPLACE(REPLACE(name, '-', ' '), ':', ' ')`) has five separate
+single-quoted literals in one tool call, real quote density that
+apparently raises the odds of the model mis-encoding at least one of
+them. Fixing a real correctness bug two slices ago introduced a real
+latency regression this slice, worth naming plainly rather than only
+crediting the fix and ignoring its cost.
+
+Simplified to `regexp_replace(name, '[-:]', ' ', 'g')` (verified
+identical correctness against the real DB first) and added an explicit
+instruction about JSON's actual escaping rules, in both
+`FORECAST_TOOL_GUIDANCE` and the always-included `column:name` schema
+chunk (the same chunk every route reads, so this reasoning benefits
+lookup/analysis too, same leverage decision as Slice 40).
+
+### A second, more serious bug the retest surfaced
+
+Re-testing to check the fix, a *different* Groq rejection appeared:
+`Tool choice is none, but model called a tool` -- and this one crashed
+`run_agent()` outright, an unhandled exception, not a caught
+self-correction retry. Traced to the actual code: `agent_node`'s
+`model.invoke()` call had no error handling at all.
+`execute_tools_node`'s self-correction try/except only ever covered a
+tool that ran and failed (bad SQL, etc.); a failure of the model call
+itself, before any tool call was even validly formed, had never had a
+path back into the retry loop, for the entire history of this project.
+In production that means a real user hitting this exact failure got a
+generic "high demand" 503 from `main.py`'s broad exception handler,
+with no chance for the self-correction system built for exactly this
+kind of recoverable friction to actually engage.
+
+Fixed directly: `agent_node` now catches that failure, retries once
+with no tools bound (sidestepping the exact JSON-escaping failure mode
+by forcing a plain-text response), and degrades to a clean, honest
+answer if that also fails, incrementing `attempts`/`tool_errors`
+consistently with how `execute_tools_node` already does, so `/health`'s
+self-correction statistics keep meaning what they claim to mean. Used a
+deliberately broad `except Exception` here (with `# noqa: BLE001` and a
+comment explaining why), unlike the narrower, specific exception types
+`execute_tools_node` catches: there's no portable exception hierarchy
+across LLM providers to catch instead, and every failure at this exact
+point is equally unrecoverable without a retry regardless of its type.
+
+Added 4 real regression tests (`test_agent_node_llm_errors.py`), mocking
+`get_llm()` rather than hitting a real provider, matching this
+project's own `live`-test-exclusion convention: a model that fails then
+recovers, a model that fails twice and degrades honestly, a clean call
+that never touches the counters, and the already-at-the-retry-cap case.
+92/92 tests pass, `ruff`/`mypy` clean.
+
+### Verified honestly, not oversold
+
+Confirmed the crash is genuinely fixed: a real repeat run against the
+exact original failing question completed without an exception,
+`tool_errors: 2` on both of two repeat runs but degraded gracefully
+each time rather than crashing. Worth stating plainly rather than
+declaring victory: the prompt simplification did NOT eliminate the
+underlying JSON-escaping tendency, only reduced its quote-density
+surface somewhat. This is a probabilistic model behavior, not a
+deterministic bug a prompt tweak alone can fully stamp out. What's
+actually fixed is that this failure mode can no longer crash the
+system, not that forecast questions are now uniformly as fast as
+lookup/analysis. A bigger structural fix (e.g. not using native
+tool-calling JSON for this specific query, parsing a plain-text
+response instead) exists as a real option but wasn't undertaken here,
+a bigger architectural change than this slice's scope, and one this
+session did not have standing approval for.
+
+### The full audit
+
+The user asked to be treated like a senior AI engineer giving an honest
+score, not a reassuring one. This is that assessment, in full, not
+summarized:
+
+**Real, genuinely uncommon strengths:**
+
+- A real SQL safety boundary (`sqlglot`-parsed, SELECT-only,
+  table-allowlisted) independent of the prompt, not "the model was told
+  not to." Verified directly with a real `DROP TABLE` attempt.
+- Measured RAG retrieval quality (1.000 recall@8), gated in CI as a
+  free, no-LLM-call regression test, not just "we added RAG."
+- A genuinely real eval methodology: golden questions with ground truth
+  computed live from the DB (not hardcoded), deterministic checks, and
+  an LLM judge that never gates the exit code, automated in CI.
+- Real, live cost and token accounting per request, not an
+  after-the-fact estimate.
+- A self-correction loop with a real, meaningful metric
+  (`tool_errors` vs `attempts`) distinguishing genuine multi-step
+  tool use from actual recovered failure, not just a retry counter.
+- Two real interfaces (the web app and an MCP server) sharing one
+  safety boundary, not two implementations to keep in sync.
+- Documentation discipline (PLAN.md/DOCEXP.md/ARCHITECTURE.md) that is
+  genuinely rare even in production codebases, let alone portfolio
+  projects, including a real, visible track record of naming its own
+  mistakes rather than quietly fixing and hiding them.
+
+**Real, structural gaps, measured, not guessed:**
+
+- **Test coverage is 46% overall** (measured via an ephemeral
+  `pytest-cov` install, not assumed from "92 tests" alone), and the
+  gap isn't evenly distributed: the entire API layer (`main.py`,
+  `rate_limit.py`, `run_stats.py`, `schemas.py`), the semantic cache,
+  the MCP server, and the *entire eval harness itself*
+  (`checks.py`, `golden_questions.py`, `judge.py`, `run_evals.py`) sit
+  at 0% direct unit coverage. The parts of this system doing the most
+  "interesting" reasoning (the agent graph, the tools) are reasonably
+  tested; the parts every real request and every eval run actually
+  passes through are not tested at all.
+- **This gap is not hypothetical**, it already caused a real incident:
+  Slice 30's whole saga (a wrong eval check silently failing the same
+  golden question across four separate slices before the check itself,
+  not the model, was found to be the bug) happened specifically because
+  no unit test asserted the check function's own correctness in
+  isolation. A test asserting `_check_action_vs_f2p_not_mislabeled`
+  passes a plain-SQL correct answer would have caught this the first
+  time, not the fourth.
+- **The golden question set is 5 questions.** The methodology (live
+  ground truth, deterministic + judge) is sound, but 5/5 route accuracy
+  is a single flipped answer away from 4/5 either direction, a smoke
+  test's statistical weight, not a real eval suite's. Real confidence
+  in "does this agent work" needs a meaningfully larger, more diverse
+  set.
+- **Production resilience had a real, un-tested blind spot until this
+  exact slice.** The self-correction story only ever covered tool
+  execution failures; a model-call failure crashed the whole request,
+  for this project's entire history, until today. The eval harness's
+  own retry logic (`_call_with_retry` in `run_evals.py`) was never
+  shared with the production path at all, meaning the thing that tests
+  reliability and the thing that actually serves users had different,
+  disconnected resilience stories.
+- **A recurring process gap, not a one-off bug**: the GitHub Actions
+  "re-run pins to the original commit" gotcha was independently
+  rediscovered twice (Slices 34/35 and 36), and the Render deploy-
+  staleness issue was independently rediscovered twice (Slices 32/33
+  and 40/41). Both times, the underlying lesson was documented after
+  the fact, but nothing was built to *detect* the same class of
+  staleness proactively (e.g. `/health` reporting the git SHA/build
+  time it was actually built from) — both recurrences were found by a
+  human noticing something looked off, not by an automated check.
+- **The frontend just took on a real, quantified regression against its
+  own stated design values.** Slice 39 added three.js/shadergradient:
+  measured at 2.4MB total client JS with a single 1.1MB chunk, for a
+  homepage background flourish, loaded unconditionally for every
+  visitor (no lazy-loading or below-the-fold deferral applied). Paired
+  with liquid-glass-js's own documented, permanent per-mount memory
+  leak (no destroy method exists), both were deliberate, informed
+  trade-offs at the time, not accidents, but a senior review has to name
+  the tension directly: a project whose own README leads with restraint
+  as a differentiator just spent real, measured weight and a known leak
+  on two decorative flourishes.
+- **No authentication on `/ask`**, a real, cost-incurring LLM endpoint,
+  reachable directly, bypassing the frontend entirely. Per-IP rate
+  limiting exists but is in-memory (reset by every redeploy, now daily)
+  and trivially bypassed by multiple source IPs. Given this project
+  already had one real incident where a shared daily Groq quota got
+  exhausted (Slice 33), this is a live, not hypothetical, exposure.
+
+**Score: 7/10.**
+
+Genuinely above-average, thoughtfully engineered, with real,
+verifiable rigor in the areas its author chose to focus on (agent
+design, RAG, the eval concept, documentation). Not yet a 9: the
+sophistication of the "interesting" parts of this system is
+meaningfully ahead of the rigor applied to the "boring but critical"
+parts, the actual serving path, its test coverage, and its production
+resilience, and that gap is exactly where a real incident (Slice 30)
+already happened once and where this exact slice found a live,
+previously-unhandled crash path.
+
+**Concrete path to 9/10, in priority order:**
+
+1. Test the serving layer, not just the reasoning layer: real coverage
+   on `main.py`, `rate_limit.py`, `run_stats.py`, `cache.py`, and the
+   eval harness's own check functions. This single item closes the
+   biggest, most consequential gap and directly prevents a Slice-30-
+   shaped incident from recurring in a part of the codebase that
+   hasn't been audited this way yet.
+2. Grow the golden question set from 5 to something like 20 to 30 real,
+   diverse questions, so route accuracy and deterministic-check numbers
+   carry real statistical weight instead of smoke-test weight.
+3. Add a deploy-freshness guard (`/health` reporting the actual git SHA
+   and build timestamp it was built from, checked by a scheduled
+   workflow) so the staleness class of bug that recurred twice gets
+   caught automatically, not by a human noticing something looked off
+   a third time.
+4. Share one real retry/backoff utility between `run_evals.py` and
+   `agent_node`'s new resilience path instead of two separate,
+   differently-mature implementations of "handle a transient provider
+   failure."
+5. Lazy-load or defer the shadergradient canvas (an intersection
+   observer, or the library's own `lazyLoad` prop) instead of paying
+   its full weight unconditionally for every homepage visitor.
+6. Add a lightweight cost ceiling on `/ask` beyond per-IP rate limiting
+   (a global daily token/request budget, or a simple API key), given
+   the endpoint is directly reachable and this project has already
+   once run into a shared quota limit for real.
+
+### Verification
+
+Latency measurements, the raw trace capture, the fix's own correctness,
+and the coverage/bundle-size numbers underlying this audit were all
+measured directly against the real local environment this session, not
+estimated or recalled from memory. `ruff`, `mypy`, and the full 92-test
+suite (88 existing + 4 new) all clean after the `agent_node` fix.

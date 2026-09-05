@@ -9,6 +9,7 @@ data/raw/*.json
 !data/db/.gitkeep
 !data/raw/.gitkeep
 .pytest_cache/
+.coverage
 *.egg-info/
 .DS_Store
 desktop.ini

@@ -162,8 +162,42 @@ def agent_node(state: AgentState) -> dict:
     llm = get_llm()
     retries_left = state["attempts"] < settings.sql_max_retries
     model = llm.bind_tools(_tools_for_route(state["route"])) if retries_left else llm
-    ai_message = model.invoke(state["messages"])
-    return {"messages": [ai_message]}
+    try:
+        return {"messages": [model.invoke(state["messages"])]}
+    except Exception:  # noqa: BLE001 -- see the long comment below for why
+        pass
+
+    # execute_tools_node's try/except only catches a tool that ran and failed
+    # (bad SQL, etc.) -- this is different: the model call itself never
+    # produced a usable message at all. Confirmed for real, not hypothetical:
+    # Groq has rejected this agent's own tool-call generation outright
+    # (`groq.BadRequestError: Failed to parse tool call arguments as JSON`,
+    # and separately `Tool choice is none, but model called a tool`), and
+    # without this handling that crashed all the way up through run_agent(),
+    # never reaching the self-correction loop, a real gap between "the tool
+    # a query calls fails" (handled) and "the model's own turn fails"
+    # (previously unhandled). Broad `except Exception` is deliberate here,
+    # unlike execute_tools_node's narrower catch: unlike a tool call, there's
+    # no portable exception hierarchy across providers to catch instead, and
+    # every failure in this specific spot is equally unrecoverable without a
+    # retry regardless of its exact type.
+    attempts = state["attempts"] + 1
+    tool_errors = state["tool_errors"] + 1
+    try:
+        # One retry with no tools bound -- forces a plain-text answer,
+        # sidestepping the exact failure mode (malformed tool-call
+        # generation) rather than risking it again.
+        ai_message = llm.invoke(state["messages"])
+        return {"messages": [ai_message], "attempts": attempts, "tool_errors": tool_errors}
+    except Exception:  # noqa: BLE001 -- same reasoning as the first catch above
+        degraded = AIMessage(
+            content=(
+                "I ran into a repeated error trying to answer this question and "
+                "can't complete it right now. Please try rephrasing it or asking "
+                "again in a moment."
+            )
+        )
+        return {"messages": [degraded], "attempts": attempts, "tool_errors": tool_errors}
 
 
 def route_after_agent(state: AgentState) -> str:

@@ -104,7 +104,7 @@ predicted value:
   SELECT polled_at, player_count FROM player_counts
   WHERE appid = (
     SELECT appid FROM games
-    WHERE REPLACE(REPLACE(name, '-', ' '), ':', ' ') ILIKE '%counter strike%'
+    WHERE regexp_replace(name, '[-:]', ' ', 'g') ILIKE '%counter strike%'
     ORDER BY peak_ccu DESC LIMIT 1
   )
   ORDER BY polled_at
@@ -115,8 +115,12 @@ predicted value:
   forecast. Always normalize punctuation on both sides AND disambiguate with
   ORDER BY peak_ccu DESC LIMIT 1 when a name could match more than one real game
   (e.g. "Counter-Strike", "Counter-Strike: Source", and "Counter-Strike: Global
-  Offensive" are three separate, real rows) — see column:name's own schema note for
-  the same pattern.
+  Offensive" are three separate, real rows), see column:name's own schema note for
+  the same pattern. Keep every single quote in the query bare: JSON never requires
+  a backslash before one (only before a double quote or a backslash itself), and a
+  query this quote-heavy backslash-escaping one anyway is a real, confirmed way this
+  exact tool call has failed before ("Failed to parse tool call arguments as JSON"),
+  costing a full extra turn to recover from, not a hypothetical risk.
 - horizon_days: convert the question's time phrase to a number of days (tomorrow=1,
   next week=7, next month=30, next year=365).
 - player_counts is a genuinely young, real time series — it may hold too few snapshots to
