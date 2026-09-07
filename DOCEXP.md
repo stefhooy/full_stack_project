@@ -7906,9 +7906,111 @@ whole way. Screenshots confirmed the canvas actually renders (dino
 shape, scrolling ground dashes, accent-colored obstacles) using the
 site's real theme colors, not just that the component doesn't throw.
 
+### Real feedback from the live deploy, closed the same day
+
+The frontend change had already gone live (Vercel auto-deploys on
+push) by the time real feedback came back on it: a screenshot of the
+actual shipped sprite -- a rounded blob with two leg ticks -- next to
+"it doesn't look like a dinosaur." Fair: that's genuinely all it was.
+
+Rebuilt it as a real blocky T-rex silhouette instead of a smoother
+`roundRect` blob, staying in the same cheap `fillRect`-block style: a
+tail block, the main body, a small back-ridge bump, a raised neck and
+head/snout, a small arm stub, and an eye -- drawn as a cutout back to
+the canvas's own background color (`--background`) rather than a
+separate fill, so it reads against the head without needing a second
+color. Legs keep the same alternating-stride idea as before, now tucked
+to an even, shorter length while airborne instead of continuing to
+alternate mid-jump.
+
+Re-running the exact same Playwright verification loop from earlier in
+this slice -- close-up screenshots at idle, mid-run, and mid-jump, at
+3x device scale to actually see the shape -- caught two more real bugs
+along the way, neither about the sprite's look at all:
+
+1. **The first tap that starts a run also immediately jumped.**
+   `jump()`'s idle-branch set the phase to "playing" and fell through
+   (no `return`) into the onGround check right below it, which now
+   read "playing" and immediately fired a jump. Every run started
+   already mid-air. Fixed with the missing `return`.
+2. **The jump's apex clipped past the canvas's top edge** -- not a
+   theoretical worry, an actual screenshot showed the sprite cut off
+   against the play area's top border at peak height. The arithmetic
+   confirms it: `JUMP_VELOCITY=-620` gives an apex height of
+   `620²/(2×1800) ≈ 107px`, and `GROUND_Y (110) - DINO_SIZE (22) -
+   107 ≈ -19` -- genuinely negative, above the canvas's own y=0.
+   Tuned `JUMP_VELOCITY` to -520 (apex ≈75px), leaving a real ~11px of
+   clearance at peak, confirmed again with a fresh screenshot at the
+   new apex.
+
+Worth naming directly: neither bug was something a design review would
+have caught -- both only showed up because the verification loop
+actually pressed the keys and looked at the resulting frames, not just
+confirmed the component renders without throwing.
+
+### A second, separate real gap: the Groq-quota message never actually reaches a live user
+
+Prompted by a direct ask: when Groq's real usage limit is hit, tell
+users honestly to check back tomorrow, instead of a message that reads
+like a quick retry will fix it.
+
+The obvious place to add this looked like `src/api/main.py`'s
+exception handling around the agent call -- and initially, that's where
+the fix started. But tracing where a real `groq.RateLimitError` would
+actually surface from found that it never gets there at all in
+practice: `router_node` and `agent_node` (both fixed in earlier slices,
+45 and 42) already catch *every* exception from their own LLM calls,
+retry once, and degrade to a generic "try rephrasing or ask again in a
+moment" AIMessage/clarifying_question if the retry also fails --
+`except Exception`, not scoped to any particular failure type. A real
+`groq.RateLimitError` gets silently absorbed into that same generic
+text before it can ever reach `main.py`'s own exception handlers. The
+`main.py`-level fix would have been effectively dead code for the exact
+scenario it was meant to handle.
+
+Fixed at the actual source instead: both nodes' final (post-retry)
+`except` now checks `isinstance(exc, RateLimitError)` specifically and
+returns a new, honest `GROQ_RATE_LIMIT_MESSAGE` in that case, distinct
+from the generic fallback text used for every other failure type. The
+retry itself is untouched -- it's still correct and useful for a
+transient per-minute (TPM) blip -- the message only changes for the
+case where a real rate limit survived that retry too, which is a much
+stronger signal of a persistent (very likely daily/TPD) constraint.
+Groq's SDK doesn't distinguish TPM from TPD at the exception-type
+level, so the message is worded to stay honest either way rather than
+overclaiming a specific cause: "needs a moment to recover... if this
+keeps happening, check back tomorrow."
+
+`GROQ_RATE_LIMIT_MESSAGE` is defined once, in `graph.py`, and
+`main.py` imports it rather than keeping its own independently-worded
+copy -- the same "one shared source, not two copies that can drift"
+lesson from this same slice's `_outlier_check_and_reference()` fix.
+`main.py`'s own `except RateLimitError` stays in place as a defensive
+backstop (for a RateLimitError raised somewhere outside these two node
+call sites, now or in some future change), just no longer the primary
+path -- its comment says so explicitly.
+
+Added 2 new tests, one per node, each constructing a real
+`groq.RateLimitError` (it requires an actual `httpx.Response`, not a
+bare exception -- a stand-in `RuntimeError` wouldn't exercise the
+`isinstance` check this fix depends on) and asserting the honest
+message wins over the generic one when both the call and its retry
+fail with it.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 194/194 tests pass (192 +
+2 new). Frontend: `tsc --noEmit`, `eslint`, and `next build` all clean
+again after the sprite/physics fixes, verified live a second time with
+the same temporary-test-route-plus-Playwright approach (close-up
+screenshots at 3x scale, idle/running/jumping frames), then the test
+route deleted again.
+
 ### Open questions (new)
 
 - None new from this slice specifically. The two items already tracked
   from Slice 56 (TPD-specific rate-limit handling; the still-pending
   comprehensive `run_evals.yml` run) remain open, unaffected by this
-  slice's changes.
+  slice's changes. (The TPD-specific item there is about `run_evals.py`
+  specifically -- this slice's Groq-rate-limit fix is the live `/ask`
+  path, a different piece of code, and doesn't close that item.)

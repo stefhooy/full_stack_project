@@ -13,12 +13,23 @@ calls.
 
 from __future__ import annotations
 
+import httpx
 import pytest
+from groq import RateLimitError
 from langchain_core.messages import AIMessage, HumanMessage
 
 from src.agent import graph as graph_module
-from src.agent.graph import agent_node
+from src.agent.graph import GROQ_RATE_LIMIT_MESSAGE, agent_node
 from src.config import settings
+
+
+def _fake_rate_limit_error() -> RateLimitError:
+    # groq.RateLimitError requires a real httpx.Response -- a bare
+    # RuntimeError wouldn't exercise the isinstance check this file's
+    # RateLimitError-specific test is actually verifying.
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    return RateLimitError("simulated real Groq rate limit", response=response, body=None)
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +94,23 @@ def test_model_invoke_failure_degrades_honestly_when_the_retry_also_fails(monkey
     content = update["messages"][0].content
     assert "error" in content.lower()
     assert not update["messages"][0].tool_calls
+
+
+def test_a_real_rate_limit_degrades_to_the_honest_quota_message(monkeypatch):
+    # DOCEXP.md's Slice 57: same reasoning as router_node's own test --
+    # both the tool-bound call and the no-tools retry hitting a real
+    # groq.RateLimitError means a genuine quota exhaustion, not a one-off
+    # glitch a rephrase or a few seconds would fix.
+    class _AlwaysRateLimitedModel:
+        def bind_tools(self, tools):
+            return self
+
+        def invoke(self, messages):
+            raise _fake_rate_limit_error()
+
+    monkeypatch.setattr(graph_module, "get_llm", lambda: _AlwaysRateLimitedModel())
+    update = agent_node(_state(attempts=0))
+    assert update["messages"][0].content == GROQ_RATE_LIMIT_MESSAGE
 
 
 def test_a_clean_model_call_never_touches_attempts_or_tool_errors(monkeypatch):

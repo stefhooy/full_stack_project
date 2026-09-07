@@ -23,9 +23,10 @@ except ImportError:
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from groq import RateLimitError
 
 from src.agent.cache import SemanticCache
-from src.agent.graph import AgentResult, run_agent, stream_agent
+from src.agent.graph import GROQ_RATE_LIMIT_MESSAGE, AgentResult, run_agent, stream_agent
 from src.api.rate_limit import enforce_rate_limit
 from src.api.run_stats import RunStats
 from src.api.schemas import AskRequest, AskResponse
@@ -78,6 +79,16 @@ DAILY_BUDGET_MESSAGE = (
     "This demo has reached its shared daily usage cap and will reset soon. "
     "Thanks for your patience -- please try again later."
 )
+
+# GROQ_RATE_LIMIT_MESSAGE itself lives in src.agent.graph, not here --
+# router_node/agent_node already catch a real groq.RateLimitError
+# internally (with a retry) and degrade to this exact message inside the
+# returned AgentResult, which is the path that actually fires in
+# practice (DOCEXP.md's Slice 57). The except RateLimitError clauses
+# below are a defensive backstop only, for a RateLimitError raised
+# somewhere outside those two call sites -- reusing the one shared
+# constant rather than a second, independently-worded copy that could
+# drift from it.
 
 
 class DailyBudgetExceeded(Exception):
@@ -251,6 +262,9 @@ def ask(request: AskRequest) -> AskResponse:
         result, cached = _run_with_cache(request.question)
     except DailyBudgetExceeded:
         raise HTTPException(status_code=503, detail=DAILY_BUDGET_MESSAGE) from None
+    except RateLimitError as exc:
+        logger.warning("Groq rate limit hit: %s", exc)
+        raise HTTPException(status_code=503, detail=GROQ_RATE_LIMIT_MESSAGE) from exc
     except Exception as exc:
         logger.exception("Agent run failed")
         detail = str(exc) if settings.debug else FRIENDLY_ERROR_MESSAGE
@@ -310,6 +324,9 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                     _cache.put(request.question, final_result)
                 payload = _to_response(final_result, cached=False)
                 yield _sse({"type": "final", "result": payload.model_dump()})
+        except RateLimitError as exc:
+            logger.warning("Groq rate limit hit: %s", exc)
+            yield _sse({"type": "error", "message": GROQ_RATE_LIMIT_MESSAGE})
         except Exception:
             logger.exception("Streaming agent run failed")
             yield _sse({"type": "error", "message": FRIENDLY_ERROR_MESSAGE})

@@ -20,7 +20,12 @@ const LOGICAL_WIDTH = 480;
 const LOGICAL_HEIGHT = 150;
 const GROUND_Y = 110;
 const GRAVITY = 1800; // px/s^2
-const JUMP_VELOCITY = -620; // px/s
+// -620 used to send the sprite's apex above y=0 -- confirmed by an actual
+// screenshot at peak height, clipped against the canvas's top edge, not
+// just a back-of-envelope worry. -520 keeps a real ~11px of clearance at
+// the highest point the physics can reach (v^2/2g), given GROUND_Y=110,
+// DINO_SIZE=22, and the sprite's own ~2px overhang above its hitbox.
+const JUMP_VELOCITY = -520; // px/s
 const DINO_X = 40;
 const DINO_SIZE = 22;
 const BASE_SPEED = 220; // px/s
@@ -87,9 +92,10 @@ export default function DinoGame() {
     ctx.scale(dpr, dpr);
 
     const style = getComputedStyle(document.documentElement);
-    const fgColor = style.getPropertyValue("--foreground").trim() || "#111";
-    const accentColor = style.getPropertyValue("--accent").trim() || "#0af";
-    const borderColor = style.getPropertyValue("--border-strong").trim() || "#888";
+    const fgColor = style.getPropertyValue("--foreground").trim() || "#e5e5e5";
+    const accentColor = style.getPropertyValue("--accent").trim() || "#22c55e";
+    const borderColor = style.getPropertyValue("--border-strong").trim() || "#555";
+    const bgColor = style.getPropertyValue("--background").trim() || "#0a0a0a";
 
     groundDashesRef.current = Array.from(
       { length: 16 },
@@ -111,6 +117,10 @@ export default function DinoGame() {
         resetGame();
         phaseRef.current = "playing";
         setPhase("playing");
+        // The tap that starts the run shouldn't also count as a jump
+        // input -- falling through to the onGround check below used to
+        // do exactly that, so every run started already mid-air.
+        return;
       }
       if (phaseRef.current === "over") {
         resetGame();
@@ -243,15 +253,37 @@ export default function DinoGame() {
         ctx.fillRect(x, GROUND_Y + 4, 8, 2);
       }
 
-      // Dino: body + a simple two-frame running-leg cycle
-      ctx.fillStyle = fgColor;
+      // Dino: a blocky T-rex silhouette (tail, body, neck, head, snout,
+      // an eye cutout, and a two-frame running-leg cycle) -- drawn as a
+      // fixed set of pixel-art blocks anchored to the sprite's bottom
+      // (which lines up with the invisible, slightly-inset collision
+      // box computed above; the sprite is deliberately a bit bigger
+      // than the hitbox, same "forgiving collisions" convention as the
+      // obstacles).
       const bodyY = dinoYRef.current;
-      roundRect(ctx, DINO_X, bodyY, DINO_SIZE, DINO_SIZE - 4, 4);
-      ctx.fill();
       const airborne = bodyY < GROUND_Y - DINO_SIZE - 0.5;
       const legUp = !airborne && Math.floor(legPhaseRef.current / 0.15) % 2 === 0;
-      ctx.fillRect(DINO_X + 3, bodyY + DINO_SIZE - 4, 4, legUp ? 4 : 6);
-      ctx.fillRect(DINO_X + DINO_SIZE - 8, bodyY + DINO_SIZE - 4, 4, legUp ? 6 : 4);
+      const spriteBottom = bodyY + DINO_SIZE;
+      const ox = DINO_X - 2; // sprite origin x
+      const oy = spriteBottom - 24; // sprite origin y (24px-tall sprite)
+
+      ctx.fillStyle = fgColor;
+      ctx.fillRect(ox + 0, oy + 15, 7, 5); // tail
+      ctx.fillRect(ox + 5, oy + 7, 15, 12); // body
+      ctx.fillRect(ox + 9, oy + 4, 3, 3); // back ridge bump
+      ctx.fillRect(ox + 16, oy + 1, 6, 8); // neck
+      ctx.fillRect(ox + 18, oy + 0, 8, 6); // head + snout
+      ctx.fillRect(ox + 10, oy + 13, 4, 3); // small arm
+      // Legs: tucked and even-length while airborne; alternating stride
+      // on the ground for a simple running-cycle illusion.
+      const legAHeight = airborne ? 3 : legUp ? 4 : 6;
+      const legBHeight = airborne ? 3 : legUp ? 6 : 4;
+      ctx.fillRect(ox + 7, oy + 24 - legAHeight, 4, legAHeight);
+      ctx.fillRect(ox + 15, oy + 24 - legBHeight, 4, legBHeight);
+      // Eye: a small cutout back to the canvas background so it reads
+      // against the head block instead of disappearing into it.
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(ox + 23, oy + 2, 2, 2);
 
       // Obstacles (cacti)
       ctx.fillStyle = accentColor;

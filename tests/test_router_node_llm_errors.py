@@ -10,10 +10,12 @@ project's `live`-marked-and-excluded-by-default convention.
 
 from __future__ import annotations
 
+import httpx
 import pytest
+from groq import RateLimitError
 
 from src.agent import graph as graph_module
-from src.agent.graph import router_node
+from src.agent.graph import GROQ_RATE_LIMIT_MESSAGE, router_node
 from src.agent.router import RouteDecision
 
 
@@ -23,6 +25,15 @@ def _skip_the_real_retry_backoff(monkeypatch):
     # retry, same reasoning as agent_node's own test file -- nothing to
     # actually wait for against a mocked classify_question.
     monkeypatch.setattr(graph_module.time, "sleep", lambda seconds: None)
+
+
+def _fake_rate_limit_error() -> RateLimitError:
+    # groq.RateLimitError requires a real httpx.Response -- a bare
+    # RuntimeError wouldn't exercise the isinstance check this file's
+    # RateLimitError-specific tests are actually verifying.
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    return RateLimitError("simulated real Groq rate limit", response=response, body=None)
 
 
 def _state() -> dict:
@@ -53,6 +64,21 @@ def test_classify_question_failure_degrades_honestly_when_the_retry_also_fails(m
     assert update["route"] == "needs_clarification"
     assert update["clarifying_question"]
     assert "error" in update["clarifying_question"].lower()
+
+
+def test_a_real_rate_limit_degrades_to_the_honest_quota_message(monkeypatch):
+    # DOCEXP.md's Slice 57: a plain RuntimeError degrading to "try
+    # rephrasing or ask again in a moment" is fine for a one-off hiccup,
+    # but actively misleading when both the call and its retry failed on
+    # a real groq.RateLimitError -- that's a genuine daily-quota
+    # exhaustion, not something a rephrase or a few seconds fixes.
+    def always_rate_limited(question: str) -> RouteDecision:
+        raise _fake_rate_limit_error()
+
+    monkeypatch.setattr(graph_module, "classify_question", always_rate_limited)
+    update = router_node(_state())
+    assert update["route"] == "needs_clarification"
+    assert update["clarifying_question"] == GROQ_RATE_LIMIT_MESSAGE
 
 
 def test_a_clean_classify_question_call_never_retries(monkeypatch):

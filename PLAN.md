@@ -2700,6 +2700,40 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       rendering and theme colors before the temporary route was deleted
 - [x] `tsc --noEmit`, `eslint`, and `next build` all clean on the real
       `frontend/` project (not just the isolated test harness)
+- [x] **Real feedback from the live deploy (a screenshot of the actual
+      shipped shape), acted on immediately**: the original sprite was
+      just a rounded blob with two leg ticks -- didn't read as a
+      dinosaur at all. Replaced with a real blocky T-rex silhouette
+      (tail, body, back ridge, neck, head/snout, an eye cutout back to
+      the canvas background, tucked legs while airborne) drawn as
+      `fillRect` blocks, no library needed
+- [x] The redesign's own verification screenshots caught two more real
+      bugs on their own, neither related to the sprite shape: (1) the
+      very first tap that starts a run also immediately triggered a
+      jump (a fallthrough in `jump()`'s idle-start branch, missing a
+      `return`) -- fixed; (2) the jump's apex genuinely clipped past the
+      canvas's top edge (confirmed in a real screenshot, not just
+      arithmetic) -- `JUMP_VELOCITY` tuned from -620 to -520px/s to keep
+      a real ~11px of clearance at peak height given `GROUND_Y`/`DINO_SIZE`
+- [x] Separately: closed a real gap in the Groq-quota-exhaustion path.
+      `router_node`/`agent_node` already retry once and degrade
+      honestly on repeated failure, but the degraded message was the
+      same generic "try rephrasing or ask again in a moment" text
+      regardless of *why* both attempts failed -- actively misleading
+      for a real `groq.RateLimitError` (a daily-quota exhaustion needs
+      tomorrow's reset, not a rephrase). Both nodes now check
+      `isinstance(exc, RateLimitError)` on the final failure and use a
+      new, honest `GROQ_RATE_LIMIT_MESSAGE` instead, defined once in
+      `graph.py` and re-exported for `main.py`'s own defensive-backstop
+      catch (which turned out to be mostly unreachable in practice --
+      these two nodes already catch every real Groq call before it
+      could reach the API layer at all)
+- [x] Added 2 new tests (one per node) constructing a real
+      `groq.RateLimitError` (needs a genuine `httpx.Response`, not just
+      a stand-in exception type) and asserting the honest message wins
+      over the generic one
+- [x] Verified for real: `ruff`/`mypy` clean, 194/194 tests pass (192 + 2
+      new)
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

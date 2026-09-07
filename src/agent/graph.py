@@ -63,6 +63,7 @@ except ImportError:
     resource = None  # type: ignore[assignment]
 
 import duckdb
+from groq import RateLimitError
 from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -81,6 +82,23 @@ from src.tools.stats_tool import execute_run_stats, run_stats
 from src.tools.viz_tool import infer_chart_spec
 
 logger = logging.getLogger("agent")
+
+# Shown to the user (via router_node/agent_node's degraded-fallback path
+# below, and re-exported for src/api/main.py's own defensive backstop
+# catch) specifically when the underlying failure was a real
+# groq.RateLimitError -- distinct from the generic "try rephrasing or
+# ask again in a moment" fallback text, which is actively misleading for
+# a real daily-quota exhaustion (DOCEXP.md's Slice 56/57: observed live,
+# not hypothetical). Groq's SDK raises the same RateLimitError for both
+# the per-minute and per-day cap, and there's no clean way to tell them
+# apart here, so this is worded to stay honest either way -- a
+# per-minute limit really does clear in well under a minute, and a
+# per-day one needs tomorrow's reset.
+GROQ_RATE_LIMIT_MESSAGE = (
+    "Ludo has hit the AI provider's usage limit and needs a moment to recover. "
+    "If this keeps happening, please check back tomorrow once the daily limit "
+    "resets."
+)
 
 
 def _log_memory(label: str) -> None:
@@ -141,6 +159,16 @@ def router_node(state: AgentState) -> dict:
         time.sleep(settings.agent_retry_backoff_seconds)
         try:
             decision = classify_question(state["question"])
+        except RateLimitError:
+            # Both this call and the retry above hit the same real Groq
+            # rate limit -- see GROQ_RATE_LIMIT_MESSAGE's own comment for
+            # why that's told to the user honestly instead of the generic
+            # "try again in a moment" text below, which undersells a real
+            # daily-quota exhaustion.
+            return {
+                "route": "needs_clarification",
+                "clarifying_question": GROQ_RATE_LIMIT_MESSAGE,
+            }
         except Exception:  # noqa: BLE001 -- same reasoning as agent_node's catch below
             return {
                 "route": "needs_clarification",
@@ -251,6 +279,14 @@ def agent_node(state: AgentState) -> dict:
         # generation) rather than risking it again.
         ai_message = llm.invoke(state["messages"])
         return {"messages": [ai_message], "attempts": attempts, "tool_errors": tool_errors}
+    except RateLimitError:
+        # Same reasoning as router_node's own RateLimitError branch: both
+        # this call and the retry above hit a real Groq rate limit, so the
+        # honest message says so instead of the generic "try again in a
+        # moment" text below, which undersells a real daily-quota
+        # exhaustion.
+        degraded = AIMessage(content=GROQ_RATE_LIMIT_MESSAGE)
+        return {"messages": [degraded], "attempts": attempts, "tool_errors": tool_errors}
     except Exception:  # noqa: BLE001 -- same reasoning as the first catch above
         degraded = AIMessage(
             content=(
