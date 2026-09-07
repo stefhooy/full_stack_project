@@ -7444,3 +7444,99 @@ corpus now 38 chunks, 54-558 characters, PASS.
   cover the caching *logic* thoroughly, but the actual Dockerfile
   integration is still only verified by reasoning about the file paths
   involved, the same category of gap Slice 51 found in `run_evals.yml`.
+
+## Slice 53 — Closing the forecast honesty gap surfaced a real bug it had been hiding
+
+**Date:** 2026-09-07
+
+The last real, product-facing item from the golden-eval investigation:
+the model sometimes answered a forecast question correctly in prose
+without ever calling `run_forecast`, for a game with no tracked history.
+Not a data problem (more history won't fix a process gap) and not
+fixable by waiting -- a direct instruction was the right tool.
+
+### The fix, and what it immediately uncovered
+
+Added one explicit rule to `FORECAST_TOOL_GUIDANCE`: always call
+`run_forecast`, even when the model is confident the game isn't
+tracked -- an untested "sounds right" answer is indistinguishable from a
+lucky guess the one time it's actually wrong, which is exactly the
+failure mode this project's own design principle (never let the model
+guess when a tool can check) exists to prevent.
+
+Verified live rather than assumed: asked the real, deployed graph about
+Grand Theft Auto IV: Complete Edition (a real, currently-untracked
+game). The model now correctly called `run_forecast` first -- genuine
+progress -- but the tool call itself then failed:
+`ValueError: Query returned no non-null (timestamp, value) rows to
+forecast from`. A new bug, immediately, from fixing the first one.
+
+### Root-caused directly, and found exactly why it had been invisible
+
+Read `_forecast()` precisely: when a query returns zero real
+(timestamp, value) pairs (exactly what an untracked game's real, valid,
+well-formed query returns), the function raised `ValueError` before
+ever reaching its own `if n_snapshots < 2: return {insufficient_history:
+True, ...}` branch -- unreachable with `n_snapshots == 0`, since that
+branch is only ever reached with `n_snapshots >= 1` once you're past the
+raise. The tool's entire honest-degradation design (its own docstring's
+core promise) only ever actually worked for the "exactly one snapshot"
+case, never true zero.
+
+The reason this had never been caught before is the same reason it
+existed at all: the model itself was routinely skipping the tool call
+for exactly this scenario (the bug this slice started by fixing), so
+this code path had, in practice, never actually run against a real
+zero-row query before today. Fixing the prompt gap didn't just close
+that gap -- it was the first thing to ever genuinely exercise this part
+of the tool, and it broke immediately.
+
+Also found, while fixing it: the existing test suite had encoded this
+exact bug as correct behavior --
+`test_reports_insufficient_history_with_zero_real_rows` asserted
+`pytest.raises(ValueError, match="no non-null")`. Not a test that missed
+a bug; a test that actively certified the wrong behavior as right,
+because whoever wrote it (this session, Slice 9b) reasoned from the
+code's actual behavior rather than the tool's own stated design intent.
+A good reminder that a passing test only proves the code matches the
+test, not that either one is correct.
+
+### The fix, and re-verification end to end
+
+Removed the early `raise`, let zero real points fall through to
+`n_snapshots = 0`, and handled the one real edge case that introduces
+(`earliest_snapshot` has nothing to report when there are zero
+snapshots, not just one) by making that field `None` rather than
+crashing on an empty list's `[0]`. Fixed the misencoded test to assert
+the correct behavior, and added a second case (a query returning
+literally zero rows, not rows with null values) to cover both real
+shapes this takes.
+
+Re-ran the exact same live question after both fixes: clean single
+attempt, zero tool errors, a real `insufficient_history: True,
+n_snapshots: 0` result, and a final answer genuinely grounded in that
+tool result -- not reasoning about what should happen, watching it
+happen.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 179/179 tests pass (178 + 1
+new). Both the prompt fix and the tool fix verified against a real,
+live Groq call end to end, not just unit-tested in isolation -- the
+kind of bug (a model skipping a tool call, a code path never actually
+exercised) that a mocked test could easily miss even with the fix
+correctly in place.
+
+### Open questions (new)
+
+- **Whether any other tool has a similar "the error path was never
+  actually reachable because callers avoided triggering it" gap.** Only
+  `forecast_tool.py`'s zero-rows case was found and fixed here, found by
+  accident (fixing an unrelated prompt gap), not by a deliberate audit
+  of every tool's own error-handling paths.
+- **Whether other existing tests silently encode other real bugs as
+  correct behavior**, the way this one did. Worth a skeptical pass over
+  the test suite at some point -- a test asserting current behavior is
+  not the same claim as a test asserting correct behavior, and this
+  session found one real, if narrow, case where the two had quietly
+  diverged.

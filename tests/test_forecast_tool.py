@@ -31,8 +31,29 @@ def test_reports_insufficient_history_with_one_snapshot():
 
 
 def test_reports_insufficient_history_with_zero_real_rows():
-    with pytest.raises(ValueError, match="no non-null"):
-        _forecast(["polled_at", "player_count"], [[None, None]], horizon_days=1)
+    # Real, previously-mishandled case, not hypothetical: this is exactly
+    # what a genuinely untracked game's query returns -- a real, valid
+    # query with zero matching rows, not a malformed one. Used to raise
+    # ValueError here instead of reaching the honest insufficient_history
+    # path below, which stayed hidden because the model itself used to
+    # skip calling this tool for exactly this scenario (see
+    # FORECAST_TOOL_GUIDANCE) -- fixing that prompt gap surfaced this
+    # real bug for the first time.
+    result = _forecast(["polled_at", "player_count"], [[None, None]], horizon_days=1)
+    assert result["insufficient_history"] is True
+    assert result["n_snapshots"] == 0
+    assert result["earliest_snapshot"] is None
+    assert "message" in result
+
+
+def test_reports_insufficient_history_with_genuinely_zero_rows_at_all():
+    # The other real shape this takes: the SQL query itself returns zero
+    # rows (not rows with null values) -- an untracked game's appid
+    # simply has no matching player_counts entries at all.
+    result = _forecast(["polled_at", "player_count"], [], horizon_days=1)
+    assert result["insufficient_history"] is True
+    assert result["n_snapshots"] == 0
+    assert result["earliest_snapshot"] is None
 
 
 def test_projects_forward_along_a_clean_linear_trend():

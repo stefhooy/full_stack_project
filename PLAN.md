@@ -2541,6 +2541,38 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       6 schema_index + 2 schema_corpus), full `memory_probe.py` run still
       PASSes against the restructured corpus
 
+## Slice 53 — Forecast honesty gap closed, and fixing it exposed a real bug it had been hiding
+- [x] Added an explicit instruction to `FORECAST_TOOL_GUIDANCE`: always
+      call `run_forecast`, even when the model suspects a game has no
+      tracked history -- never answer "insufficient data" from its own
+      reasoning alone, since that's indistinguishable from a lucky guess
+      the one time it's wrong
+- [x] Verified live against a real untracked game (Grand Theft Auto IV:
+      Complete Edition): the model now correctly calls the tool first --
+      but that call itself then failed with a real, previously-hidden
+      bug: `_forecast()` raised `ValueError` on a query returning zero
+      rows, instead of reaching its own `insufficient_history=True`
+      path. This exact path had been unreachable in practice, because
+      the model always used to skip calling the tool in exactly this
+      scenario -- fixing the prompt gap surfaced a real tool bug that
+      had been silently masked by the tool never actually being
+      exercised this way before
+- [x] Fixed `_forecast()`: zero real (timestamp, value) rows is now
+      treated as `n_snapshots=0` and returns the same honest
+      `insufficient_history` result as one snapshot, instead of raising.
+      Found the existing test (`test_reports_insufficient_history_with_zero_real_rows`)
+      had directly encoded the bug as expected behavior
+      (`pytest.raises(ValueError, ...)`) -- fixed the test to assert the
+      correct behavior instead, and added a second case for a query
+      returning literally zero rows (not rows with null values)
+- [x] Verified end to end, live, after both fixes: clean single attempt,
+      zero tool errors, the tool correctly reports
+      `insufficient_history=True, n_snapshots=0`, and the final answer is
+      now genuinely grounded in a real tool result instead of the
+      model's own guess
+- [x] Verified for real: `ruff`/`mypy` clean, 179/179 tests pass (178 + 1
+      new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

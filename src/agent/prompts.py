@@ -99,6 +99,13 @@ for the wrong comparison.
 FORECAST_TOOL_GUIDANCE = """
 You also have the run_forecast tool for this question, since it's asking about a future or
 predicted value:
+- ALWAYS call run_forecast for this question — even if you strongly suspect the game has
+  little or no tracked history. Never skip straight to an answer like "there isn't enough
+  data" or "this game isn't tracked" from your own reasoning alone: that is a real, confirmed
+  failure mode (a technically-correct-sounding answer that was never actually verified against
+  real data — indistinguishable from a lucky guess the one time it's wrong). Only the tool's
+  own insufficient_history result is a valid basis for telling the user there isn't enough
+  data to forecast from.
 - The query MUST return exactly two columns, one row per historical snapshot: a timestamp
   and the numeric value to project, e.g.
   SELECT polled_at, player_count FROM player_counts

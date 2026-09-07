@@ -54,31 +54,41 @@ def _forecast(columns: list[str], rows: Sequence[Sequence[Any]], horizon_days: i
     if horizon_days <= 0:
         raise ValueError(f"horizon_days must be positive, got {horizon_days}.")
 
+    # A query returning zero rows is a real, previously-mishandled case,
+    # not a hypothetical one: it's exactly what a genuinely untracked
+    # game's query returns, real SQL, real (empty) result -- the correct
+    # response is the same honest insufficient_history path just below,
+    # not an error. This used to be unreachable in practice (the model
+    # would skip calling this tool entirely for exactly this case, see
+    # FORECAST_TOOL_GUIDANCE), which is exactly how this stayed hidden:
+    # fixing that prompt gap made the model actually call this tool for
+    # an untracked game for the first time, and it promptly hit this bug.
     points: list[tuple[datetime, float]] = [
         (ts, float(value)) for ts, value in rows if ts is not None and value is not None
     ]
-    if not points:
-        raise ValueError("Query returned no non-null (timestamp, value) rows to forecast from.")
     points.sort(key=lambda p: p[0])
 
     distinct_timestamps = sorted({ts for ts, _ in points})
     n_snapshots = len(distinct_timestamps)
-    earliest, latest = distinct_timestamps[0], distinct_timestamps[-1]
 
     if n_snapshots < 2:
         return {
             "mode": "forecast",
             "insufficient_history": True,
             "n_snapshots": n_snapshots,
-            "earliest_snapshot": earliest.isoformat(),
+            "earliest_snapshot": (
+                distinct_timestamps[0].isoformat() if distinct_timestamps else None
+            ),
             "message": (
-                f"Only {n_snapshots} snapshot of player-count history exists for this "
-                "game so far — at least 2 are needed to fit any trend. Live player "
-                "counts are polled automatically on a schedule, so this will start "
-                "working on its own once a second snapshot has been collected; it "
-                "cannot be answered honestly right now."
+                f"Only {n_snapshots} snapshot{'' if n_snapshots == 1 else 's'} of "
+                "player-count history exist for this game so far — at least 2 are "
+                "needed to fit any trend. Live player counts are polled automatically "
+                "on a schedule, so this will start working on its own once a second "
+                "snapshot has been collected; it cannot be answered honestly right now."
             ),
         }
+
+    earliest, latest = distinct_timestamps[0], distinct_timestamps[-1]
 
     x = [(ts - earliest).total_seconds() for ts, _ in points]
     y = [value for _, value in points]
