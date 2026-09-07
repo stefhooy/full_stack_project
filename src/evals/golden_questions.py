@@ -124,9 +124,50 @@ def build_golden_questions() -> list[GoldenQuestion]:
         linux_count = _query_one(
             conn, "SELECT COUNT(*) FROM games WHERE platforms LIKE '%linux%'"
         )
-        price_outlier_name = _query_one(
-            conn, "SELECT name FROM games ORDER BY price_usd DESC LIMIT 1"
-        )
+        # Whether the single highest-priced game is actually a real
+        # statistical outlier, computed with the exact same formula
+        # run_stats's own outliers mode uses (src/tools/stats_tool.py:
+        # sample stddev, z_threshold=2.5) -- not assumed. A real, confirmed
+        # bug (DOCEXP.md's Slice 54 entry): the golden question used to
+        # assume "highest price" and "real z-score outlier" are the same
+        # thing, but on a smaller/differently-shaped catalog (CI's ~100-game
+        # sample varies run to run) the top price sometimes doesn't clear
+        # the threshold at all, and a model that correctly says so was
+        # being marked wrong for being right.
+        price_outlier_row = conn.execute(
+            "SELECT name, "
+            "(price_usd - (SELECT AVG(price_usd) FROM games)) "
+            "/ (SELECT STDDEV_SAMP(price_usd) FROM games) AS z_score "
+            "FROM games ORDER BY price_usd DESC LIMIT 1"
+        ).fetchone()
+        assert price_outlier_row is not None, "games table appears to be empty"
+        price_outlier_name, price_outlier_z_score = price_outlier_row
+        price_outlier_is_real = abs(price_outlier_z_score) > 2.5
+        if price_outlier_is_real:
+            price_outlier_check = all_of(route_is("analysis"), contains_text(price_outlier_name))
+            price_outlier_reference_facts = (
+                f"{price_outlier_name!r} has the single highest price_usd in the dataset, "
+                f"a real z-score of {price_outlier_z_score:.2f} against the standard "
+                "z_threshold=2.5 run_stats itself uses -- a rigorous outlier check SHOULD "
+                "flag it by name."
+            )
+        else:
+            # Route-only: no single fact to assert positively here (the
+            # correct answer is "no strong outlier," which has no one
+            # name to check for), and inventing a check for what the
+            # answer must NOT say is exactly the kind of fragile,
+            # enumerate-every-wrong-answer check this project avoids
+            # elsewhere. The LLM judge, given the accurate reference facts
+            # below, already assesses this correctly (confirmed directly,
+            # DOCEXP.md's Slice 54 entry).
+            price_outlier_check = route_is("analysis")
+            price_outlier_reference_facts = (
+                f"{price_outlier_name!r} has the single highest price_usd in the dataset, "
+                f"but its real z-score is only {price_outlier_z_score:.2f} -- below the "
+                "standard z_threshold=2.5 run_stats itself uses. A rigorous outlier check "
+                "should honestly report that nothing clears the threshold, not force this "
+                "game forward as a clear outlier just because it's the single highest price."
+            )
         f2p_review_mean = _query_one(
             conn, "SELECT AVG(review_score) FROM games WHERE price_usd = 0"
         )
@@ -270,11 +311,8 @@ def build_golden_questions() -> list[GoldenQuestion]:
             id="analysis_price_outliers",
             question="Are there any games with an unusually high price compared to the rest?",
             expected_route="analysis",
-            check=all_of(route_is("analysis"), contains_text(price_outlier_name)),
-            reference_facts=(
-                f"{price_outlier_name!r} has the single highest price_usd in the dataset and "
-                "should be flagged as a clear outlier."
-            ),
+            check=price_outlier_check,
+            reference_facts=price_outlier_reference_facts,
         ),
         GoldenQuestion(
             id="forecast_insufficient_history_is_honest",

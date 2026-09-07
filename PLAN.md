@@ -2603,6 +2603,29 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified for real: `ruff`/`mypy` clean, 184/184 tests pass (179 + 5
       new)
 
+## Slice 55 — Item #3: making the price-outlier golden question match statistical reality
+- [x] `analysis_price_outliers` assumed the single highest-priced game is
+      always a real z-score outlier -- not true on a smaller/differently-
+      shaped catalog, where the top price sometimes doesn't clear a
+      rigorous threshold at all, and a model correctly saying so was
+      being marked wrong for being right
+- [x] Now computes the real z-score for the top-priced game live, using
+      the exact same formula `run_stats`'s own outliers mode uses
+      (sample stddev, `z_threshold=2.5`), and adapts both the check and
+      the reference facts to match: a real outlier still requires the
+      model to name it; a non-outlier only requires the right route,
+      since there's no single fact to assert for a correct "nothing
+      stands out" answer, and inventing a check for what the answer must
+      NOT say would just be a subtler version of the same bug
+- [x] Added 2 new tests covering both real branches with a large enough
+      synthetic sample (20 games) for a statistically meaningful z-score
+      either way -- the fixture's own tiny n=4 sample turned out to be
+      too small for even a $999.99 price to reliably clear the
+      threshold, a real, direct illustration of exactly the small-sample
+      fragility this fix exists to handle correctly
+- [x] Verified for real: `ruff`/`mypy` clean, 186/186 tests pass (184 + 2
+      new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

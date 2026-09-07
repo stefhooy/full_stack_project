@@ -7626,3 +7626,80 @@ common case.
   the golden questions adapt to whatever catalog exists; the alternative
   (change what CI ingests, e.g. by owners *and* peak_ccu, or a larger
   count) was not explored.
+
+## Slice 55 — Item #3: the last audit-adjacent fix, and a real lesson about small samples
+
+**Date:** 2026-09-07
+
+The last of the three real eval findings: `analysis_price_outliers`
+assumed the single highest-priced game in the catalog is always a real
+statistical outlier. On production's real ~1000-game catalog that's
+usually true; on CI's smaller, differently-shaped sample it sometimes
+isn't, and a model correctly reporting "nothing stands out" was being
+marked wrong for being right -- the same shape of bug as the forecast
+golden questions fixed in Slice 54, just in the analysis route instead
+of forecast.
+
+### Matching the check to the same math the tool actually uses
+
+Read `stats_tool.py`'s own `_outliers()` function to get the exact
+formula right rather than approximating it: sample standard deviation
+(`ddof=1`), `z_score = (value - mean) / std`, flagged only if
+`abs(z_score) > 2.5` (the same default `z_threshold` the real tool
+uses). Replicated that precisely in `golden_questions.py`'s own live
+query, computing the top-priced game's real z-score at eval time instead
+of assuming it's automatically significant.
+
+Branched the check itself on the real result: if the top price genuinely
+clears 2.5, the model is still expected to name it (the original,
+correct assertion for that case). If it doesn't, there's no single
+positive fact left to assert -- "nothing stands out" has no specific
+name to check for, and writing a check for what the answer must *not*
+say would just be a subtler, harder-to-get-right version of the same
+mistake. Left that case checking only the route, and reporting the real
+z-score honestly in the reference facts the judge already sees -- which
+the actual failed run's own judge output already showed handles this
+correctly.
+
+### A real lesson from trying to write the regression test
+
+Building a test for the "genuine outlier" branch surfaced something
+worth keeping: the `games_db` fixture's own 4 rows are too few to
+reliably demonstrate this. Setting one game to $999.99 against three
+normal-ish prices produced a z-score of only 1.50 -- an extreme, obviously-
+absurd price, and it still didn't clear 2.5, purely because sample
+standard deviation with n=4 is itself wildly unstable (one extreme value
+inflates the very statistic meant to detect it). Had to insert a
+properly-sized synthetic sample (20 tightly-clustered games plus one
+real outlier) to get a statistically meaningful result either way. This
+is, concretely, the exact same phenomenon the fix itself is about --
+small samples make z-score outlier detection genuinely unreliable, not
+just "sometimes surprising" -- encountered directly while testing the
+fix, not just reasoned about in the abstract.
+
+A second, smaller thing the same test-writing surfaced: naively
+resetting all of the fixture's own prices for a clean test dataset
+briefly zeroed out its only free-to-play row, which crashed a
+*different* golden question's own reference-fact computation
+(`f2p_review_mean`'s `AVG()` over zero matching rows returns `NULL`,
+and formatting `None` with `:.3f` raises). Fixed by normalizing only the
+non-free rows, leaving the fixture's real free-to-play game alone --
+a reminder that golden-question fixtures interact with each other more
+than they look like they do.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 186/186 tests pass (184 + 2
+new), both new tests exercising a real, correctly-sized synthetic
+dataset rather than the fixture's own too-small one.
+
+### Open questions (new)
+
+- **Whether the same "assumes a fixed fact always holds against any
+  catalog shape" pattern exists in any of the other golden questions**
+  not touched by Slices 54/55. `lookup_avg_strategy_price`,
+  `lookup_linux_count`, and similar lookup questions use
+  `contains_number` with a live-computed value, which is inherently
+  shape-independent (there's no "is this significant" judgment call
+  involved) -- lower risk, but not formally audited for this specific
+  failure mode the way the two fixed questions now have been.
