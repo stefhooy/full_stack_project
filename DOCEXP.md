@@ -7067,3 +7067,169 @@ real redeploy and a real retest, not a local check).
   since none of that work touched the embedding/cache path at all. Worth
   a genuine "how long has this been broken" retrospective once it's
   confirmed fixed, rather than assuming it was newly introduced today.
+
+## Slice 50 — The real root cause: one long schema chunk, batch-embedded, blowing past Render's actual 512MB ceiling
+
+**Date:** 2026-09-07
+
+Slice 49's fix (the fastembed cache path) was real and worth keeping,
+but the very next redeploy proved it wasn't the whole story: a real
+`/ask` question still failed, 502 after 12s, and this time with no
+re-download in the logs at all -- the crash was happening somewhere
+else. Slice 49's own "Open questions" already flagged this as a live
+possibility rather than assuming victory; it turned out to be the right
+call to stay skeptical.
+
+### Getting the real ground truth, not another guess
+
+Rather than propose fix #2 blind, asked the user to check two things
+only Render's own dashboard can show: the Metrics tab and the Events
+tab. The Events tab gave a direct, unambiguous answer that ended all
+speculation about *whether* this is memory-related:
+
+> **Instance failed: Sep 7 10:42:19 AM**
+> "Ran out of memory (used over 512MB) while running your code."
+
+This is the single most valuable piece of evidence in the whole
+investigation -- a real, first-party confirmation of both the mechanism
+(OOM, not a native crash or something else entirely) and the exact
+number (Render's free tier really is 512MB, not the "undocumented"
+figure earlier slices had to guess at).
+
+### Instrumenting precisely, then hitting a real practical wall
+
+Added `MEMORY [...]` checkpoint logging (peak RSS via stdlib `resource`)
+at the request boundary in `main.py`, then a second round in
+`graph.py`'s `retrieve_schema_node`/`agent_node`/`execute_tools_node`
+once the first round's evidence (the semantic cache's own embed call
+showing a completely flat 194.7MB -> 194.7MB) ruled out the cache/
+embedder-loading step and pointed at something further into the
+pipeline. Each round needed a real commit -> push -> redeploy -> ask a
+real question -> read Render's logs cycle -- several real minutes each,
+plus, once a real question was asked, real Groq quota.
+
+The user asked directly, reasonably: is there a faster way? There was.
+This also surfaced a second real, independent gap worth fixing on its
+own: the Dockerfile never set `PYTHONUNBUFFERED=1`, meaning an OOM
+kill's instant `SIGKILL` could silently discard whatever log lines were
+still sitting in Python's output buffer, unflushed, at the exact moment
+that matters most. Fixed alongside the diagnosis, not left for later --
+a diagnostic that can silently lose its own most important evidence is
+a real bug in the diagnostic itself.
+
+### Moving the investigation local, for real evidence at zero cost
+
+Wrote a throwaway script using `psutil` (cross-platform; the stdlib
+`resource` module used in the production checkpoints doesn't exist on
+this Windows dev machine at all) to reproduce the same measurements
+locally. Absolute numbers wouldn't match Render's Linux container
+exactly, but the *relative* jump at each step -- the actual thing being
+hunted -- would still be real signal, at zero redeploy cost and zero
+Groq spend.
+
+First local run (full pipeline: import `graph.py`, run `router_node`,
+`retrieve_schema_node`, `agent_node`) found a massive, unambiguous jump:
+
+```
+after router_node:                178.1 MB
+after retrieve_schema_node:       755.4 MB   (+577.3 MB)
+```
+
+Tempting to stop there and ship a fix. Didn't: that single number
+conflates two different costs (loading the ONNX runtime for the first
+time in this process, AND `SchemaIndex`'s one batch `embed_texts()` call
+over the whole schema corpus), and the earlier Render evidence (the
+cache's own embed call costing ~0MB) already suggested those two costs
+don't behave the same way. Ran a second, isolated test: load the
+embedder fresh, embed one query, then batch-embed 20 short *placeholder*
+strings. Result: model load ~138MB (real, but not the incident), one
+query ~3MB (matches Render exactly), batch-of-20-short-strings only
+~7.6MB more. That flatly contradicted "it's the batch size" -- so the
+placeholder test's texts must not have matched the real corpus's actual
+shape.
+
+### The precise, decisive test
+
+Re-ran the same isolation, in the same heavy-import context as
+production (`import src.agent.graph` first, matching Render's real
+module-load shape), but swapped the fake placeholder texts for the
+*real* schema corpus (`SCHEMA_CHUNKS`), with zero Groq calls needed at
+all for this specific measurement:
+
+```
+after get_embedder():                              298.6 MB
+after ONE query embed:                              302.0 MB   (+3.4 MB)
+after batch-embedding the REAL 35-chunk corpus:     747.6 MB   (+445.6 MB)
+```
+
+Then the confirming counter-test -- same real corpus, same real content,
+embedded one chunk at a time instead of one batch call:
+
+```
+after embedding the same 35 real chunks ONE AT A TIME:  310.4 MB   (+11.5 MB)
+```
+
+Decisive: not the model, not the corpus size, specifically *batching*
+the real corpus together in one call. The real corpus's chunk lengths
+explain why: 54 to 1,465 characters, median 118 -- one genuine long
+outlier (almost certainly `column:name`'s detailed regex/JSON-escaping
+guidance, itself grown across Slices 42 and 44's own fixes) sitting in a
+batch with 34 much shorter chunks. Batched inference pads every item in
+a batch to the longest one, and attention cost scales with sequence
+length -- one long chunk drags the whole batch's processing (and,
+evidently, memory allocation) up to its own scale, not the corpus's
+typical scale.
+
+### A permanent tool, not another throwaway script
+
+The user asked for exactly the right thing: a real, reusable file to
+run this check locally going forward, instead of a scratch script that
+gets deleted after one investigation. Added
+`src/diagnostics/memory_probe.py` (`python -m src.diagnostics.memory_probe`):
+mirrors production's real import shape, measures the same checkpoints,
+and -- since it exercises the *real* `get_schema_index()` call rather
+than reimplementing both the batch and one-at-a-time variants inline --
+it stays a true regression guard against whatever the actual code does,
+not a simulation that could drift out of sync with it. Ends with a real
+pass/fail check (schema-index build cost budgeted at 50MB, real headroom
+above the ~11.5MB one-at-a-time cost, tight enough to catch a reversion
+back toward batch-embedding) and a non-zero exit code on failure, so
+it's usable as an actual gate, not just a printout to eyeball. `psutil`
+added as a real `dev` dependency (not ephemeral this time) since this
+tool is meant to be run repeatedly going forward, not once.
+
+Confirmed the tool actually reproduces the incident against the current
+(still-unfixed) code before trusting it: ran it, got the same ~449MB
+schema-index-build cost and an explicit FAIL, exit code 1 -- the tool
+catching the real, still-live bug on its very first run.
+
+### Verified for real
+
+`ruff check .`, `uv run mypy src`, and the full test suite (170/170)
+all clean. The diagnostic tool itself verified by running it against the
+known-bad current code and confirming it reports the failure
+correctly -- not just that it runs without crashing.
+
+### What's still open
+
+The actual fix to `src/agent/rag/schema_index.py` (embedding the corpus
+one chunk at a time instead of one batch call, the change this whole
+investigation points at) had not yet been applied as of this entry --
+options were presented to the user (embed one at a time; or
+precompute/cache the corpus's embeddings entirely offline, going further
+than just avoiding the batch call) rather than assumed. See PLAN.md and
+whichever slice follows for whether and how it landed.
+
+### Open questions (new)
+
+- **Whether other batch-embedding call sites exist anywhere else in the
+  codebase** that could hit the same class of bug with a different
+  (currently short, could grow) batch of texts. Only `SchemaIndex.__init__`
+  was found and fixed in scope here; not an exhaustive audit.
+- **Whether onnxruntime's actual behavior here (padding to the batch's
+  longest sequence, then allocating disproportionately) is fastembed/
+  onnxruntime-specific or a more general transformer-embedding-library
+  pattern.** Diagnosed empirically (measured, not read from
+  onnxruntime's own internals or documentation) -- the *fix* is solid
+  regardless, but the deeper *why* is inferred from behavior, not
+  confirmed from the library's own source.

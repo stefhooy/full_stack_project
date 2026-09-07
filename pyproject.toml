@@ -58,6 +58,12 @@ dev = [
     "pytest>=8.3.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+    # Cross-platform (unlike stdlib `resource`, Unix-only) real-memory
+    # measurement -- added for src/diagnostics/memory_probe.py (Slice 49
+    # follow-up), so a memory regression in the RAG/embedding pipeline can
+    # be caught locally, for free, instead of only via a live Render
+    # redeploy that costs several real minutes per attempt.
+    "psutil>=6.0.0",
 ]
 
 [tool.ruff]

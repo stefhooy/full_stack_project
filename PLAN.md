@@ -2435,6 +2435,44 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       Render deploy. `ruff`/`mypy`/pytest (170/170) all clean, confirming
       the Dockerfile-only change touched nothing else
 
+## Slice 50 — The real root cause: one long schema chunk, batch-embedded, past Render's real 512MB ceiling
+- [x] Slice 49's fix wasn't the whole story: the next real redeploy still
+      failed, with no re-download in the logs this time. Got the actual
+      ground truth from Render's own dashboard rather than guessing
+      again: Events tab showed "Ran out of memory (used over 512MB)" --
+      confirming both the mechanism (OOM, not a native crash) and
+      Render's real, previously-undocumented free-tier ceiling
+- [x] Added `PYTHONUNBUFFERED=1` to the Dockerfile: a real, independent
+      gap found along the way — an OOM's instant SIGKILL can silently
+      discard whatever log lines were still sitting in an unflushed
+      output buffer, exactly the crash-moment evidence this
+      investigation needed most
+- [x] Moved the investigation local (a real, user-requested pivot: real
+      Render redeploy cycles cost several minutes plus Groq quota per
+      attempt) using `psutil` (cross-platform, unlike Unix-only
+      `resource`). Precisely isolated the cause in 3 quick local runs,
+      no deploy or LLM call needed for the decisive ones:
+  - the semantic cache's own single-query embed: ~0MB (matches Render)
+  - batch-embedding the REAL 35-chunk schema corpus in one call: **+445.6MB**
+  - the same real corpus embedded ONE CHUNK AT A TIME: **+11.5MB**
+- [x] Root cause, precise: schema chunks range 54-1,465 characters
+      (median 118) — one long outlier chunk (`column:name`'s detailed
+      guidance) batched with 34 short ones forces the whole batch's
+      padding/attention cost up to the long chunk's scale, not the
+      corpus's typical scale
+- [x] Built a permanent local diagnostic (`src/diagnostics/memory_probe.py`,
+      `python -m src.diagnostics.memory_probe`) instead of leaving this as
+      a throwaway script: mirrors production's real import shape,
+      exercises the actual `get_schema_index()` call (a true regression
+      guard, not a simulation), real pass/fail check with a non-zero exit
+      code. `psutil` added as a real `dev` dependency. Verified the tool
+      itself by confirming it correctly FAILs against the current,
+      still-unfixed code (exit code 1) before trusting it
+- [x] Verified for real: `ruff`/`mypy` clean, 170/170 tests pass. The
+      actual fix to `schema_index.py` (embed one at a time, or precompute
+      offline) presented as options, not yet applied as of this entry --
+      see the next slice for whether/how it landed
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

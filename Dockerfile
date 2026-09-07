@@ -11,6 +11,17 @@
 
 FROM python:3.12-slim
 
+# Without this, Python buffers stdout in blocks when it isn't a real
+# terminal (true for any container's log collection) -- fine for a normal
+# graceful exit, but a real risk during the exact OOM-kill investigation
+# this project is mid-way through (Slice 49 follow-up): a SIGKILL gives
+# the process zero chance to flush anything, so whichever log lines were
+# still sitting in that buffer right before the kill are lost outright,
+# not just delayed. Real, not hypothetical: this was found and fixed
+# specifically because the crash-moment diagnostic logs kept coming back
+# incomplete.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # libgomp1: onnxruntime (fastembed's backend) links against it on some
