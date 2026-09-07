@@ -2573,6 +2573,36 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified for real: `ruff`/`mypy` clean, 179/179 tests pass (178 + 1
       new)
 
+## Slice 54 — Hardening run_evals.yml: dynamic forecast games, real rate-limit slack
+- [x] **Forecast golden questions no longer hardcode a game name**: two
+      real CI failures traced to "Counter-Strike: Global Offensive" and
+      "Hearts of Iron IV" being hardcoded in `forecast_has_real_projection()`
+      questions -- CI builds a small (~100-game) catalog from SteamSpy's
+      top-by-*owners* ranking fresh each run, and confirmed directly
+      (rebuilt that exact catalog locally) that Hearts of Iron IV simply
+      isn't popular enough by owners to reliably make that cut, even
+      though it's genuinely tracked with real history in production
+- [x] Replaced both with a live query picking the top 2 most-popular
+      *currently-tracked-with-real-history* games (`peak_ccu DESC`,
+      `HAVING COUNT(DISTINCT polled_at) >= 2`) -- gracefully produces 0,
+      1, or 2 forecast questions depending on what actually qualifies
+      today, never assumed to be exactly 2. 5 new tests
+      (`test_golden_questions_forecast_selection.py`) pin down all three
+      cases plus the "only 1 snapshot doesn't count" edge, using the real
+      `games_db` fixture (a real DuckDB file) with `player_counts` rows
+      inserted directly, not mocked
+- [x] **Rate-limit spacing raised again, 20.0 -> 45.0**: a real eval run
+      showed one single question (`analysis_price_outliers`) using 8,380
+      tokens alone -- almost the entire 8,000 TPM cap by itself, meaning
+      no realistic amount of spacing short of nearly the full 60s window
+      could guarantee the next question's call wouldn't overlap it. The
+      very next question (`forecast_csgo_next_month`) was rate-limited
+      as a direct, observed result. Accepted a real ~10-minute increase
+      in total eval runtime (a once-daily scheduled job) over a more
+      complex token-accounting scheme
+- [x] Verified for real: `ruff`/`mypy` clean, 184/184 tests pass (179 + 5
+      new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

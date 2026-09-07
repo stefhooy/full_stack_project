@@ -133,17 +133,25 @@ def build_golden_questions() -> list[GoldenQuestion]:
         paid_review_mean = _query_one(
             conn, "SELECT AVG(review_score) FROM games WHERE price_usd > 0"
         )
-        csgo_snapshots = _query_one(
-            conn,
-            "SELECT COUNT(DISTINCT pc.polled_at) FROM player_counts pc "
-            "JOIN games g ON g.appid = pc.appid "
-            "WHERE g.name = 'Counter-Strike: Global Offensive'",
-        )
-        hoi4_snapshots = _query_one(
-            conn,
-            "SELECT COUNT(DISTINCT pc.polled_at) FROM player_counts pc "
-            "JOIN games g ON g.appid = pc.appid WHERE g.name = 'Hearts of Iron IV'",
-        )
+        # Whichever real, currently-tracked games actually have enough
+        # history to forecast from, queried live rather than hardcoded to
+        # specific names -- a real, previously-confirmed bug (DOCEXP.md's
+        # Slice 51/52 entries): "Counter-Strike: Global Offensive" and
+        # "Hearts of Iron IV" were hardcoded here, but CI builds a small,
+        # ~100-game catalog (SteamSpy's top 100 by *owners*, not by
+        # peak_ccu or by which games the poller happens to track) fresh
+        # each run, and a hardcoded niche game isn't guaranteed to survive
+        # that cut, or even the same popular one every day. Ordered by
+        # peak_ccu DESC so the two picked are the most prominent tracked
+        # games available today, mirroring untracked_game's own query
+        # just below (same live-query principle, opposite condition).
+        tracked_forecastable_games = conn.execute(
+            "SELECT g.name, COUNT(DISTINCT pc.polled_at) AS snapshots FROM games g "
+            "JOIN player_counts pc ON pc.appid = g.appid "
+            "GROUP BY g.name, g.peak_ccu "
+            "HAVING COUNT(DISTINCT pc.polled_at) >= 2 "
+            "ORDER BY g.peak_ccu DESC LIMIT 2"
+        ).fetchall()
         # Whichever real, currently most-popular game the poller hasn't
         # tracked yet -- queried live, not hardcoded, so this stays correct
         # as the poller's own tracked set grows over time (see DOCEXP.md's
@@ -158,7 +166,7 @@ def build_golden_questions() -> list[GoldenQuestion]:
     finally:
         conn.close()
 
-    return [
+    questions: list[GoldenQuestion] = [
         GoldenQuestion(
             id="lookup_top_ccu",
             question="Which game has the highest peak concurrent player count?",
@@ -269,29 +277,6 @@ def build_golden_questions() -> list[GoldenQuestion]:
             ),
         ),
         GoldenQuestion(
-            id="forecast_csgo_next_month",
-            question="How many players will Counter-Strike: Global Offensive have next month?",
-            expected_route="forecast",
-            check=all_of(route_is("forecast"), forecast_has_real_projection()),
-            reference_facts=(
-                f"Counter-Strike: Global Offensive has {csgo_snapshots} real historical "
-                "live-player snapshots, enough to fit a real (if not necessarily high-"
-                "confidence) linear-trend projection -- the tool should NOT report "
-                "insufficient_history for this game."
-            ),
-        ),
-        GoldenQuestion(
-            id="forecast_hoi4_next_week",
-            question="How many players will Hearts of Iron IV have next week?",
-            expected_route="forecast",
-            check=all_of(route_is("forecast"), forecast_has_real_projection()),
-            reference_facts=(
-                f"Hearts of Iron IV has {hoi4_snapshots} real historical live-player "
-                "snapshots, enough for a real projection over this short (7-day) horizon -- "
-                "the tool should NOT report insufficient_history for this game."
-            ),
-        ),
-        GoldenQuestion(
             id="forecast_insufficient_history_is_honest",
             question=f"How many players will {untracked_game} have next month?",
             expected_route="forecast",
@@ -336,3 +321,30 @@ def build_golden_questions() -> list[GoldenQuestion]:
             ),
         ),
     ]
+
+    # Two forecast-with-real-data questions, built from whichever tracked
+    # games actually qualified above -- 0, 1, or 2 of them, never assumed
+    # to be exactly 2. Real horizons (30 days, then 7) kept distinct on
+    # purpose: they exercise different parts of _forecast()'s own
+    # low-confidence logic (a longer horizon relative to the observed
+    # span is flagged differently than a short one), not just cosmetic
+    # variety.
+    horizons = [("next month", 30), ("next week", 7)]
+    for i, (name, snapshots) in enumerate(tracked_forecastable_games):
+        phrase, horizon_days = horizons[i]
+        questions.append(
+            GoldenQuestion(
+                id=f"forecast_tracked_game_{i + 1}_{phrase.replace(' ', '_')}",
+                question=f"How many players will {name} have {phrase}?",
+                expected_route="forecast",
+                check=all_of(route_is("forecast"), forecast_has_real_projection()),
+                reference_facts=(
+                    f"{name!r} has {snapshots} real historical live-player snapshots, "
+                    f"enough to fit a real (if not necessarily high-confidence) "
+                    f"linear-trend projection over this {horizon_days}-day horizon -- "
+                    "the tool should NOT report insufficient_history for this game."
+                ),
+            )
+        )
+
+    return questions

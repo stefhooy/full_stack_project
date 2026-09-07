@@ -65,7 +65,20 @@ from src.evals.judge import JudgeVerdict, judge_answer
 # 20s keeps any two heavy questions from landing in the same rolling
 # TPM window in the first place, rather than leaning entirely on
 # _call_with_retry to clean up after the fact.
-SPACING_SECONDS = 20.0
+#
+# Raised again, 20.0 -> 45.0, in Slice 54: a real run
+# (analysis_price_outliers) used 8,380 tokens in ONE question -- alone,
+# already almost the entire 8,000 TPM cap. No amount of spacing short of
+# nearly the full rolling window can guarantee that call's tokens have
+# cleared before the next one starts; 20s left ~40s of the window still
+# overlapping, and the very next question (forecast_csgo_next_month)
+# was rate-limited as a direct result. 45s is real, deliberate slack
+# under the full 60s window rather than a token-accounting scheme that
+# would need to know each question's real cost in advance to place
+# precisely -- a scheduled, once-daily job can afford the extra ~10
+# minutes this adds across 15 questions in exchange for not needing to
+# guess at that.
+SPACING_SECONDS = 45.0
 
 
 def _call_with_retry[T](fn: Callable[..., T], *args: object, max_attempts: int = 3) -> T:

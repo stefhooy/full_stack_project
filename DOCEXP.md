@@ -7540,3 +7540,89 @@ correctly in place.
   not the same claim as a test asserting correct behavior, and this
   session found one real, if narrow, case where the two had quietly
   diverged.
+
+## Slice 54 — Two real CI eval fixes, both traced from a fresh live run, not guessed at
+
+**Date:** 2026-09-07
+
+With the honesty gap closed, ran the real scheduled eval suite twice
+more to see the actual effect. Both runs kept failing, but on different
+questions each time -- `price_outliers`/`hoi4`/`insufficient_history`
+once, then `csgo`/`hoi4`/`insufficient_history` the next. That pattern
+itself was the clue: different failures on different runs of the same
+suite means the *environment* is varying, not the code under test.
+
+### Confirming HOI4's fragility precisely, not just suspecting it
+
+`run_evals.yml`'s catalog-build step runs `ingest.py --count 100`.
+Checked that file's own comment rather than assuming: SteamSpy's bulk
+listing is sorted by *owners* descending, so `--count 100` is
+specifically the 100 most-owned games on Steam, not the 100 most
+popular by concurrent players or by whatever the poller happens to
+track. Rebuilt that exact catalog locally (same command, same day) and
+queried it directly: Hearts of Iron IV, a real, solid, but far smaller
+game than CS:GO, genuinely isn't in it. Confirmed, not inferred --
+`forecast_hoi4_next_week`'s hardcoded golden question was never going to
+reliably survive a small owners-ranked sample, no matter how many times
+it was retried.
+
+### CS:GO's failure looked identical but had a different cause
+
+`forecast_csgo_next_month` failed too, in a run where CS:GO almost
+certainly *was* present (it's reliably one of the most-owned games on
+Steam) -- but with only 509 tokens and 7.8 seconds, the exact signature
+of a rate-limited call that never got to do real work, not a missing-
+game error. Looked at what ran immediately before it:
+`analysis_price_outliers` alone had used 8,380 tokens -- by itself,
+almost the entire 8,000-tokens-per-minute cap Groq enforces. The
+existing 20-second spacing (Slice 44) was sized for the *previous*
+golden set's typical question size, not for one question nearly
+saturating the whole per-minute budget on its own.
+
+### Two independent fixes, not one, because they were two independent problems
+
+**The hardcoded-game problem**: replaced both `forecast_has_real_projection()`
+golden questions with a live query -- the two most-popular *currently-
+tracked, sufficiently-historied* games, `ORDER BY peak_ccu DESC`,
+`HAVING COUNT(DISTINCT polled_at) >= 2`. Written to produce 0, 1, or 2
+questions gracefully depending on what actually qualifies that day,
+never assumed to be exactly 2 -- a hardcoded expectation of "exactly 2"
+would just be a smaller, subtler version of the same bug. Verified all
+three counts directly (`test_golden_questions_forecast_selection.py`),
+using the real `games_db` fixture with `player_counts` rows inserted for
+real, not mocked, plus the one edge case that actually matters here (a
+game with exactly one snapshot must not qualify -- `_forecast()` itself
+needs two to fit any trend).
+
+**The rate-limit problem**: raised `SPACING_SECONDS` again, 20.0 to
+45.0. Reasoned honestly about why 20s couldn't have been enough this
+time: when a single question can use nearly the entire per-minute
+budget by itself, no amount of spacing short of nearly the full rolling
+window guarantees the next call won't overlap it. A precise token-
+budget-aware spacing scheme would be more elegant, but this is a
+scheduled, once-a-day job -- an extra ~10 minutes of total runtime is a
+real cost worth naming, but a small one next to correctness.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 184/184 tests pass (179 +
+5 new). The dynamic game-selection logic verified against real inserted
+`player_counts` rows for all three real counts (0/1/2), not just the
+common case.
+
+### Open questions (new)
+
+- **Whether 45s is actually enough, or whether this needs to become
+  token-aware eventually** (space proportionally to the previous
+  question's real usage rather than a fixed constant) -- same honest
+  "first real guess, not a formally-derived number" caveat every other
+  threshold in this project has gotten (`agent_retry_backoff_seconds`,
+  the 48h deploy-staleness window, the 600-character chunk ceiling).
+  Only a future real run will show whether 45s actually closes this for
+  good.
+- **Whether CI's `--count 100`-by-owners catalog is the right sampling
+  strategy at all** for an eval suite whose golden questions increasingly
+  depend on specific games being present. Worked around here by making
+  the golden questions adapt to whatever catalog exists; the alternative
+  (change what CI ingests, e.g. by owners *and* peak_ccu, or a larger
+  count) was not explored.
