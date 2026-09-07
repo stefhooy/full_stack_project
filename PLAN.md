@@ -2654,6 +2654,53 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified for real: `ruff`/`mypy` clean, 190/190 tests pass (186 + 4
       new)
 
+## Slice 57 — The same catalog-shape bug found a second time, plus a quota-free waiting-game
+- [x] Auditing Slice 55's fix for other instances found `analysis_ccu_outliers`
+      with the identical bug: unconditionally assumed the single
+      highest-`peak_ccu` game is a real z-score outlier, never computing
+      one. Lower real-world risk than the price case (CS:GO's peak_ccu is
+      extreme enough to always clear any reasonable threshold in
+      practice) but structurally the same flaw
+- [x] Rather than copy-pasting Slice 55's fix a second time, extracted
+      the shared logic into `_outlier_check_and_reference(conn, column,
+      noun)` -- one helper, parameterized by column, used by both
+      `analysis_price_outliers` and `analysis_ccu_outliers` now. Two
+      copies of the same statistical logic is exactly how this pattern
+      would drift and get missed a third time
+- [x] Added `test_golden_questions_ccu_outlier.py` (2 tests, mirroring
+      `test_golden_questions_price_outlier.py`'s structure: a real
+      z-score-clearing synthetic outlier must be named, a mild one must
+      not force a specific name)
+- [x] Verified for real: `ruff`/`mypy` clean, 192/192 tests pass (190 + 2
+      new)
+- [x] Built the dinosaur waiting-game feature (`frontend/components/DinoGame.tsx`):
+      a small canvas endless-runner shown next to the existing trace
+      panel while Ludo is thinking. Pure frontend, zero Groq calls --
+      trivially light on memory next to what actually caused today's
+      real Render incident
+- [x] Opt-in only, per the approved design: a "🦖 Play while you wait"
+      button next to the "Ludo is thinking…" label, hidden under
+      `prefers-reduced-motion` (via the existing `useReducedMotion`
+      hook) and never shown at all in that case -- the real trace panel
+      (`TraceSteps`) stays exactly as before for anyone who'd rather
+      watch it
+- [x] Game state (position, obstacles, score) lives in refs updated every
+      animation frame, not React state -- only the score/status text
+      mirrors into `useState`, and only when it visibly changes, so the
+      component isn't re-rendering the tree 60x/sec. `requestAnimationFrame`
+      and both event listeners (`keydown`, `pointerdown`) are torn down
+      explicitly on unmount -- Slice 47's liquid-glass leak fix was the
+      reminder to get this right the first time here
+- [x] Verified live, not just compiled: built a temporary isolated test
+      route, ran it under a real headless Chromium via Playwright
+      (installed fresh for this), and drove a full real session --
+      idle → start → jump → a genuine collision → game over → restart,
+      with the high score persisted via `localStorage` across the
+      restart. Zero console/page errors. Screenshots confirmed correct
+      rendering and theme colors before the temporary route was deleted
+- [x] `tsc --noEmit`, `eslint`, and `next build` all clean on the real
+      `frontend/` project (not just the isolated test harness)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

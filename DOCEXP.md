@@ -7783,3 +7783,132 @@ new).
   comprehensive `run_evals.yml` run covering Slices 53/54/55's fixes
   together has not yet completed, and won't until tomorrow's quota
   reset.
+
+---
+
+## Slice 57 — The same bug found a second time, a shared fix instead of a second copy, and a quota-free waiting-game
+
+**Date:** 2026-09-07
+
+### Auditing Slice 55's fix for siblings, found one
+
+Slice 55 fixed `analysis_price_outliers`'s assumption that the single
+highest-priced game is automatically a real z-score outlier. Going back
+to check whether that same shape of bug existed anywhere else in the
+golden question set (rather than assuming it was a one-off) turned up
+`analysis_ccu_outliers`, unconditionally asserting the single highest
+`peak_ccu` game "should be flagged as a clear outlier" -- the exact
+same unproven assumption, never computing a real z-score.
+
+Lower real-world risk than the price case: CS:GO's peak_ccu is so
+extreme (millions of concurrent players against a catalog where most
+games have low hundreds) that it clears any reasonable z-score
+threshold in every catalog shape actually seen so far. But "hasn't bitten
+us yet" isn't the same as "structurally sound," and Slice 55's own
+DOCEXP entry existed specifically because an *unlikely* catalog shape
+had already broken an *unlikely*-seeming assumption once.
+
+### Fixing it as a shared helper, not a second copy-paste
+
+The tempting fast path was to paste Slice 55's z-score block a second
+time with `peak_ccu` swapped in for `price_usd`. Rejected that
+specifically because two independent copies of the same statistical
+logic is exactly the failure mode that let this bug exist twice in the
+first place -- a fix applied to one copy and not verified against the
+other. Instead, extracted `_outlier_check_and_reference(conn, column,
+noun)` in `golden_questions.py`: computes the real z-score for the
+single highest value of any given column, with the identical
+branching logic Slice 55 established (a real outlier demands the model
+name it; a non-outlier only requires the right route, since "nothing
+stands out" has no one name to assert and inventing a check for what
+the answer must *not* say would just be a subtler version of the same
+original bug). Both `analysis_price_outliers` and
+`analysis_ccu_outliers` now call the same function with different
+columns -- one place to get right, one place a future audit needs to
+re-check.
+
+`column` is interpolated directly into the SQL string rather than
+parameterized -- safe here specifically because it's always one of this
+module's own two hardcoded call sites, never anything derived from user
+input; the docstring says so explicitly rather than leaving it to be
+rediscovered as "wait, is this a SQL injection risk?" on a future read.
+
+### Verified for real
+
+Added `test_golden_questions_ccu_outlier.py`, mirroring
+`test_golden_questions_price_outlier.py`'s structure exactly (real
+DuckDB fixture, fixture rows normalized into a tight cluster, a large
+enough synthetic sample for the z-score to be meaningful either way).
+`ruff check .` and `uv run mypy src` clean; 192/192 tests pass (190 +
+2 new).
+
+### The dinosaur waiting-game
+
+Separately, while today's Groq daily quota was still exhausted: built
+the opt-in "🦖 Play while you wait" feature discussed earlier
+(`frontend/components/DinoGame.tsx`), the design approved via
+`AskUserQuestion` -- a small button next to the existing "Ludo is
+thinking…" trace panel, never shown automatically, never replacing
+`TraceSteps` (the real execution trace stays exactly as it was for
+anyone who wants to watch it instead).
+
+Pure frontend, zero Groq/backend calls, and -- given everything Slice
+50 taught about Render's real 512MB ceiling that same day -- a tiny
+canvas endless-runner is nowhere near the scale of what actually caused
+that incident (one long batch-embedded RAG chunk). Worth naming
+explicitly: this feature exists *because* of that day's memory
+incident, as a deliberately memory-trivial contrast, not despite it.
+
+Implementation notes worth keeping:
+
+- Game state (dino position/velocity, obstacles, distance, speed) lives
+  in refs mutated every animation frame, not `useState` -- routing
+  ~60fps updates through React state would re-render the whole subtree
+  that often for no reason. Only score and phase (idle/playing/over) --
+  what actually needs to reach the DOM or a screen reader -- are
+  mirrored into state, and only when they visibly change.
+- `prefers-reduced-motion` is respected by not showing the opt-in button
+  at all in that case, reusing the existing `useReducedMotion` hook
+  (`lib/useReducedMotion.ts`) rather than writing a second media-query
+  subscription.
+- `requestAnimationFrame` and both event listeners (`keydown` at the
+  window level, filtered so typing in an input doesn't trigger a jump;
+  `pointerdown` on the canvas for tap/click) are explicitly torn down on
+  unmount. Slice 47's liquid-glass memory-leak fix (the vendored
+  `destroy()` addition) was the direct reminder to get this right the
+  first time here instead of finding it live later.
+- High score persists via `localStorage`, wrapped in try/catch (private
+  browsing / storage-disabled tabs just start at 0 instead of throwing).
+
+A real TypeScript gotcha hit along the way, worth a note for next time:
+`const ctx = canvas.getContext("2d"); if (!ctx) return;` does NOT keep
+`ctx` narrowed to non-null inside a `function frame() {...}` declared
+later in the same scope -- TS's control-flow narrowing of a `const`
+doesn't carry into a hoisted function declaration, since that function
+could in principle be invoked before the narrowing check runs. Fixed by
+re-binding to a second, explicitly-typed `const ctx: CanvasRenderingContext2D
+= context2d` right after the null check.
+
+### Verified live, not just compiled
+
+`tsc --noEmit`, `eslint`, and `next build` all passed clean on the real
+change -- but per the `run` skill's standard (launching and driving the
+actual app, not just checking it compiles), also built a temporary,
+throwaway isolated test route (`app/dino-test/page.tsx`, deleted before
+finishing) that mounted `DinoGame` on its own, started the real Next.js
+dev server, and drove a full session against it with Playwright under a
+real headless Chromium (installed fresh into the scratchpad for this,
+not touching the project's own dependencies): idle screen → start on
+click → repeated jumps → a genuine collision with a spawned obstacle →
+"game over" state → restart, with the high score correctly persisted
+across the restart via `localStorage`. Zero console or page errors the
+whole way. Screenshots confirmed the canvas actually renders (dino
+shape, scrolling ground dashes, accent-colored obstacles) using the
+site's real theme colors, not just that the component doesn't throw.
+
+### Open questions (new)
+
+- None new from this slice specifically. The two items already tracked
+  from Slice 56 (TPD-specific rate-limit handling; the still-pending
+  comprehensive `run_evals.yml` run) remain open, unaffected by this
+  slice's changes.

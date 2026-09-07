@@ -110,6 +110,57 @@ def _check_action_vs_f2p_not_mislabeled(result: AgentResult) -> CheckResult:
     )
 
 
+def _outlier_check_and_reference(
+    conn: duckdb.DuckDBPyConnection, column: str, noun: str
+) -> tuple[Check, str]:
+    """Whether the single highest `column` value in the dataset is a real
+    z-score outlier, computed with the exact same formula run_stats's own
+    outliers mode uses (src/tools/stats_tool.py: sample stddev,
+    z_threshold=2.5) -- not assumed. Shared by analysis_price_outliers
+    and analysis_ccu_outliers, both of which used to just assume "the
+    single highest X" is automatically a clear outlier -- a real,
+    confirmed bug (DOCEXP.md's Slice 54 entry, found a second time in
+    Slice 56's own audit for exactly this pattern): on a smaller/
+    differently-shaped catalog, the top value sometimes doesn't clear
+    the threshold at all, and a model correctly saying so was being
+    marked wrong for being right. `column` is always one of this
+    module's own hardcoded call sites, never user input -- the f-string
+    below is safe for that reason, not because the value is escaped."""
+    row = conn.execute(
+        f"SELECT name, "
+        f"({column} - (SELECT AVG({column}) FROM games)) "
+        f"/ (SELECT STDDEV_SAMP({column}) FROM games) AS z_score "
+        f"FROM games ORDER BY {column} DESC LIMIT 1"
+    ).fetchone()
+    assert row is not None, "games table appears to be empty"
+    name, z_score = row
+    if abs(z_score) > 2.5:
+        check = all_of(route_is("analysis"), contains_text(name))
+        reference_facts = (
+            f"{name!r} has the single highest {noun} in the dataset, a real z-score of "
+            f"{z_score:.2f} against the standard z_threshold=2.5 run_stats itself uses -- "
+            "a rigorous outlier check SHOULD flag it by name."
+        )
+        return check, reference_facts
+
+    # Route-only: no single fact to assert positively here (the correct
+    # answer is "no strong outlier," which has no one name to check for),
+    # and inventing a check for what the answer must NOT say is exactly
+    # the kind of fragile, enumerate-every-wrong-answer check this
+    # project avoids elsewhere. The LLM judge, given the accurate
+    # reference facts below, already assesses this correctly (confirmed
+    # directly for the price case, DOCEXP.md's Slice 54 entry).
+    check = route_is("analysis")
+    reference_facts = (
+        f"{name!r} has the single highest {noun} in the dataset, but its real z-score is "
+        f"only {z_score:.2f} -- below the standard z_threshold=2.5 run_stats itself uses. "
+        "A rigorous outlier check should honestly report that nothing clears the threshold, "
+        f"not force this game forward as a clear outlier just because it's the single "
+        f"highest {noun}."
+    )
+    return check, reference_facts
+
+
 def build_golden_questions() -> list[GoldenQuestion]:
     conn = duckdb.connect(settings.duckdb_abs_path, read_only=True)
     try:
@@ -126,48 +177,15 @@ def build_golden_questions() -> list[GoldenQuestion]:
         )
         # Whether the single highest-priced game is actually a real
         # statistical outlier, computed with the exact same formula
-        # run_stats's own outliers mode uses (src/tools/stats_tool.py:
-        # sample stddev, z_threshold=2.5) -- not assumed. A real, confirmed
-        # bug (DOCEXP.md's Slice 54 entry): the golden question used to
-        # assume "highest price" and "real z-score outlier" are the same
-        # thing, but on a smaller/differently-shaped catalog (CI's ~100-game
-        # sample varies run to run) the top price sometimes doesn't clear
-        # the threshold at all, and a model that correctly says so was
-        # being marked wrong for being right.
-        price_outlier_row = conn.execute(
-            "SELECT name, "
-            "(price_usd - (SELECT AVG(price_usd) FROM games)) "
-            "/ (SELECT STDDEV_SAMP(price_usd) FROM games) AS z_score "
-            "FROM games ORDER BY price_usd DESC LIMIT 1"
-        ).fetchone()
-        assert price_outlier_row is not None, "games table appears to be empty"
-        price_outlier_name, price_outlier_z_score = price_outlier_row
-        price_outlier_is_real = abs(price_outlier_z_score) > 2.5
-        if price_outlier_is_real:
-            price_outlier_check = all_of(route_is("analysis"), contains_text(price_outlier_name))
-            price_outlier_reference_facts = (
-                f"{price_outlier_name!r} has the single highest price_usd in the dataset, "
-                f"a real z-score of {price_outlier_z_score:.2f} against the standard "
-                "z_threshold=2.5 run_stats itself uses -- a rigorous outlier check SHOULD "
-                "flag it by name."
-            )
-        else:
-            # Route-only: no single fact to assert positively here (the
-            # correct answer is "no strong outlier," which has no one
-            # name to check for), and inventing a check for what the
-            # answer must NOT say is exactly the kind of fragile,
-            # enumerate-every-wrong-answer check this project avoids
-            # elsewhere. The LLM judge, given the accurate reference facts
-            # below, already assesses this correctly (confirmed directly,
-            # DOCEXP.md's Slice 54 entry).
-            price_outlier_check = route_is("analysis")
-            price_outlier_reference_facts = (
-                f"{price_outlier_name!r} has the single highest price_usd in the dataset, "
-                f"but its real z-score is only {price_outlier_z_score:.2f} -- below the "
-                "standard z_threshold=2.5 run_stats itself uses. A rigorous outlier check "
-                "should honestly report that nothing clears the threshold, not force this "
-                "game forward as a clear outlier just because it's the single highest price."
-            )
+        # run_stats's own outliers mode uses -- not assumed. See
+        # _outlier_check_and_reference's docstring for the real, confirmed
+        # bug this closes (DOCEXP.md's Slice 54 and Slice 57 entries).
+        price_outlier_check, price_outlier_reference_facts = _outlier_check_and_reference(
+            conn, "price_usd", "price_usd"
+        )
+        ccu_outlier_check, ccu_outlier_reference_facts = _outlier_check_and_reference(
+            conn, "peak_ccu", "peak_ccu"
+        )
         f2p_review_mean = _query_one(
             conn, "SELECT AVG(review_score) FROM games WHERE price_usd = 0"
         )
@@ -247,11 +265,8 @@ def build_golden_questions() -> list[GoldenQuestion]:
                 "compared to the rest?"
             ),
             expected_route="analysis",
-            check=all_of(route_is("analysis"), contains_text(top_ccu_name)),
-            reference_facts=(
-                f"{top_ccu_name!r} has by far the highest peak_ccu in the dataset and should "
-                "be flagged as a clear outlier."
-            ),
+            check=ccu_outlier_check,
+            reference_facts=ccu_outlier_reference_facts,
         ),
         GoldenQuestion(
             id="needs_clarification_ambiguous",

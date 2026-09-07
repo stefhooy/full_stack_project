@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Chart from "@/components/Chart";
+import DinoGame from "@/components/DinoGame";
 import FilmStrip from "@/components/FilmStrip";
 import GenreShowcase from "@/components/GenreShowcase";
 import HeroPreview from "@/components/HeroPreview";
@@ -19,6 +20,7 @@ import {
   type StreamEvent,
 } from "@/lib/api";
 import { useDeferredMount } from "@/lib/useDeferredMount";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 
 // WebGL needs a real browser context -- ssr:false keeps @react-three/fiber's
 // Canvas out of the server render entirely rather than crashing it.
@@ -215,6 +217,10 @@ export default function Home() {
   const [progress, setProgress] = useState<Extract<StreamEvent, { type: "progress" }>[]>([]);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Opt-in only -- the dino runner never appears on its own. It sits next
+  // to the real trace panel, not instead of it, so anyone who'd rather
+  // watch what Ludo is actually doing still can.
+  const [showDinoGame, setShowDinoGame] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // Always mounted (not just while loading) so ask() can scroll to it the
   // instant a question fires, regardless of which entry point triggered it
@@ -271,6 +277,7 @@ export default function Home() {
 
   const visitedNodes = progress.map((p) => p.node);
   const currentNode = loading ? visitedNodes[visitedNodes.length - 1] ?? null : null;
+  const reducedMotion = useReducedMotion();
 
   return (
     <div className="min-h-screen font-sans">
@@ -384,10 +391,22 @@ export default function Home() {
                 transition={{ duration: 0.25, ease: "easeOut" }}
                 className="panel mt-6 rounded-xl px-4 py-4"
               >
-                <div className="mb-3 text-xs font-mono text-[var(--muted)]">
-                  Ludo is thinking…
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="text-xs font-mono text-[var(--muted)]">
+                    Ludo is thinking…
+                  </span>
+                  {!reducedMotion && !showDinoGame && (
+                    <button
+                      type="button"
+                      onClick={() => setShowDinoGame(true)}
+                      className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-mono text-[var(--muted)] transition-colors hover:text-[var(--foreground)] hover:border-[var(--border-strong)]"
+                    >
+                      🦖 Play while you wait
+                    </button>
+                  )}
                 </div>
                 <TraceSteps visited={visitedNodes} current={currentNode} />
+                {!reducedMotion && showDinoGame && <DinoGame />}
               </motion.div>
             )}
           </AnimatePresence>
