@@ -15,6 +15,11 @@ import logging
 import os
 from pathlib import Path
 
+try:
+    import resource  # Unix-only (Render/Linux); absent on Windows local dev
+except ImportError:
+    resource = None  # type: ignore[assignment]
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -30,6 +35,29 @@ from src.db.genre_stats import get_games_by_genre, get_genre_counts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api")
+
+
+def _log_memory(label: str) -> None:
+    # TEMPORARY diagnostic (Slice 49 follow-up) -- remove once the real
+    # OOM trigger (confirmed via Render's own dashboard: "Ran out of
+    # memory (used over 512MB)") is actually identified. ru_maxrss is a
+    # high-water mark (peak resident memory since process start, never
+    # decreases), so logging it at several checkpoints across one real
+    # request shows exactly which step's peak jumps the most, rather than
+    # guessing between "the embedding model," "the catalog," or something
+    # else entirely.
+    if resource is None:
+        return
+    # mypy's Windows-platform stub for `resource` declares neither member
+    # (the module is Unix-only there too, just with an even emptier
+    # surface) -- this dev machine is Windows, but the code only ever
+    # really runs on Render's Linux, already guarded by the ImportError
+    # fallback above.
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # type: ignore[attr-defined]
+    logger.info("MEMORY [%s]: peak RSS so far = %.1f MB", label, peak_mb)
+
+
+_log_memory("module import complete")
 
 app = FastAPI(title="AI Game Analyst", version="0.1.0")
 
@@ -194,8 +222,10 @@ def _record_real_run(result: AgentResult) -> None:
 
 
 def _run_with_cache(question: str) -> tuple[AgentResult, bool]:
+    _log_memory("start of real request, before cache/embedding")
     if settings.semantic_cache_enabled:
         hit = _cache.get(question)
+        _log_memory("after cache.get() (embeds the question)")
         if hit is not None:
             cached_result, matched_question = hit
             logger.info("cache hit: %r ~ %r", question, matched_question)
@@ -208,6 +238,7 @@ def _run_with_cache(question: str) -> tuple[AgentResult, bool]:
         raise DailyBudgetExceeded()
 
     result = run_agent(question)
+    _log_memory("after run_agent() (routing + schema retrieval + LLM/tools)")
     _record_real_run(result)
     if settings.semantic_cache_enabled:
         _cache.put(question, result)
