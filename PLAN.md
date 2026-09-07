@@ -2386,6 +2386,55 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       (166 + 4 new), full suite re-run twice to confirm the isolation fix
       is real, not a fluke. `.env.example` updated with the new setting
 
+## Slice 49 — A real production incident: every live `/ask` was failing, root-caused via actual Render logs
+- [x] User reported "there's a problem with Render" and asked for a real
+      test. Reproduced directly against the live URL (bypassing the
+      frontend): `/health` always worked; every real `/ask` question,
+      including the fastest possible route (`needs_clarification`, no
+      schema retrieval, no tool calls), failed consistently -- a 502
+      after 14-20s of real processing, or an instant, empty-body 503,
+      depending on timing
+- [x] Isolated it to something common to *every* route, not a slow-path
+      timeout: `_run_with_cache()` calls the semantic cache's
+      `.get(question)` for every real question before any routing even
+      happens, which embeds the query via the local ONNX model -- the
+      one thing every failing request shares that `/health` never
+      touches at all
+- [x] Got the real Render service logs from the user (no dashboard
+      access from this session) and found the actual mechanism: after a
+      real Groq call succeeds, the app re-downloads the embedding model
+      from HuggingFace live (5 files, ~5s), then goes silent -- no
+      Python traceback, no error -- followed by a clean "Started server
+      process" a Render-restart later. Silence-then-restart with zero
+      application-level error output is the signature of an OOM kill,
+      not a code exception
+- [x] Root cause: fastembed's default cache directory is
+      `tempfile.gettempdir()/fastembed_cache` (i.e. `/tmp/...`) --
+      confirmed directly from the installed package's own source, not
+      assumed. The Dockerfile already pre-warms this model at build
+      time, but Render's filesystem is ephemeral by design (confirmed
+      against Render's own docs) and does not guarantee `/tmp`
+      specifically survives from the image's build layers into a fresh
+      running container. Every real restart was therefore re-downloading
+      and re-initializing the model live, on the very first real
+      request -- real added latency and memory pressure landing right
+      when the process is least equipped to absorb it
+- [x] Fixed at the actual cache-path level, not by adding a retry or a
+      timeout band-aid: pinned `FASTEMBED_CACHE_PATH=/app/.fastembed_cache`
+      in the Dockerfile, before the existing pre-warm step -- `/app` is
+      demonstrably persistent (the app's own source and venv already
+      live there and work fine), unlike the platform's ephemeral `/tmp`
+- [x] Verified the actual mechanism locally before trusting it in
+      production: confirmed `FASTEMBED_CACHE_PATH` is genuinely honored
+      by fastembed (files landed exactly under the custom path), and
+      that a second run against the same path reuses the cache with no
+      download bar at all -- not just "should work," directly observed
+- [x] Docker itself isn't available in this environment, so the fix
+      could not be verified via a full local image rebuild -- named
+      honestly as the one thing still unverified until the next real
+      Render deploy. `ruff`/`mypy`/pytest (170/170) all clean, confirming
+      the Dockerfile-only change touched nothing else
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

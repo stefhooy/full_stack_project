@@ -52,6 +52,22 @@ RUN python -m src.ingestion.build_player_counts_table
 # fastembed's ONNX model also downloads at build time here, via the first
 # import that constructs a SchemaIndex — done as a separate layer so a
 # requirements-only change doesn't force re-downloading it.
+#
+# FASTEMBED_CACHE_PATH pinned to /app, NOT left at fastembed's own default
+# (tempfile.gettempdir() + "/fastembed_cache", i.e. /tmp/fastembed_cache):
+# a real, confirmed production incident (not hypothetical) traced via
+# live Render logs found this exact model re-downloading from HuggingFace
+# on every fresh container start, despite this build-time step existing —
+# Render's filesystem is ephemeral by design and does not guarantee /tmp
+# specifically survives from the image's build layers into a running
+# container the way /app demonstrably does (the app's own source and
+# venv live there and work fine). The live re-download (a real, blocking
+# network call plus fresh ONNX runtime init on the very first real
+# request after every restart) was directly implicated in a repeating
+# silent-crash-and-restart cycle in production. Setting this explicitly
+# makes both this build step and the running container agree on the same
+# real, persistent path.
+ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
 RUN python -c "from src.agent.rag.schema_index import get_schema_index; get_schema_index()"
 
 EXPOSE 8000

@@ -6936,3 +6936,134 @@ how every other tunable in `Settings` is already mirrored there.
   others) that a fresh review is warranted before calling it settled, is
   a real open question for whoever picks this up next -- not assumed
   here either way.
+
+## Slice 49 — "There's a problem with Render" — a real incident, found via actual logs, not guessed at
+
+**Date:** 2026-09-07
+
+The user reported a problem and asked for a direct test, no more detail
+than that. Used the `systematic-debugging` skill explicitly rather than
+jumping to a fix: reproduce first, read the real evidence, form one
+hypothesis, test it, only then implement.
+
+### Reproducing directly against the live URL
+
+Curled the live Render backend's `/health` and `/ask` directly, bypassing
+the frontend entirely -- the fastest way to know whether this is a
+frontend issue, a backend issue, or a network issue. First real finding,
+purely local: this machine's curl (Windows schannel) failed the TLS
+handshake outright with `CRYPT_E_NO_REVOCATION_CHECK` -- a local
+certificate-revocation-check failure, not evidence about Render at all.
+Confirmed by retrying with `--ssl-no-revoke`: the real connection
+succeeded fine once that local artifact was bypassed. Named this
+explicitly rather than let a local networking quirk get mistaken for the
+actual reported problem.
+
+### `/health` always worked; every real question always failed
+
+`/health` responded correctly every time (once past the local TLS
+issue), including a real `deploy_commit` (Slice 46's own fix, now
+genuinely paying off) confirming the live backend was running a commit
+that includes all of Slices 42-48. Three separate real `/ask` calls,
+different questions, different routes -- all failed: a 502 after 14-20s
+of real processing twice, and once an instant, empty-body 503. Tested
+the fastest possible path deliberately (`"Is this game good?"`, which
+routes to `needs_clarification` -- a single quick router call, no schema
+retrieval, no tool-calling turn at all) specifically to rule out "the
+slow routes are just timing out": it failed too, just as fast/hard as
+the others. This single test is what ruled out a route-specific latency
+problem and pointed at something shared by literally every real
+question, not just the expensive ones.
+
+### The one thing every failing request has in common
+
+`_run_with_cache()` (`src/api/main.py`) calls the semantic cache's
+`.get(question)` before any routing happens at all, for every real
+`/ask` call -- and that call embeds the incoming question via the local
+ONNX model to check for a similarity hit. `/health` never touches this
+path. That's the one piece of code every failure shares and the one
+success (`/health`) never runs.
+
+### Getting the evidence this session doesn't have access to
+
+No Render dashboard/log access from inside this session -- the same
+standing limitation named repeatedly since Slice 32. Asked the user
+directly for the real service logs rather than keep guessing from
+outside evidence alone. They pasted them. The logs settled it precisely:
+
+```
+07:06:09  a real Groq call succeeds (200 OK)
+07:06:11-07:06:16  the app downloads the embedding model live from
+                    HuggingFace (5 files, ~5s of network + disk work)
+07:06:21  last log line
+07:07:00  "Started server process [1]" -- a brand new, clean process
+          start, with NOTHING logged in between
+```
+
+No Python traceback, no error line, no graceful-shutdown message --
+just silence, then a fresh restart, exactly the pattern a genuine
+Python exception would NOT produce (uvicorn logs those) but an OOM kill
+(the kernel/container runtime SIGKILLs the process outright) would. The
+same silence-then-restart shape repeated a second time a few minutes
+later. This was the single piece of evidence that turned "the embedder
+is somehow involved" into an actual, confident root cause.
+
+### Root-causing precisely, not stopping at "it's the embedder"
+
+The real question was why a model that's supposedly pre-warmed at
+Docker *build* time was downloading again at *runtime*. Read fastembed's
+own installed source directly rather than guess: its default cache
+directory is `tempfile.gettempdir() + "/fastembed_cache"` (`/tmp/...`),
+overridable via `FASTEMBED_CACHE_PATH`. Checked Render's own docs: "by
+default, Render services have an ephemeral filesystem... any changes...
+are lost every time the service redeploys or restarts" -- confirming
+`/tmp` populated during the Dockerfile's build-time pre-warm step has no
+guarantee of surviving into a fresh runtime container, unlike `/app`
+(where the app's own source and venv demonstrably do persist and work).
+Every restart -- and this app had clearly been restarting on essentially
+every real request -- was re-paying the full network-download-plus-
+ONNX-init cost that was supposed to be a one-time build-time expense,
+right at the exact moment (freshly started, before anything else has
+settled) the process is least able to absorb the extra memory pressure.
+
+### The fix, verified locally before trusting it in production
+
+Pinned `FASTEMBED_CACHE_PATH=/app/.fastembed_cache` in the Dockerfile,
+set before the existing pre-warm `RUN` step so both build time and
+runtime agree on the same real, persistent path. Verified the actual
+mechanism directly rather than trusting the reasoning alone: set the
+env var locally, confirmed the model files landed exactly under the
+custom path, then ran a second time against the same path and confirmed
+no download bar appeared at all -- a real, observed cache hit, not an
+assumed one. Docker itself isn't available in this environment, so a
+full local image rebuild couldn't be used to verify the complete
+build-to-runtime path the way the real Render build will -- named
+honestly as the one thing that still needs the next real deploy to
+fully confirm.
+
+### Verified for real
+
+`ruff check .`, `uv run mypy src`, and the full test suite (170/170)
+all clean -- confirming the Dockerfile-only change touched nothing else
+in the codebase, not that it fixes the incident by itself (that needs a
+real redeploy and a real retest, not a local check).
+
+### Open questions (new)
+
+- **Whether this fully resolves the crash, or only reduces its
+  frequency/severity.** The evidence points squarely at the re-download-
+  and-reinit cycle as the trigger, but without real Render memory
+  metrics, it's not fully ruled out that loading the ONNX model into
+  memory for the first time is *itself* enough to approach the free
+  tier's undocumented memory ceiling, cache hit or not. The real test is
+  the next live redeploy plus a real retest against `/ask`, not this
+  local verification alone.
+- **How long this incident had actually been live.** Given
+  `refresh_catalog.yml` rebuilds (and therefore restarts) the backend
+  daily, and every fresh restart appears to have hit this same
+  redownload-then-possible-OOM cycle, this may have been silently
+  breaking the very first real question after every single day's
+  rebuild for a while -- not something introduced by Slices 42-48,
+  since none of that work touched the embedding/cache path at all. Worth
+  a genuine "how long has this been broken" retrospective once it's
+  confirmed fixed, rather than assuming it was newly introduced today.
