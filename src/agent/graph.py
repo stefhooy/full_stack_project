@@ -51,10 +51,16 @@ default.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass
 from typing import Annotated, TypedDict, cast
+
+try:
+    import resource  # Unix-only (Render/Linux); absent on Windows local dev
+except ImportError:
+    resource = None  # type: ignore[assignment]
 
 import duckdb
 from langchain_core.callbacks import get_usage_metadata_callback
@@ -73,6 +79,23 @@ from src.tools.forecast_tool import execute_run_forecast, run_forecast
 from src.tools.sql_tool import execute_run_sql, run_sql
 from src.tools.stats_tool import execute_run_stats, run_stats
 from src.tools.viz_tool import infer_chart_spec
+
+logger = logging.getLogger("agent")
+
+
+def _log_memory(label: str) -> None:
+    # TEMPORARY diagnostic (Slice 49 follow-up, same as src/api/main.py's
+    # copy -- duplicated rather than imported, since agent code doesn't
+    # depend on the API layer, see this module's own docstring). Confirms
+    # or rules out get_schema_index()'s first-ever construction (one
+    # batch embed_texts() call over ~20 schema chunks, inside
+    # retrieve_schema_node below) as the real memory-spike trigger,
+    # narrowing down from the earlier finding that the semantic cache's
+    # own single-query embed showed no measurable jump at all.
+    if resource is None:
+        return
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # type: ignore[attr-defined]
+    logger.info("MEMORY [%s]: peak RSS so far = %.1f MB", label, peak_mb)
 
 
 class AgentState(TypedDict):
@@ -152,7 +175,9 @@ _TOOL_GUIDANCE_BY_ROUTE = {
 
 
 def retrieve_schema_node(state: AgentState) -> dict:
+    _log_memory("before get_schema_index() (first call builds the index)")
     chunks = get_schema_index().retrieve(state["question"], top_k=settings.rag_top_k)
+    _log_memory("after get_schema_index().retrieve()")
     schema_text = assemble_schema_text(chunks)
     # state["route"] is always set by the time this node runs (the router
     # always runs first, and needs_clarification never reaches this node) --
@@ -184,11 +209,14 @@ def _tools_for_route(route: str | None) -> list:
 
 
 def agent_node(state: AgentState) -> dict:
+    _log_memory("start of agent_node (tool-calling LLM turn)")
     llm = get_llm()
     retries_left = state["attempts"] < settings.sql_max_retries
     model = llm.bind_tools(_tools_for_route(state["route"])) if retries_left else llm
     try:
-        return {"messages": [model.invoke(state["messages"])]}
+        response = model.invoke(state["messages"])
+        _log_memory("after agent_node's model.invoke() succeeds")
+        return {"messages": [response]}
     except Exception:  # noqa: BLE001 -- see the long comment below for why
         pass
 
@@ -294,6 +322,7 @@ def execute_tools_node(state: AgentState) -> dict:
     update["messages"] = tool_messages
     update["attempts"] = attempts
     update["tool_errors"] = tool_errors
+    _log_memory("after execute_tools_node (SQL/stats/forecast execution)")
     return update
 
 
