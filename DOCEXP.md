@@ -7258,3 +7258,97 @@ steps, not abandoned -- see PLAN.md and whichever slice follows.
   onnxruntime's own internals or documentation) -- the *fix* is solid
   regardless, but the deeper *why* is inferred from behavior, not
   confirmed from the library's own source.
+
+## Slice 51 — Two more real CI bugs, surfaced while checking whether everything else was actually green
+
+**Date:** 2026-09-07
+
+After confirming the live memory fix worked, asked for a status overview
+rather than assuming everything else was fine -- and checking rather
+than assuming immediately surfaced two more real, previously-unnoticed
+bugs, both in CI, both genuine, neither a flake.
+
+### mypy: the exact same code, two different verdicts on two different OSes
+
+Pushing the memory-diagnostic code (Slice 49/50) turned `test.yml` red
+in CI with `Unused "type: ignore" comment` on both
+`resource.getrusage`/`RUSAGE_SELF` calls -- despite `uv run mypy src`
+being clean on this local machine moments before. Not a flaky CI runner;
+a real, reproducible platform disagreement: `resource` is a Unix-only
+stdlib module, and its typeshed stub is fully populated on Linux but
+empty on Windows. The exact same `# type: ignore[attr-defined]` was
+simultaneously *required* here (Windows) and an *error* there
+(`ubuntu-latest`, where `warn_unused_ignores = true` turns an
+unnecessary ignore into a hard failure).
+
+Fixed at the actual source of the disagreement, not by picking whichever
+OS's answer to trust: pinned `platform = "linux"` in `[tool.mypy]`,
+since that's genuinely where this code runs in production (Render).
+Verified the fix the same rigorous way as everything else this
+session -- reproduced CI's exact error *locally* first (confirming the
+platform pin actually changed local mypy's verdict to match CI's),
+*then* removed the now-genuinely-unnecessary ignore comments, rather
+than removing them first and hoping.
+
+### `run_evals.yml`: a missing setup step, invisible until the next scheduled run
+
+Asked for an overview of what's left, and checking GitHub's own Actions
+API for real, current status (rather than trusting memory) surfaced a
+second real failure: the scheduled Answer-Quality Evals workflow had
+crashed the one time it ran since the golden set expanded to 15
+questions -- `duckdb.CatalogException: Table with name player_counts
+does not exist`.
+
+Root-caused precisely, not just from the traceback alone: Slice 44
+added three forecast golden questions that query `player_counts`
+directly (`csgo_snapshots`, `hoi4_snapshots`, `untracked_game`), but
+`run_evals.yml`'s own catalog-build step only ever ran
+`src.ingestion.ingest` (builds `games`), never
+`src.ingestion.build_player_counts_table`. This is exactly the kind of
+gap that's invisible from a developer's own machine: this machine's
+local DB already had `player_counts` built from earlier work, and every
+eval run triggered by hand during Slice 44's own session ran locally,
+never through this specific CI job's actually-fresh checkout. The
+workflow only runs once a day, so it took a full extra day after Slice
+44 landed for the gap to ever actually get exercised.
+
+Reproduced before fixing, the same way as every other real bug this
+session: built a fresh, `games`-only DB locally (mirroring exactly what
+the CI checkout had), confirmed the identical `CatalogException` at the
+identical line, then added the missing
+`python -m src.ingestion.build_player_counts_table` step (mirroring the
+Dockerfile's own two-step pattern, which already gets this right) and
+confirmed `build_golden_questions()` succeeds end to end, all 15
+questions, against that same reproduction DB.
+
+### The pattern across both
+
+Neither bug was found by looking for bugs -- both surfaced from
+actually checking real, current status (GitHub's Actions API, a fresh
+local mypy run against the exact CI platform) instead of assuming
+"probably fine" after the main incident got fixed. Same lesson as
+Slice 30, Slice 43's `sqlglot.ParseError`, and Slice 46's `test.yml`
+gap: real verification keeps finding real, previously-invisible gaps,
+specifically because most of this project's own testing happens on a
+developer's already-warmed-up local machine, not the genuinely fresh
+environment CI (and production) actually run in.
+
+### Verified for real
+
+Both fixes verified by direct reproduction before and after, not by
+reasoning alone: the mypy platform mismatch reproduced locally then
+resolved; the `run_evals.yml` gap reproduced against a real fresh DB
+then resolved, with `build_golden_questions()` confirmed to return all
+15 questions afterward. `ruff check .`, `uv run mypy src`, and the full
+test suite (170/170) all clean throughout.
+
+### Open questions (new)
+
+- **Whether any other CI workflow has a similar "works locally, never
+  actually exercised fresh" gap.** Only `run_evals.yml`'s missing
+  `player_counts` step was found and fixed here; not an exhaustive audit
+  of every workflow's setup completeness.
+- **Whether the scheduled eval run's actual pass rate (not just "did it
+  crash") has improved** now that it can run to completion again --
+  genuinely unknown until the next real scheduled run (or a manual
+  `workflow_dispatch` trigger) completes.

@@ -22,6 +22,18 @@ name: Answer-Quality Evals
 # its own data, not this specific dataset's real-world accuracy. Needs the
 # "agent" extra (not just base + dev), unlike test.yml's pytest job, since
 # run_evals.py exercises the real LLM/LangGraph stack, not pure functions.
+#
+# Also needs player_counts built (Slice 50 follow-up, a real bug, not a
+# style fix): Slice 44 added forecast golden questions
+# (forecast_csgo_next_month, etc.) that query player_counts directly, but
+# this job only ever built the `games` table -- worked locally (this
+# machine's own DB already had player_counts) and in every eval run
+# triggered by hand during that same session, so it went uncaught until
+# this workflow's own next scheduled run (a full day later) hit a truly
+# fresh checkout and crashed immediately with a real
+# `duckdb.CatalogException: Table with name player_counts does not exist`.
+# Mirrors the Dockerfile's own two-step build (ingest, then
+# build_player_counts_table) exactly, for the same reason.
 
 on:
   schedule:
@@ -43,6 +55,9 @@ jobs:
 
       - name: Build a small evaluation catalog
         run: uv run python -m src.ingestion.ingest --count 100
+
+      - name: Build player_counts table
+        run: uv run python -m src.ingestion.build_player_counts_table
 
       - name: Run the eval suite
         env:

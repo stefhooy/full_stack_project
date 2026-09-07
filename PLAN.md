@@ -2479,6 +2479,39 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       chunk-length guardrail remain real, deliberately deferred next
       steps, not abandoned
 
+## Slice 51 — Two more real CI bugs, found chasing the memory fix's own aftermath
+- [x] **mypy platform mismatch**: `test.yml` failed in CI (`Unused "type:
+      ignore" comment` on the two `resource.getrusage`/`RUSAGE_SELF`
+      calls) right after the memory-diagnostic code was pushed, even
+      though `mypy` was clean locally. Root cause: `resource` (Unix-only)
+      has a real, populated stub on Linux but an empty one on Windows --
+      the exact same `# type: ignore[attr-defined]` was simultaneously
+      REQUIRED on this Windows dev machine and an ERROR on CI's
+      `ubuntu-latest` runner. Fixed by pinning `platform = "linux"` in
+      `[tool.mypy]` (matching the real deployment target, Render), then
+      removing the now-genuinely-unnecessary ignore comments. Verified
+      by reproducing CI's exact error locally first (confirming the pin
+      actually aligned the two environments) before removing anything
+- [x] **`run_evals.yml` missing a real setup step**: the scheduled
+      Answer-Quality Evals workflow crashed for real
+      (`duckdb.CatalogException: Table with name player_counts does not
+      exist`) on its first run against the expanded 15-question golden
+      set. Root cause: Slice 44 added forecast golden questions that
+      query `player_counts` directly, but this workflow's catalog-build
+      step only ever built the `games` table (`ingest.py`) -- never
+      `build_player_counts_table.py`. Worked locally (this machine's own
+      DB already had `player_counts`) and in every eval run triggered by
+      hand during that same session, so it went uncaught until the
+      workflow's own next scheduled run, a full day later, hit a truly
+      fresh checkout. Fixed by adding the missing build step, mirroring
+      the Dockerfile's own two-step pattern exactly
+- [x] Verified both for real: reproduced the exact CI failure locally
+      first (a fresh games-only DB, confirmed the identical
+      `CatalogException`), applied the fix, confirmed `build_golden_questions()`
+      succeeds and returns all 15 questions -- not just reasoned about,
+      actually reproduced and confirmed resolved. `ruff`/`mypy`/pytest
+      (170/170) all clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
