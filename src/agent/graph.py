@@ -94,7 +94,7 @@ def _log_memory(label: str) -> None:
     # own single-query embed showed no measurable jump at all.
     if resource is None:
         return
-    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # type: ignore[attr-defined]
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     logger.info("MEMORY [%s]: peak RSS so far = %.1f MB", label, peak_mb)
 
 

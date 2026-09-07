@@ -104,6 +104,19 @@ select = ["E", "F", "I", "UP", "B", "BLE", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 packages = ["src"]
+# Pinned to the real deployment target (Render, Linux), not left to
+# whichever OS happens to run mypy -- real, confirmed gap (Slice 50
+# follow-up): the stdlib `resource` module (Unix-only, used by
+# src/diagnostics/memory_probe.py and the temporary memory-checkpoint
+# logging in agent/graph.py and api/main.py) has a real, populated stub
+# on Linux but an empty one on Windows, so the exact same
+# `# type: ignore[attr-defined]` was simultaneously REQUIRED on a
+# Windows dev machine and an ERROR (warn_unused_ignores below) in
+# GitHub Actions' ubuntu-latest CI runner -- no code difference, just
+# two different OSes disagreeing about which attributes exist. Since
+# this code only ever actually runs on Linux, mypy should always
+# evaluate it as Linux, everywhere it's run from.
+platform = "linux"
 # Not full strict mode: this codebase leans on LangChain/LangGraph/DuckDB,
 # none of which ship complete type stubs, and forcing --strict on day one
 # would mean either a wall of `# type: ignore` on library boundaries or

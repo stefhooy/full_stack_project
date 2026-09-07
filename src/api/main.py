@@ -48,12 +48,7 @@ def _log_memory(label: str) -> None:
     # else entirely.
     if resource is None:
         return
-    # mypy's Windows-platform stub for `resource` declares neither member
-    # (the module is Unix-only there too, just with an even emptier
-    # surface) -- this dev machine is Windows, but the code only ever
-    # really runs on Render's Linux, already guarded by the ImportError
-    # fallback above.
-    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # type: ignore[attr-defined]
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     logger.info("MEMORY [%s]: peak RSS so far = %.1f MB", label, peak_mb)
 
 
