@@ -6,6 +6,7 @@ venv/
 data/db/*.duckdb
 data/db/*.duckdb.wal
 data/raw/*.json
+data/schema_index_cache.npz
 !data/db/.gitkeep
 !data/raw/.gitkeep
 .pytest_cache/

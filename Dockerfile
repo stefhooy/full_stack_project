@@ -78,6 +78,16 @@ RUN python -m src.ingestion.build_player_counts_table
 # silent-crash-and-restart cycle in production. Setting this explicitly
 # makes both this build step and the running container agree on the same
 # real, persistent path.
+#
+# This same step also now populates a second cache (Slice 51 follow-up):
+# SchemaIndex's own embeddings of the whole schema corpus, saved to
+# settings.schema_index_cache_abs_path (default: /app/data/schema_index_
+# cache.npz -- under /app, same real-persistence reasoning as
+# FASTEMBED_CACHE_PATH above, deliberately not /tmp). No extra Dockerfile
+# step needed for this one: get_schema_index() below already builds and
+# saves it as a side effect of running once here; a running container
+# then loads that file directly instead of re-embedding the corpus live
+# on its own first real request.
 ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
 RUN python -c "from src.agent.rag.schema_index import get_schema_index; get_schema_index()"
 

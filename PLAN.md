@@ -2512,6 +2512,35 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       actually reproduced and confirmed resolved. `ruff`/`mypy`/pytest
       (170/170) all clean
 
+## Slice 52 — RAG hardening: precomputed embeddings, a real chunk-length guardrail, wired into CI
+- [x] **Precomputed schema embeddings**: `SchemaIndex` now caches its
+      vectors to disk (`settings.schema_index_cache_path`, a
+      content-hashed `.npz` file under `/app` -- persistent, not `/tmp`,
+      same reasoning as `FASTEMBED_CACHE_PATH`) instead of embedding the
+      static corpus live on every fresh process start. The Dockerfile's
+      existing pre-warm step now populates this cache automatically, no
+      extra build step needed. A stale or corrupted cache degrades to
+      recomputing (and re-saving), never crashes a real request. Verified
+      for real: cache hit measurably faster (8.07s -> 4.72s locally) and
+      lighter, hash-mismatch correctly triggers a rebuild, a genuinely
+      corrupted file degrades gracefully -- all three behaviors directly
+      exercised, not assumed. 6 new tests (`test_schema_index.py`)
+- [x] **Chunk-length guardrail**: split `column:name` (1,465 characters,
+      the direct cause of Slice 50's incident) into 4 focused chunks
+      (558 chars max now), and added a real test
+      (`test_schema_corpus.py`) enforcing a 600-character ceiling on
+      every chunk, so a future "just add a bit more guidance" edit can't
+      silently regress this again. Retrieval quality confirmed unaffected
+      via the existing real recall@top_k test, which still passes
+- [x] **Wired `memory_probe.py` into CI** (`test.yml`, every push/PR): the
+      actual measured memory cost is now checked automatically, not just
+      the corpus's shape -- catches a regression from a genuinely new
+      kind of change (e.g. a different expensive call site), not only
+      "another chunk got too long"
+- [x] Verified for real: `ruff`/`mypy` clean, 178/178 tests pass (170 +
+      6 schema_index + 2 schema_corpus), full `memory_probe.py` run still
+      PASSes against the restructured corpus
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

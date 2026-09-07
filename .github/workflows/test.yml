@@ -51,3 +51,13 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -v
+
+      - name: Check RAG memory footprint
+        # A real production OOM incident (DOCEXP.md's Slice 50) traced to
+        # this exact step -- SchemaIndex batch-embedding the schema corpus
+        # -- costing ~450MB and exceeding Render's real 512MB free-tier
+        # ceiling. tests/test_schema_corpus.py's length ceiling guards the
+        # corpus's *shape*; this guards the actual, measured memory cost
+        # directly, on every push/PR, instead of only being noticed the
+        # next time someone happens to run this by hand.
+        run: uv run python -m src.diagnostics.memory_probe

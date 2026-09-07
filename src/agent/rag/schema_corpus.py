@@ -60,30 +60,63 @@ SCHEMA_CHUNKS: list[SchemaChunk] = [
             "Offensive' (a hyphen and colon) at all, real, confirmed bug. "
             "Normalize both sides first: "
             "regexp_replace(name, '[-:\\s]+', ' ', 'g') ILIKE '%<phrase with "
-            "punctuation removed the same way>%'. The '+' matters: matching "
-            "punctuation and whitespace one at a time (no '+') turns 'Strike: "
-            "Global' (colon then space) into 'Strike  Global' (two spaces), which "
-            "then fails to match a normal single-spaced phrase -- a real, "
-            "previously-confirmed bug in this exact guidance, not a hypothetical "
-            "one. That alone can still return "
-            "several real, differently-named games (e.g. 'Counter-Strike', "
-            "'Counter-Strike: Source', 'Counter-Strike: Global Offensive' are "
-            "three separate rows) — when a query needs exactly one, disambiguate "
-            "by the one actually being asked about in practice: "
-            "ORDER BY peak_ccu DESC LIMIT 1 picks the currently-relevant game "
-            "a user almost always means, not an old or minor variant. Write the "
-            "query argument as a plain string value, with the single quotes SQL "
-            "needs left bare: JSON never requires a backslash before a single "
-            "quote (only before a double quote or a backslash itself), so "
-            "backslash-escaping one anyway produces invalid JSON, a real, "
-            "confirmed way this exact tool call has failed before, not a "
-            "hypothetical one."
+            "punctuation removed the same way>%'. See "
+            "metric:name_normalization_gotcha, "
+            "metric:name_matching_disambiguation, and "
+            "metric:json_escaping_for_tool_calls for more."
         ),
         # Semantic search alone misses this: a question naming a specific game
         # (e.g. "How many owners does Palworld have?") doesn't embed close to
         # a generic description like "Game title" — but nearly every question
         # needs this column to identify or filter which game(s) it's about.
         # Found empirically while testing retrieval quality; see DOCEXP.md.
+        always_include=True,
+    ),
+    SchemaChunk(
+        id="metric:name_normalization_gotcha",
+        kind="metric_note",
+        text=(
+            "The '+' in column:name's regexp_replace(name, '[-:\\s]+', ...) "
+            "matters: matching punctuation and whitespace one at a time (no "
+            "'+') turns 'Strike: Global' (colon then space) into 'Strike  "
+            "Global' (two spaces), which then fails to match a normal "
+            "single-spaced phrase -- a real, previously-confirmed bug in this "
+            "exact guidance, not a hypothetical one."
+        ),
+        always_include=True,
+    ),
+    SchemaChunk(
+        id="metric:name_matching_disambiguation",
+        kind="metric_note",
+        # Split out of column:name (Slice 51 follow-up): that one chunk had
+        # grown to 1,465 characters across three real bug fixes (Slices 40,
+        # 42, 44), becoming a real production incident on its own when
+        # batch-embedded (see DOCEXP.md's Slice 50 entry) -- split into
+        # focused, independently-sized pieces instead of one growing wall
+        # of text, with a hard length ceiling (tests/test_schema_corpus.py)
+        # so this can't silently happen again.
+        text=(
+            "A normalized name match (see column:name) can still return "
+            "several real, differently-named games (e.g. 'Counter-Strike', "
+            "'Counter-Strike: Source', 'Counter-Strike: Global Offensive' are "
+            "three separate rows) — when a query needs exactly one, disambiguate "
+            "by the one actually being asked about in practice: "
+            "ORDER BY peak_ccu DESC LIMIT 1 picks the currently-relevant game "
+            "a user almost always means, not an old or minor variant."
+        ),
+        always_include=True,
+    ),
+    SchemaChunk(
+        id="metric:json_escaping_for_tool_calls",
+        kind="metric_note",
+        text=(
+            "Write a tool call's query argument as a plain string value, with "
+            "the single quotes SQL needs left bare: JSON never requires a "
+            "backslash before a single quote (only before a double quote or a "
+            "backslash itself), so backslash-escaping one anyway produces "
+            "invalid JSON, a real, confirmed way this exact tool call has "
+            "failed before, not a hypothetical one."
+        ),
         always_include=True,
     ),
     SchemaChunk(

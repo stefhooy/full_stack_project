@@ -7352,3 +7352,95 @@ test suite (170/170) all clean throughout.
   crash") has improved** now that it can run to completion again --
   genuinely unknown until the next real scheduled run (or a manual
   `workflow_dispatch` trigger) completes.
+
+## Slice 52 — RAG hardening: precompute, a real length ceiling, and CI wiring
+
+**Date:** 2026-09-07
+
+With the live incident resolved and both real CI bugs fixed, came back to
+the two follow-up items flagged back when Slice 50 first found the root
+cause: stop computing the schema corpus's embeddings live at all, and
+put a real, enforced ceiling on individual chunk length so the exact
+failure mode that caused the incident can't quietly grow back.
+
+### Precomputing, with real persistence and real staleness handling
+
+The schema corpus is static text baked into `schema_corpus.py` -- its
+embeddings are the same every time unless that file itself changes, so
+recomputing them live on every fresh process start was pure waste on top
+of being the actual incident trigger. Added a disk cache to
+`SchemaIndex`: a content-hashed `.npz` file (the hash covers every
+chunk's actual text, not just a count or a timestamp, so an edited chunk
+is detected precisely) at `settings.schema_index_cache_path`, resolved
+under the project root -- which in the Docker image means `/app`, the
+same real-persistence reasoning `FASTEMBED_CACHE_PATH` already
+established in Slice 49 (not `/tmp`, which doesn't survive a restart).
+
+The Dockerfile needed no new step at all: its existing pre-warm line
+(`get_schema_index()`, added back when this was first needed to trigger
+fastembed's own model download) already calls the exact code path that
+now also builds and saves this cache, for free, as a side effect.
+
+Verified every real behavior directly rather than trusting the design:
+built a fresh cache (confirmed the file appears), hit it on a second run
+(confirmed via timing -- 8.07s cold vs. 4.72s warm, locally -- and by
+replacing the embedder with one that raises `AssertionError` if called,
+proving the second run never touches it), corrupted the saved hash to
+simulate a stale cache (confirmed it rebuilds rather than silently
+serving mismatched vectors), and wrote garbage into the cache file
+entirely (confirmed it degrades to recomputing instead of crashing).
+Each of these four became a permanent test in `test_schema_index.py`,
+using the real local embedder throughout (matching this project's
+established convention, see `test_cache.py`) rather than mocking the one
+thing actually being tested.
+
+### A real ceiling, which meant actually shrinking the chunk that caused this
+
+A guardrail that permits the exact chunk that already caused an
+incident isn't much of a guardrail. `column:name` was 1,465 characters
+-- split into four focused pieces (the core column description stays
+`column:name`; the double-space regex gotcha, the multi-game
+disambiguation note, and the JSON-escaping rule each became their own
+chunk), bringing the longest chunk down to 558 characters, back in line
+with the corpus's other legitimately-detailed chunks (max 478
+elsewhere). Set the actual ceiling at 600 -- real headroom above today's
+content, nowhere near the 1,465 that caused the incident -- and wrote
+`test_schema_corpus.py` to enforce it on every chunk, plus a cheap
+bonus check (every chunk id actually unique, worth having once a corpus
+is being edited by hand into more, smaller pieces).
+
+Confirmed the split didn't cost anything real: the existing recall@top_k
+regression test (`test_retrieval_recall_at_production_top_k_stays_at_the_measured_baseline`)
+still passes at the same 1.0 baseline -- more, smaller always-included
+chunks changed nothing about what information reaches the model, only
+how it's organized for the embedding step's sake.
+
+### Wiring the actual measurement into CI, not just the corpus's shape
+
+`test_schema_corpus.py`'s length check guards the corpus's shape; it
+doesn't guard against a *different* expensive call site appearing
+somewhere else in the RAG pipeline. Added a real step to `test.yml`
+running `src.diagnostics.memory_probe` on every push/PR -- the same tool
+built during Slice 50's own investigation, now actually exercised
+automatically instead of only when someone remembers to run it by hand.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 178/178 tests pass (170 +
+6 new in `test_schema_index.py` + 2 new in `test_schema_corpus.py`).
+`memory_probe.py` re-run against the fully restructured corpus: schema
+corpus now 38 chunks, 54-558 characters, PASS.
+
+### Open questions (new)
+
+- **Whether 600 characters is the right ceiling long-term**, or whether
+  it should be tuned down further once there's more experience with how
+  detailed a chunk actually needs to be to be useful -- picked with real
+  headroom above today's content, not derived from a formal analysis of
+  the tradeoff between chunk detail and embedding cost.
+- **Whether the disk cache should also be exercised by a CI step that
+  simulates a genuinely fresh Render deploy** (empty cache, real build
+  sequence) rather than only unit-tested in isolation -- the unit tests
+  cover the caching *logic* thoroughly, but the actual Dockerfile
+  integration is still only verified by reasoning about the file paths
+  involved, the same category of gap Slice 51 found in `run_evals.yml`.

@@ -13,15 +13,60 @@ work but a proper store would start being the more honest architecture.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 import numpy as np
 
 from src.agent.rag.embeddings import get_embedder
 from src.agent.rag.schema_corpus import SCHEMA_CHUNKS, SchemaChunk
+from src.config import settings
+
+
+def _corpus_hash(chunks: list[SchemaChunk]) -> str:
+    """Identifies exactly this corpus's content, not just its length --
+    changing a single chunk's text changes this. Used to detect a stale
+    on-disk cache (schema_corpus.py edited since the cache was built)
+    rather than silently serving embeddings for text that no longer
+    matches."""
+    joined = "\x00".join(c.text for c in chunks)  # NUL: never appears in
+    # real chunk text, so it can't produce a false collision the way an
+    # ordinary separator (a space, a newline) that a chunk might contain
+    # could.
+    return hashlib.sha256(joined.encode()).hexdigest()
 
 
 class SchemaIndex:
     def __init__(self, chunks: list[SchemaChunk]):
         self.chunks = chunks
+        self._vectors = self._load_or_build_vectors(chunks)
+
+    def _load_or_build_vectors(self, chunks: list[SchemaChunk]) -> np.ndarray:
+        # Precomputed once (Slice 51 follow-up) rather than embedding the
+        # corpus live on every fresh process start: the corpus is static
+        # text baked into schema_corpus.py, so its embeddings are the
+        # same every single time unless that file itself changes --
+        # recomputing them live on every restart was pure waste, and (see
+        # the one-at-a-time comment below) was also the direct cause of a
+        # real production OOM incident. A cache file under settings'
+        # PROJECT_ROOT-relative path (not /tmp -- see DOCEXP.md's Slice 49
+        # entry for exactly why that distinction matters on Render)
+        # persists across restarts once built once, at Docker build time,
+        # by the Dockerfile's existing pre-warm step.
+        cache_path = Path(settings.schema_index_cache_abs_path)
+        expected_hash = _corpus_hash(chunks)
+        if cache_path.exists():
+            try:
+                cached = np.load(cache_path, allow_pickle=False)
+                if str(cached["hash"]) == expected_hash:
+                    return np.asarray(cached["vectors"])
+            except Exception:  # noqa: BLE001 -- any cache-read problem
+                # (corrupt file, incompatible npz format after a numpy
+                # upgrade, permissions) should degrade to recomputing,
+                # never crash a real request over a cache that's
+                # supposed to be a pure optimization.
+                pass
+
         # Embedded ONE AT A TIME, not as a single embed_texts() batch call
         # -- a real, measured production incident (DOCEXP.md's Slice 50),
         # not a style preference. Batching pads every text in the call up
@@ -36,7 +81,18 @@ class SchemaIndex:
         # own embedding is identical either way; only the batching
         # changes, and with it, the memory profile.
         embedder = get_embedder()
-        self._vectors = np.array([embedder.embed_query(c.text) for c in chunks])
+        vectors = np.array([embedder.embed_query(c.text) for c in chunks])
+
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(cache_path, vectors=vectors, hash=expected_hash)
+        except OSError:
+            # A read-only filesystem or similar just means no caching
+            # benefit next restart, not a reason to fail this request --
+            # the vectors just computed are still returned and used below.
+            pass
+
+        return vectors
 
     def retrieve(self, query: str, top_k: int) -> list[SchemaChunk]:
         """Always include chunks marked always_include (cheap, and some

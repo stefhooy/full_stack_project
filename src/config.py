@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     # --- database ---
     duckdb_path: str = "data/db/games.duckdb"
 
+    # --- RAG ---
+    schema_index_cache_path: str = "data/schema_index_cache.npz"
+    """Precomputed schema-chunk embeddings (Slice 51 follow-up), so a
+    fresh process never has to run the embedding model over the whole
+    corpus live. Relative to PROJECT_ROOT (see schema_index_cache_abs_path)
+    -- resolves to /app/data/... in the Docker image, which persists
+    across restarts (unlike /tmp -- see DOCEXP.md's Slice 49 entry for
+    exactly why that distinction matters here). Gitignored, like
+    duckdb_path: a build artifact regenerated from schema_corpus.py, not
+    something to hand-maintain or diff in review."""
+
     # --- agent guardrails ---
     sql_max_retries: int = 3
     sql_max_rows: int = 200
@@ -146,6 +157,13 @@ class Settings(BaseSettings):
     @property
     def duckdb_abs_path(self) -> str:
         p = Path(self.duckdb_path)
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return str(p)
+
+    @property
+    def schema_index_cache_abs_path(self) -> str:
+        p = Path(self.schema_index_cache_path)
         if not p.is_absolute():
             p = PROJECT_ROOT / p
         return str(p)
