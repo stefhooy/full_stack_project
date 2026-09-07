@@ -22,7 +22,21 @@ from src.agent.rag.schema_corpus import SCHEMA_CHUNKS, SchemaChunk
 class SchemaIndex:
     def __init__(self, chunks: list[SchemaChunk]):
         self.chunks = chunks
-        self._vectors = get_embedder().embed_texts([c.text for c in chunks])
+        # Embedded ONE AT A TIME, not as a single embed_texts() batch call
+        # -- a real, measured production incident (DOCEXP.md's Slice 50),
+        # not a style preference. Batching pads every text in the call up
+        # to the length of the longest one so they can be processed
+        # together; this corpus's chunks range from 54 to 1,465
+        # characters (a real, current outlier -- column:name's detailed
+        # guidance), so one long chunk was dragging the whole batch's
+        # memory cost up to its own scale: measured at +445.6MB batched,
+        # vs. +11.5MB for this same real corpus one at a time -- enough
+        # on its own to exceed Render's actual 512MB free-tier ceiling
+        # and OOM-kill the process on every real question. Each chunk's
+        # own embedding is identical either way; only the batching
+        # changes, and with it, the memory profile.
+        embedder = get_embedder()
+        self._vectors = np.array([embedder.embed_query(c.text) for c in chunks])
 
     def retrieve(self, query: str, top_k: int) -> list[SchemaChunk]:
         """Always include chunks marked always_include (cheap, and some

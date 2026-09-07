@@ -2468,10 +2468,16 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       code. `psutil` added as a real `dev` dependency. Verified the tool
       itself by confirming it correctly FAILs against the current,
       still-unfixed code (exit code 1) before trusting it
-- [x] Verified for real: `ruff`/`mypy` clean, 170/170 tests pass. The
-      actual fix to `schema_index.py` (embed one at a time, or precompute
-      offline) presented as options, not yet applied as of this entry --
-      see the next slice for whether/how it landed
+- [x] Verified for real: `ruff`/`mypy` clean, 170/170 tests pass
+- [x] Applied the fix: `SchemaIndex.__init__` now embeds chunks one at a
+      time instead of one `embed_texts()` batch call. Verified directly
+      against `memory_probe.py`, not just reasoned about: schema-index
+      build cost 449.2MB -> 10.2MB, total peak 748.6MB -> 309.6MB (well
+      under Render's 512MB ceiling). Retrieval quality confirmed
+      unaffected via the existing real recall@top_k regression test,
+      which still passes. Precomputing the corpus offline and a
+      chunk-length guardrail remain real, deliberately deferred next
+      steps, not abandoned
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

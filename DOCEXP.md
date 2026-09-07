@@ -7210,15 +7210,40 @@ all clean. The diagnostic tool itself verified by running it against the
 known-bad current code and confirming it reports the failure
 correctly -- not just that it runs without crashing.
 
-### What's still open
+### The fix, applied and verified against the diagnostic tool itself
 
-The actual fix to `src/agent/rag/schema_index.py` (embedding the corpus
-one chunk at a time instead of one batch call, the change this whole
-investigation points at) had not yet been applied as of this entry --
-options were presented to the user (embed one at a time; or
-precompute/cache the corpus's embeddings entirely offline, going further
-than just avoiding the batch call) rather than assumed. See PLAN.md and
-whichever slice follows for whether and how it landed.
+Presented the real options rather than assuming one: embed one chunk at
+a time (the minimal, directly-evidenced fix); precompute the corpus's
+embeddings entirely offline, going further than just avoiding the batch
+call; or shorten the one long outlier chunk. User chose to start with
+the first, smallest, most directly-evidenced fix.
+
+Changed `SchemaIndex.__init__` to build `self._vectors` from a loop of
+individual `embed_query()` calls instead of one `embed_texts()` batch
+call over the whole corpus -- each chunk's own embedding is
+mathematically identical either way (nothing about batching changes
+what a single text embeds to), only the memory profile of computing
+them changes. Ran `src/diagnostics/memory_probe.py` again, against the
+fixed code, as the actual verification rather than trusting the
+reasoning alone:
+
+```
+before: schema index build cost = 449.2 MB  (FAIL)
+after:  schema index build cost =  10.2 MB  (PASS)
+```
+
+Total peak dropped from 748.6 MB to 309.6 MB -- comfortably under
+Render's real 512MB ceiling, with real headroom left for the rest of a
+question's actual work (the agent's own LLM/tool-calling turn, DuckDB
+queries). Retrieval quality itself confirmed unaffected via the existing
+real recall@top_k regression test (`test_retrieval_recall_at_production_top_k_stays_at_the_measured_baseline`),
+which still passed -- expected, since no single chunk's own embedding
+depends on what else happened to be in its batch, but checked directly
+rather than assumed.
+
+Precomputing the corpus offline (option 2) and a chunk-length guardrail
+(option 3 from the conversation) are real, deliberately deferred next
+steps, not abandoned -- see PLAN.md and whichever slice follows.
 
 ### Open questions (new)
 
