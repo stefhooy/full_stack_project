@@ -7703,3 +7703,83 @@ dataset rather than the fixture's own too-small one.
   shape-independent (there's no "is this significant" judgment call
   involved) -- lower risk, but not formally audited for this specific
   failure mode the way the two fixed questions now have been.
+
+## Slice 56 — Quota-free work while waiting: run_evals.py's own crash-on-crash gap
+
+**Date:** 2026-09-07
+
+Triggered `run_evals.yml` for real to check Slices 54/55's fixes
+together. It failed -- not from any of today's code, but from a real
+`groq.RateLimitError` on the **daily** token cap (200,000 TPD, 199,683
+already used, purely from this session's own heavy live-verification
+testing across the whole day). Nothing to fix about that directly; it's
+just quota, and the honest move was to wait for the reset rather than
+burn more of it chasing a clean run today.
+
+### The real thing worth fixing while waiting
+
+The actual traceback showed something different, though: the failure
+happened on the LLM-judge call for a question *partway through* the
+suite, and because `run_evals()` had no handling for it, the entire
+script crashed and printed **nothing** -- not even the results for
+every question that had already completed successfully before that
+point. A real quota exhaustion (or any other transient failure) landing
+late in a 15-question run meant losing all of it, not just the one
+affected question.
+
+This was fixable, and verifiable, without spending any more of today's
+exhausted quota -- exactly the kind of work worth doing in the gap
+before tomorrow's reset rather than sitting idle.
+
+### The fix: isolate failures per-question, not per-run
+
+Two separate try/excepts, deliberately scoped differently:
+
+- Around the **agent call**: a failure here means there's no real answer
+  for that question at all. Recorded as a genuine failure
+  (`agent_result=None`, a synthetic `CheckResult(False, ...)` explaining
+  why) and the loop moves on to the next question, rather than crashing.
+- Around the **judge call**, separately and more narrowly: this suite's
+  own docstring already states the judge score never gates pass/fail --
+  so a judge failure degrades to `judge_verdict=None` while keeping the
+  real `agent_result`/`check_result` that were already obtained. Losing
+  a nice-to-have score shouldn't cost the actual result.
+
+Fixing this surfaced one more small, real bug for free: `print_report`'s
+route-accuracy count did `r.agent_result.route` unconditionally, which
+would have raised `AttributeError` the moment a `None` agent_result
+(the exact case this slice just introduced) reached it. Excluded those
+questions from the route-accuracy denominator instead -- there's no
+route to have gotten right or wrong when the call never produced a
+result.
+
+### Verified without touching Groq at all
+
+Wrote `test_run_evals_resilience.py`: mocks `run_agent`, `judge_answer`,
+and `_call_with_retry` directly, matching this project's own
+`live`-exclusion convention. Covers all four real shapes this needed to
+handle -- an agent failure recorded without stopping later questions, a
+judge failure that doesn't cost the real result underneath it,
+`print_report` not crashing on the new `None` case, and the synthetic
+failure actually being a real `CheckResult`, not an ad hoc stand-in.
+Four tests, zero live LLM calls, real coverage added to a file that
+Slice 43's audit had specifically named as sitting at 0%.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean. 190/190 tests pass (186 + 4
+new).
+
+### Open questions (new)
+
+- **Whether `run_evals.yml` should also alert or retry differently on a
+  TPD-specific rate limit** (as opposed to the TPM limit `SPACING_SECONDS`
+  is tuned for) -- a daily cap can't be waited out with a short backoff
+  the way a per-minute one can; this fix stops it from destroying the
+  whole run's report, but doesn't make the affected question itself
+  succeed. Not addressed here, since the honest fix for "the daily quota
+  ran out" is "wait for the daily quota," not a code change.
+- **Still pending, unchanged from before this slice**: a genuinely
+  comprehensive `run_evals.yml` run covering Slices 53/54/55's fixes
+  together has not yet completed, and won't until tomorrow's quota
+  reset.

@@ -99,7 +99,14 @@ def _call_with_retry[T](fn: Callable[..., T], *args: object, max_attempts: int =
 @dataclass
 class EvalRunResult:
     golden: GoldenQuestion
-    agent_result: AgentResult
+    agent_result: AgentResult | None
+    """None only when the agent call itself failed irrecoverably (see
+    run_evals()'s own try/except) -- a real, observed failure mode
+    (Slice 56: a Groq daily-quota exhaustion mid-suite), not hypothetical.
+    check_result is still always real in that case (a synthetic failure,
+    not fabricated data) so this question still shows up in the report
+    instead of crashing the whole run and losing every other question's
+    real results."""
     check_result: CheckResult
     judge_verdict: JudgeVerdict | None
     latency_seconds: float
@@ -125,17 +132,55 @@ def run_evals(use_judge: bool = True) -> list[EvalRunResult]:
             time.sleep(SPACING_SECONDS)
 
         start = time.monotonic()
-        with get_usage_metadata_callback() as cb:
-            agent_result = _call_with_retry(run_agent, gq.question)
+        try:
+            with get_usage_metadata_callback() as cb:
+                agent_result = _call_with_retry(run_agent, gq.question)
+        except Exception as exc:  # noqa: BLE001 -- deliberately broad, see
+            # the long comment below for why.
+            #
+            # A real, observed failure mode (Slice 56: this exact
+            # exception, groq.RateLimitError, killed an entire 15-question
+            # run mid-suite over a daily-quota exhaustion, discarding every
+            # question's real result that had already completed
+            # successfully before it -- an all-or-nothing crash losing
+            # real signal is worse than one question honestly marked
+            # failed). Recorded as a real failure for THIS question only;
+            # the loop continues so every other question still gets a
+            # real attempt and a real report line, rather than the whole
+            # run vanishing without a trace.
+            latency = time.monotonic() - start
+            print(f"{gq.id}: agent call failed, recording as a failure and continuing: {exc}")
+            results.append(
+                EvalRunResult(
+                    golden=gq,
+                    agent_result=None,
+                    check_result=CheckResult(False, f"agent call failed: {exc}"),
+                    judge_verdict=None,
+                    latency_seconds=latency,
+                    token_usage={},
+                    estimated_cost_usd=None,
+                )
+            )
+            continue
+
         latency = time.monotonic() - start
         check_result = gq.check(agent_result)
-        judge_verdict = (
-            _call_with_retry(
-                judge_answer, gq.question, agent_result.answer, gq.reference_facts
-            )
-            if use_judge
-            else None
-        )
+
+        judge_verdict = None
+        if use_judge:
+            try:
+                judge_verdict = _call_with_retry(
+                    judge_answer, gq.question, agent_result.answer, gq.reference_facts
+                )
+            except Exception as exc:  # noqa: BLE001 -- same reasoning as above,
+                # scoped narrower: the judge score is explicitly not part
+                # of this suite's pass/fail gate (see this module's own
+                # docstring), so losing it shouldn't cost the real,
+                # already-obtained agent_result/check_result for this
+                # question -- degrade to no judge score, not no result at
+                # all.
+                print(f"{gq.id}: judge call failed, continuing without a judge score: {exc}")
+
         cost = estimate_cost_usd(cb.usage_metadata)
         results.append(
             EvalRunResult(
@@ -162,7 +207,15 @@ def print_report(results: list[EvalRunResult]) -> bool:
 
     n = len(results)
     n_passed = sum(1 for r in results if r.passed)
-    n_route_correct = sum(1 for r in results if r.agent_result.route == r.golden.expected_route)
+    # r.agent_result is None only for a question whose agent call failed
+    # outright (see run_evals()) -- excluded from route accuracy rather
+    # than crashing on `None.route`, since there's no route to have
+    # gotten right or wrong when the call never produced a result at all.
+    n_route_correct = sum(
+        1
+        for r in results
+        if r.agent_result is not None and r.agent_result.route == r.golden.expected_route
+    )
     judged = [r.judge_verdict.score for r in results if r.judge_verdict]
     avg_judge = sum(judged) / len(judged) if judged else None
     costs = [r.estimated_cost_usd for r in results if r.estimated_cost_usd is not None]

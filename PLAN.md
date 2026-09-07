@@ -2626,6 +2626,34 @@ Tech decisions already made (see DOCEXP.md for the "why"):
 - [x] Verified for real: `ruff`/`mypy` clean, 186/186 tests pass (184 + 2
       new)
 
+## Slice 56 — run_evals.py resilience: one failed question can no longer erase a whole run
+- [x] A real triggering `run_evals.yml` run hit a live `groq.RateLimitError`
+      on the LLM-judge call for a *later* question (today's Groq daily
+      quota, 200,000 TPD, essentially exhausted from this session's own
+      heavy real-verification testing) -- with no top-level handling,
+      this crashed the entire script and printed zero report, discarding
+      every earlier question's real, already-completed result
+- [x] Made `EvalRunResult.agent_result` `AgentResult | None`: a failed
+      agent call is now recorded as a real failure for that one question
+      (a synthetic `CheckResult(False, ...)`, `agent_result=None`) and
+      the loop continues, instead of the whole run vanishing without a
+      trace. A separate, narrower try/except around just the judge call
+      degrades to `judge_verdict=None` on failure without losing the
+      real, already-obtained `agent_result`/`check_result` -- the judge
+      score was never part of this suite's pass/fail gate, so losing it
+      alone shouldn't cost anything else
+- [x] Fixed the one real crash risk this surfaced in `print_report`
+      itself: route-accuracy counting did `r.agent_result.route`
+      unconditionally, which would have raised `AttributeError` on the
+      very `None` case this fix introduces
+- [x] Added 4 new tests (`test_run_evals_resilience.py`), mocking
+      `run_agent`/`judge_answer`/`_call_with_retry` entirely -- zero real
+      Groq calls needed to verify this, done specifically while today's
+      quota was still exhausted, as productive work that didn't need to
+      wait for the reset
+- [x] Verified for real: `ruff`/`mypy` clean, 190/190 tests pass (186 + 4
+      new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
