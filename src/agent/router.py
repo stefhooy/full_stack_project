@@ -46,8 +46,10 @@ Classify the user's question into exactly one category:
 specific value, ranking, or filtered list. Example: "Which game has the most owners?"
 
 - analysis: A comparative, aggregate, or multi-part question that combines or compares \
-data across groups. Example: "How does the average price of Action games compare to \
-free-to-play games?"
+data across groups, or asks whether something stands out as a statistical anomaly \
+compared to the rest of the catalog. Examples: "How does the average price of Action \
+games compare to free-to-play games?" and "Are there any games with an unusually large \
+number of negative reviews compared to the rest?"
 
 - forecast: A question about future or predicted values — trends going forward, \
 projections, "will X happen". Example: "How many players will this game have next month?" \

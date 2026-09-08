@@ -8014,3 +8014,198 @@ route deleted again.
   slice's changes. (The TPD-specific item there is about `run_evals.py`
   specifically -- this slice's Groq-rate-limit fix is the live `/ask`
   path, a different piece of code, and doesn't close that item.)
+
+---
+
+## Slice 58 — The first real run_evals.yml run after Slice 57, and what it actually found
+
+**Date:** 2026-09-08
+
+Today's scheduled `run_evals.yml` run was the first to cover Slices
+53-57's fixes together -- the comprehensive run that's been listed as
+"still pending" since Slice 56. It mostly passed (14/15 route accuracy,
+14/15 deterministic checks, avg judge 4.3/5), and reading the actual
+report line by line turned up one real, CI-failing bug and one real,
+lower-severity prompt gap -- plus one thing that looked like a bug and
+wasn't.
+
+### The real failure: analysis_price_outliers routed to lookup
+
+`analysis_price_outliers` ("Are there any games with an unusually high
+price compared to the rest?") came back `expected route='analysis', got
+'lookup'`. Routed to `lookup`, the model has no `run_stats` tool bound
+at all -- and rather than saying so, it answered anyway, inventing a
+"$59.99" price and a "$16.45" average that don't exist in the real
+data. That's the actual reason the workflow exited 1.
+
+The useful clue sat right next to it in the same report:
+`analysis_ccu_outliers` -- the identically-shaped question, just about
+`peak_ccu` instead of `price_usd` -- routed correctly to `analysis` in
+this same run. Same phrasing pattern, same day, same model, opposite
+outcome. That rules out "the question is inherently unanswerable by the
+router" and points at something genuinely borderline: the router's own
+system prompt gives the `analysis` category exactly one example, and
+it's a group-comparison question ("How does the average price of Action
+games compare to free-to-play games?"), not an anomaly/outlier-shaped
+one -- even though `router.py`'s own module docstring names "anomalies"
+as a canonical `analysis` case. The category was well-documented in
+prose and completely undemonstrated in the one place that actually
+shapes the classifier's behavior.
+
+Fixed by adding a second example to the `analysis` bullet in
+`ROUTER_SYSTEM_PROMPT`, deliberately about a metric neither golden
+question touches (negative review counts, not price or peak_ccu) --
+using either existing golden question's own exact wording as the new
+example would have let the router pattern-match that literal phrasing
+rather than generalizing the category, quietly turning the golden set
+into something closer to a memorized answer key than an independent
+check.
+
+### The related, lower-severity finding: an outlier answer padded with an unverified extra
+
+`analysis_ccu_outliers` passed its deterministic check (it named
+Counter-Strike: Global Offensive, the real outlier) but scored only 2/5
+from the judge: the model also volunteered PUBG: BATTLEGROUNDS as a
+second outlier with a specific number, which `run_stats` never actually
+flagged. Not a routing problem this time -- the model got to the right
+tool and the right primary answer, then editorialized past what the
+tool returned, presumably because PUBG's peak_ccu also looks large in
+absolute terms even though its real z-score doesn't clear the
+threshold.
+
+`ANALYSIS_TOOL_GUIDANCE` already had a near-identical guardrail for
+`compare_two_groups` (Slice 4's group-mislabeling fix: don't label a
+group with a name implying a filter you didn't apply). Added the
+sibling instruction for `outliers`: report only the rows the tool
+actually flagged, not other rows that merely look large or small --
+"go by what the tool returned, not by which numbers happen to catch
+your eye."
+
+### What looked like a bug and wasn't: a judge false negative
+
+`forecast_tracked_game_1_next_month` passed its deterministic check but
+scored 1/5 from the judge, which flagged the model's numbers as
+unsupported by the reference facts. Checked the real
+`forecast_result` from that exact run: `projected_value=541617.9` and
+`observed_span_days=14.598` -- which is exactly what the model reported
+("~542,000" and "~15 days"). The judge read "not present in the
+reference facts text" as "wrong," when the reference facts (deliberately
+prose, not exact numbers -- see `golden_questions.py`'s own module
+docstring) were never meant to spell out a specific projected value for
+the judge to string-match against.
+
+Left alone rather than "fixed": the judge score has never gated
+pass/fail, specifically because an LLM judge is itself fallible in
+exactly this way (Slice 43's own reasoning for keeping deterministic
+checks as the real gate). Worth a second look only if this same pattern
+recurs against the same question shape.
+
+### Verifying a prompt-wording fix without a red/green cycle
+
+Both real changes this slice (the router example, the outliers
+guidance) are wording changes to an LLM's own instructions, not
+deterministic code. There's no meaningful TDD cycle for "does the
+classifier route this correctly" -- the existing `test_router_node_llm_errors.py`
+suite mocks `classify_question` entirely, so it verifies the graph's
+error-handling wiring, not classification quality; it passed unchanged,
+which only confirms this fix didn't break anything, not that it
+improved anything.
+
+`ruff check .` and `uv run mypy src` clean, 194/194 tests pass, no
+regressions. But the real verification -- does `analysis_price_outliers`
+actually route correctly now, more reliably than "the one run where it
+didn't" -- needs a live `run_evals.yml` run, and today's Groq quota is
+already spent from this same investigation's own context (this session
+started from reading the failed run's logs, not from making new live
+calls, so no quota was burned confirming any of this -- but none is
+left over to *re-run* the suite today either). Pending tomorrow's reset,
+same as the comprehensive run itself was pending until today.
+
+### Open questions (new)
+
+- Whether the router-prompt fix actually resolves the misroute
+  reliably, or just shifts which borderline question flakes on a given
+  day, won't be known until at least one more live run. LLM
+  classification at temperature 0 reduces but doesn't eliminate
+  run-to-run variance on a hosted model -- a single passing re-run
+  would be reassuring, not conclusive.
+- The judge false-negative pattern (flagging a correct answer because
+  its specific numbers aren't spelled out in prose reference facts) may
+  recur for other forecast questions with real, data-dependent
+  projected values. Not fixed here since it doesn't gate anything;
+  worth a dedicated look if it keeps showing up and starts masking a
+  judge score that would otherwise catch something real.
+
+### Follow-up, same day: is 15 questions too few?
+
+Asked directly, after walking through the above. The honest answer had
+two halves. Yes, statistically: one flaky classification had just moved
+the headline score by 6.7% (1/15) -- that's real noise, not a stable
+signal of regression vs. one-off. But "just add more" wasn't the right
+instinct either -- every question costs real Groq tokens and ~45s of
+spacing, runs daily in CI indefinitely, and shares a daily token budget
+with the live site's own real visitors. Growing the set is a recurring
+cost, not a one-time one, and past a point more questions mostly buy
+statistical smoothing, not new bug-finding surface.
+
+So: targeted, not blanket. Two real motivations, not one: diluting the
+one route's flakiness, and a genuine coverage gap found while looking
+for where extra depth would actually mean something -- `run_stats` has
+three modes (`compare_two_groups`, `outliers`, `describe`) and the
+golden set had end-to-end coverage of exactly two of them. Nobody had
+noticed `describe` had zero coverage until asked "where would growing
+this actually help."
+
+Added three questions: `analysis_metacritic_score_distribution` (closes
+the `describe` gap, and specifically chose `metacritic_score` because
+its real NULL-for-unscored-games quirk exercises `_describe()`'s NULL-
+filtering, not just its arithmetic), `analysis_achievements_vs_review_scores`
+(a second `compare_two_groups` question on category tags, computed live
+via a real Welch's t-test rather than assumed -- deliberately not
+repeating `analysis_f2p_vs_paid_review_scores`'s own pre-existing "p <<
+0.001" hand-wave, though that question's fragility is the same kind and
+wasn't touched here), and `analysis_discount_outliers` (a third outlier
+question, via the already-shared `_outlier_check_and_reference()`
+helper, on a column neither existing outlier question touches -- proof
+the helper generalizes, and one more independent analysis-route sample).
+Added `stats_result_has_mode()` to `checks.py` for the `describe`
+question to verify the real tool actually ran in that mode, not just
+that a plausible number showed up in the answer.
+
+### A second real bug, this time in code written five minutes earlier
+
+Writing the achievements question's live significance check, the first
+version hard-asserted at least 2 games in each achievement group before
+computing anything. Running the test suite immediately after: 9 failures,
+all in files that have nothing to do with achievements at all --
+`test_golden_questions_ccu_outlier.py`, `test_golden_questions_forecast_selection.py`,
+`test_golden_questions_price_outlier.py`. The reason: the small, 4-row
+`games_db` fixture those tests use for entirely unrelated purposes has
+exactly one game tagged "Steam Achievements" -- one short of the two a
+real t-test needs -- and `build_golden_questions()` is called by all of
+them, so a hard assert on a narrow catalog-shape assumption crashed
+construction for every single one, not just the one new question that
+couldn't be answered.
+
+This is precisely the same class of fragility this whole slice already
+existed to fix (a hardcoded assumption about catalog shape), just caught
+in code that was minutes old instead of a year old. Fixed the same way
+the forecast questions already handle it: `achievements_question` (and,
+applying the same reasoning proactively, `metacritic_question`) are now
+built as `GoldenQuestion | None`, appended to the list only when the
+real data supports them, instead of asserted to always exist. Added a
+direct regression test for the exact scenario that broke
+(`test_achievements_question_absent_with_the_fixtures_own_single_achievement_game`).
+
+### Verified for real, twice
+
+`ruff check .` and `uv run mypy src` clean, 202/202 tests pass (194 + 8
+new: 3 for `stats_result_has_mode()`, 5 in a new
+`test_golden_questions_metacritic_and_achievements.py`). Then, beyond
+the test fixtures, sanity-checked all three new questions against the
+real, full local catalog (`data/db/games.duckdb`, not the tiny 4-row
+fixture) -- 18 total questions now, and the real numbers are sane: 568
+games with a real Metacritic score (mean 80.6, median 82.0), a real
+p=0.0007 on the achievements comparison, a real z-score-clearing
+discount outlier. Nothing degenerate, nothing that only works on a toy
+sample.

@@ -25,6 +25,7 @@ from src.evals.checks import (
     forecast_reports_insufficient_history,
     no_data_fabricated,
     route_is,
+    stats_result_has_mode,
 )
 from src.evals.golden_questions import _check_action_vs_f2p_not_mislabeled
 
@@ -238,6 +239,35 @@ def test_f2p_check_fails_cleanly_when_neither_real_path_is_present():
     outcome = _check_action_vs_f2p_not_mislabeled(result)
     assert not outcome.passed
     assert "expected either" in outcome.detail
+
+
+# --- stats_result_has_mode ------------------------------------------------
+# Slice 58: analysis_metacritic_score_distribution needed a way to verify
+# run_stats(mode="describe") was actually called, not just that some
+# plausible-looking number appeared in the answer -- the same
+# "the real tool ran" principle as forecast_has_real_projection() below,
+# extended to run_stats's own modes.
+
+
+def test_stats_result_has_mode_passes_on_a_matching_mode():
+    check = stats_result_has_mode("describe")
+    result = _result(stats_result={"mode": "describe", "mean": 42.0})
+    assert check(result).passed
+
+
+def test_stats_result_has_mode_fails_on_a_different_mode():
+    # The failure this exists to catch: the agent called run_stats, but in
+    # the wrong mode -- e.g. hand-rolling an "outliers"-shaped answer for
+    # a question that should have used "describe".
+    check = stats_result_has_mode("describe")
+    result = _result(stats_result={"mode": "outliers", "outliers": []})
+    assert not check(result).passed
+
+
+def test_stats_result_has_mode_fails_when_the_tool_was_never_called():
+    check = stats_result_has_mode("describe")
+    result = _result(stats_result=None)
+    assert not check(result).passed
 
 
 # --- forecast_has_real_projection / forecast_reports_insufficient_history ---

@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import duckdb
+import numpy as np
+from scipy import stats as scipy_stats
 
 from src.agent.graph import AgentResult
 from src.config import settings
@@ -35,6 +37,7 @@ from src.evals.checks import (
     forecast_reports_insufficient_history,
     no_data_fabricated,
     route_is,
+    stats_result_has_mode,
 )
 
 
@@ -186,6 +189,140 @@ def build_golden_questions() -> list[GoldenQuestion]:
         ccu_outlier_check, ccu_outlier_reference_facts = _outlier_check_and_reference(
             conn, "peak_ccu", "peak_ccu"
         )
+        # Slice 58 follow-up: a third outlier question, on a metric neither
+        # of the above two touches, added specifically to give the
+        # "analysis" route more independent samples -- one flaky
+        # classification (the real one that failed Slice 58's own CI run)
+        # swings a smaller fraction of the aggregate score when there are
+        # more analysis-route questions to average over.
+        discount_outlier_check, discount_outlier_reference_facts = _outlier_check_and_reference(
+            conn, "discount_pct", "discount_pct"
+        )
+        # run_stats's third mode, "describe", had zero end-to-end golden-
+        # question coverage until this slice -- a real, previously-unnoticed
+        # gap (compare_two_groups and outliers both had coverage above).
+        # metacritic_score is a good column for it: genuinely numeric, a
+        # real spread (0-100), and NULL for un-scored games (matching this
+        # column's own real quirk, see schema_corpus.py) -- so this also
+        # exercises _describe()'s NULL-filtering for real, not just its
+        # arithmetic. Computed with DuckDB's own aggregates rather than
+        # pulling raw rows into Python, but the same formulas _describe()
+        # itself uses: STDDEV_SAMP (sample stddev, matches numpy's ddof=1),
+        # MEDIAN, PERCENTILE_CONT (linear interpolation, matches numpy's
+        # default np.percentile behavior).
+        # Also optional, not a hard assertion, for the same reason as
+        # achievements_question below: "at least 2 games with a real
+        # metacritic_score" is a real assumption about catalog shape, not
+        # a global precondition every other query already relies on (like
+        # the games table being non-empty), so a small or oddly-sampled
+        # catalog can legitimately not support this question without that
+        # meaning anything is broken.
+        metacritic_stats_row = conn.execute(
+            "SELECT COUNT(*), AVG(metacritic_score), MEDIAN(metacritic_score), "
+            "STDDEV_SAMP(metacritic_score), MIN(metacritic_score), MAX(metacritic_score) "
+            "FROM games WHERE metacritic_score IS NOT NULL"
+        ).fetchone()
+        assert metacritic_stats_row is not None, "games table appears to be empty"
+        (
+            metacritic_n,
+            metacritic_mean,
+            metacritic_median,
+            metacritic_stddev,
+            metacritic_min,
+            metacritic_max,
+        ) = metacritic_stats_row
+        metacritic_question: GoldenQuestion | None = None
+        if metacritic_n is not None and metacritic_n > 1:
+            metacritic_reference_facts = (
+                f"Across the {metacritic_n} games with a real Metacritic score (NULL scores "
+                "excluded, since NULL here means 'never scored,' not 'scored zero'), the mean "
+                f"is {metacritic_mean:.1f}, median {metacritic_median:.1f}, and sample "
+                f"standard deviation {metacritic_stddev:.1f}, ranging from "
+                f"{metacritic_min:.0f} to {metacritic_max:.0f}."
+            )
+            metacritic_question = GoldenQuestion(
+                id="analysis_metacritic_score_distribution",
+                question=(
+                    "What's the average and spread of Metacritic scores across the games "
+                    "that have one?"
+                ),
+                expected_route="analysis",
+                check=all_of(
+                    route_is("analysis"),
+                    stats_result_has_mode("describe"),
+                    contains_number(metacritic_mean),
+                ),
+                reference_facts=metacritic_reference_facts,
+            )
+        # A second compare_two_groups question on a dimension neither
+        # existing one touches (genre, price) -- category tags. Computes
+        # the real Welch's t-test live (the exact formula run_stats's own
+        # compare_two_groups mode uses) rather than assuming significance,
+        # the same "don't assume, compute" principle as the outlier
+        # questions above -- analysis_f2p_vs_paid_review_scores predates
+        # that principle and still hand-asserts "p << 0.001" without a
+        # live check; not touched here to keep this slice's diff focused,
+        # but the same fragility technically applies to it too.
+        #
+        # Built as an optional question, not a hard assertion -- unlike the
+        # games table itself (which every other reference query already
+        # assumes is non-empty), "at least 2 games in each achievement
+        # group" is a real assumption about catalog *shape* that a small
+        # or oddly-sampled catalog (this project's own test fixtures
+        # included) can genuinely violate. build_golden_questions() is
+        # called by plenty of tests that have nothing to do with this
+        # question, so a hard assert here would break all of them, not
+        # just skip this one question -- same reasoning as
+        # tracked_forecastable_games below producing 0, 1, or 2 questions
+        # rather than assuming exactly 2 tracked games always exist.
+        achievements_rows = conn.execute(
+            "SELECT CASE WHEN categories LIKE '%Steam Achievements%' THEN 'has_achievements' "
+            "ELSE 'no_achievements' END AS group_label, review_score "
+            "FROM games WHERE review_score IS NOT NULL"
+        ).fetchall()
+        achievements_groups: dict[str, list[float]] = {}
+        for achievements_label, achievements_value in achievements_rows:
+            achievements_groups.setdefault(achievements_label, []).append(
+                float(achievements_value)
+            )
+        has_achievements_values = np.array(achievements_groups.get("has_achievements", []))
+        no_achievements_values = np.array(achievements_groups.get("no_achievements", []))
+        achievements_question: GoldenQuestion | None = None
+        if has_achievements_values.size >= 2 and no_achievements_values.size >= 2:
+            _, achievements_p_value = scipy_stats.ttest_ind(
+                has_achievements_values, no_achievements_values, equal_var=False
+            )
+            achievements_mean_with = float(has_achievements_values.mean())
+            achievements_mean_without = float(no_achievements_values.mean())
+            if achievements_p_value < 0.05:
+                achievements_check = all_of(route_is("analysis"), contains_text("significant"))
+                achievements_reference_facts = (
+                    f"Games with a 'Steam Achievements' category tag average review_score "
+                    f"{achievements_mean_with:.3f}; games without average "
+                    f"{achievements_mean_without:.3f}. A real Welch's t-test finds "
+                    f"p={achievements_p_value:.4g} -- a real, statistically significant "
+                    "difference."
+                )
+            else:
+                achievements_check = route_is("analysis")
+                achievements_reference_facts = (
+                    f"Games with a 'Steam Achievements' category tag average review_score "
+                    f"{achievements_mean_with:.3f}; games without average "
+                    f"{achievements_mean_without:.3f}. A real Welch's t-test finds "
+                    f"p={achievements_p_value:.4g} -- not below the standard 0.05 "
+                    "significance threshold, so a rigorous answer should NOT claim a "
+                    "significant difference just because the two means differ numerically."
+                )
+            achievements_question = GoldenQuestion(
+                id="analysis_achievements_vs_review_scores",
+                question=(
+                    "Do games with Steam Achievements have significantly different review "
+                    "scores than games without?"
+                ),
+                expected_route="analysis",
+                check=achievements_check,
+                reference_facts=achievements_reference_facts,
+            )
         f2p_review_mean = _query_one(
             conn, "SELECT AVG(review_score) FROM games WHERE price_usd = 0"
         )
@@ -330,6 +467,13 @@ def build_golden_questions() -> list[GoldenQuestion]:
             reference_facts=price_outlier_reference_facts,
         ),
         GoldenQuestion(
+            id="analysis_discount_outliers",
+            question="Are there any games with an unusually large discount compared to the rest?",
+            expected_route="analysis",
+            check=discount_outlier_check,
+            reference_facts=discount_outlier_reference_facts,
+        ),
+        GoldenQuestion(
             id="forecast_insufficient_history_is_honest",
             question=f"How many players will {untracked_game} have next month?",
             expected_route="forecast",
@@ -374,6 +518,17 @@ def build_golden_questions() -> list[GoldenQuestion]:
             ),
         ),
     ]
+
+    # Only included when the catalog actually supports them (see each
+    # question's own construction above for why this is conditional
+    # rather than a hard assertion: build_golden_questions() is called by
+    # plenty of tests that have nothing to do with either question, so a
+    # hard assert on a narrow catalog-shape assumption would break all of
+    # them, not just skip the one question that can't be answered today).
+    if metacritic_question is not None:
+        questions.append(metacritic_question)
+    if achievements_question is not None:
+        questions.append(achievements_question)
 
     # Two forecast-with-real-data questions, built from whichever tracked
     # games actually qualified above -- 0, 1, or 2 of them, never assumed

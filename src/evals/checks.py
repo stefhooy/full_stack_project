@@ -117,6 +117,25 @@ def forecast_reports_insufficient_history() -> Check:
     return check
 
 
+def stats_result_has_mode(expected_mode: str) -> Check:
+    """The agent must have actually called run_stats in this specific mode
+    -- not hand-computed an equivalent-looking answer via plain SQL, and
+    not called a different mode that happens to also produce numbers.
+    Mirrors forecast_has_real_projection()'s reasoning: the real tool
+    actually running is itself part of what's being verified, not just
+    the final number."""
+
+    def check(result: AgentResult) -> CheckResult:
+        sr = result.stats_result
+        ok = sr is not None and sr.get("mode") == expected_mode
+        got_mode = sr.get("mode") if sr else None
+        return CheckResult(
+            ok, f"expected stats_result mode={expected_mode!r}, got {got_mode!r}"
+        )
+
+    return check
+
+
 def no_data_fabricated() -> Check:
     """For forecast/clarification questions: the agent must not have run a
     query or produced a stats result — there's nothing it should be

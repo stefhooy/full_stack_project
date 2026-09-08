@@ -87,7 +87,11 @@ If the question asks whether two groups genuinely differ (not just which average
 numerically bigger), use mode="compare_two_groups" — do NOT hand-compute the comparison
 yourself with conditional-aggregation SQL instead, even though that syntax is available
 for other purposes (see the system rules above). Same for anomaly questions: use
-mode="outliers", not a hand-rolled z-score in SQL.
+mode="outliers", not a hand-rolled z-score in SQL. When reporting an outliers result, name
+only the rows the tool actually flagged — do not add other rows that merely look large or
+small to you but weren't flagged. A value can be extreme in absolute terms without
+clearing the z-score threshold, and a value can clear it without being the single largest
+in the dataset; go by what the tool returned, not by which numbers happen to catch your eye.
 
 IMPORTANT: make sure each group_label actually matches the condition that produced it. A
 catch-all ELSE branch must be labeled generically (e.g. 'other'), NOT with a specific name
