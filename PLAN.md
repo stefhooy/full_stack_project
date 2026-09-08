@@ -2834,6 +2834,46 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       18 total questions, real numbers (e.g. 568 real Metacritic scores,
       mean 80.6; a real p=0.0007 on the achievements comparison), nothing
       degenerate or fragile-looking
+- [x] **First genuinely comprehensive, fully clean `run_evals.yml` run**:
+      18/18 route accuracy, 18/18 deterministic checks -- confirms the
+      router-prompt fix actually works live, not just once but across
+      two separate real runs. This item had been sitting as "still
+      pending" since Slice 56
+- [x] That same run's judge scores (4.1/5 avg) surfaced two more real,
+      distinct issues -- both fixed:
+      1. **A real gap in reference_facts, not a model hallucination.**
+         The metacritic `describe` question got dinged for reporting
+         real percentiles (`_describe()` always computes p25/p75) that
+         `metacritic_reference_facts` simply never restated. Same story
+         for both forecast questions: the model's exact numbers were the
+         real `projected_value` from that run's actual `forecast_result`,
+         flagged as "fabricated" only because reference_facts never
+         stated a specific number. Fixed by computing the real
+         percentiles and the real forecast projection at golden-question
+         construction time (calling `execute_run_forecast` directly --
+         the same "call the real tool" principle as
+         `_outlier_check_and_reference()`), safe to precompute since
+         `_forecast()` is a pure function of the DB's own snapshot data,
+         never wall-clock time, and nothing writes to `player_counts`
+         between construction and the live agent call in the same job
+      2. **A persistent model behavior the Slice 58 guidance sentence
+         didn't actually fix**, confirmed across three outlier questions
+         and two separate live runs: padding an outlier answer with
+         extra, unverified rows beyond what `run_stats` flagged (CCU:
+         added PUBG; discount: "several games" when only one is real).
+         Rewrote `ANALYSIS_TOOL_GUIDANCE` with a much more concrete,
+         structural version: names the exact `"outliers"` field as a
+         strict allow-list, explicitly forbids the exact failure
+         mechanism found by reading the model's own answers (running a
+         separate "top N" `run_sql` query and presenting it as a table
+         of outliers alongside the real one)
+- [x] Verified for real (again): `ruff`/`mypy` clean, 202/202 tests pass
+      (no regressions), sanity-checked the updated forecast/metacritic
+      reference facts against the real local catalog. Live confirmation
+      that the strengthened outlier guidance actually stops the
+      padding behavior is pending the next `run_evals.yml` run --
+      a prompt-wording fix has no red/green unit test, same reasoning
+      as the router fix earlier in this slice
 
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too

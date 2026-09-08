@@ -8209,3 +8209,78 @@ games with a real Metacritic score (mean 80.6, median 82.0), a real
 p=0.0007 on the achievements comparison, a real z-score-clearing
 discount outlier. Nothing degenerate, nothing that only works on a toy
 sample.
+
+### Two real runs later: the first fully clean comprehensive run, and two more real findings
+
+Two live `run_evals.yml` runs followed this slice's own work, same day.
+The first (a re-run of an existing workflow run, which GitHub Actions
+ties to the commit that originally triggered it) confirmed the router
+fix directly: `analysis_price_outliers` now shows `got 'analysis'`,
+15/15 route and deterministic accuracy. The second, a genuinely fresh
+trigger against current `master`, ran all 18 questions for the first
+time and came back **18/18 route accuracy, 18/18 deterministic checks**
+-- the first fully clean, comprehensive run this project has had,
+closing an item that had been "still pending" since Slice 56.
+
+The judge scores (4.1/5 avg) on that second run were worth reading
+closely rather than accepting as "good enough" -- they split into two
+genuinely different problems.
+
+**A gap in reference_facts, not the model.** `analysis_metacritic_score_distribution`
+got dinged for reporting real percentiles (81, 89) as "unsupported" --
+but `_describe()` always computes `p25`/`p75` as part of its real
+output; `metacritic_reference_facts` just never restated them. Both
+forecast questions got the same treatment: the model's specific numbers
+(699,000 / 306,000) were the actual `projected_value` from that run's
+real `forecast_result`, flagged as fabricated purely because
+`reference_facts` never stated a number to check against -- deliberately
+left out originally, since a forecast's real value is data-dependent and
+computed live, not known at golden-question-authoring time.
+
+Fixed by computing that real value at construction time too, the same
+"call the real tool" principle `_outlier_check_and_reference()` already
+established: `execute_run_forecast()` called directly (needed
+`tracked_forecastable_games`'s query to also select `appid`, not just
+`name`). Safe to precompute specifically because `_forecast()` is a pure
+function of `player_counts`' own stored timestamps/values and
+`horizon_days` -- never wall-clock `datetime.now()` -- and nothing
+writes to that table between golden-question construction and the live
+agent's own call moments later in the same CI job, so this is the exact
+number the tool will independently recompute, not a guess at it. Same
+fix, same reasoning, for the metacritic question's own p25/p75.
+
+**A real model behavior the Slice 58 guidance sentence didn't actually
+fix.** `analysis_ccu_outliers` (judge 2/5, both runs: adds PUBG
+unprompted) and the brand-new `analysis_discount_outliers` (judge 1/5:
+"lists multiple games as outliers" when only one is real) both show the
+identical pattern Slice 58 already tried to close with one guidance
+sentence -- and that sentence plainly didn't work, confirmed now across
+three different outlier questions and two separate live runs.
+
+Reading the model's own answer format was the useful clue: both
+failures rendered as a markdown table of several games with their raw
+values, not a single flagged name -- the signature of a `run_sql`
+"top N" query built for display, then presented as if every row in it
+were a real outlier, alongside (or instead of) what `run_stats` actually
+flagged. The original guidance sentence never said anything about that
+specific combination.
+
+Rewrote `ANALYSIS_TOOL_GUIDANCE` to be concrete instead of principled:
+names the exact `"outliers"` field as a strict allow-list ("if it has
+one entry, your answer names exactly that one game"), and explicitly
+forbids the exact mechanism just found ("do NOT also run a separate
+'top N by value' run_sql query to build a table for this kind of
+question"). Whether this actually changes the behavior -- a
+prompt-wording fix has no red/green unit test, the same limitation as
+the router-prompt fix earlier in this slice -- is only checkable by
+another live run.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean, 202/202 tests pass (no
+regressions from either fix). The updated forecast and metacritic
+reference facts were also sanity-checked against the real, full local
+catalog: real numbers came back (e.g. a real ~56,310-player projection
+for CS:GO, real p25/p75 of 76.0/86.0 for Metacritic scores), nothing
+degenerate. The outlier-guidance rewrite's actual effectiveness remains
+open until the next live `run_evals.yml` run.

@@ -39,6 +39,7 @@ from src.evals.checks import (
     route_is,
     stats_result_has_mode,
 )
+from src.tools.forecast_tool import execute_run_forecast
 
 
 @dataclass
@@ -217,9 +218,19 @@ def build_golden_questions() -> list[GoldenQuestion]:
         # the games table being non-empty), so a small or oddly-sampled
         # catalog can legitimately not support this question without that
         # meaning anything is broken.
+        # p25/p75 included here specifically because _describe() itself
+        # always computes and returns them as part of stats_result -- a
+        # real judge run flagged a model reporting them as "unsupported"
+        # (DOCEXP.md's Slice 58 entry) purely because reference_facts
+        # didn't happen to restate every field the tool actually returns.
+        # That's a real gap in this reference text, not a model
+        # hallucination: the fix is completeness here, not a smaller
+        # answer from the model.
         metacritic_stats_row = conn.execute(
             "SELECT COUNT(*), AVG(metacritic_score), MEDIAN(metacritic_score), "
-            "STDDEV_SAMP(metacritic_score), MIN(metacritic_score), MAX(metacritic_score) "
+            "STDDEV_SAMP(metacritic_score), MIN(metacritic_score), MAX(metacritic_score), "
+            "PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY metacritic_score), "
+            "PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY metacritic_score) "
             "FROM games WHERE metacritic_score IS NOT NULL"
         ).fetchone()
         assert metacritic_stats_row is not None, "games table appears to be empty"
@@ -230,6 +241,8 @@ def build_golden_questions() -> list[GoldenQuestion]:
             metacritic_stddev,
             metacritic_min,
             metacritic_max,
+            metacritic_p25,
+            metacritic_p75,
         ) = metacritic_stats_row
         metacritic_question: GoldenQuestion | None = None
         if metacritic_n is not None and metacritic_n > 1:
@@ -238,7 +251,10 @@ def build_golden_questions() -> list[GoldenQuestion]:
                 "excluded, since NULL here means 'never scored,' not 'scored zero'), the mean "
                 f"is {metacritic_mean:.1f}, median {metacritic_median:.1f}, and sample "
                 f"standard deviation {metacritic_stddev:.1f}, ranging from "
-                f"{metacritic_min:.0f} to {metacritic_max:.0f}."
+                f"{metacritic_min:.0f} to {metacritic_max:.0f} (25th percentile "
+                f"{metacritic_p25:.1f}, 75th percentile {metacritic_p75:.1f} -- the tool "
+                "itself always computes these too, so reporting them is correct, not "
+                "an unsupported addition)."
             )
             metacritic_question = GoldenQuestion(
                 id="analysis_metacritic_score_distribution",
@@ -342,9 +358,9 @@ def build_golden_questions() -> list[GoldenQuestion]:
         # games available today, mirroring untracked_game's own query
         # just below (same live-query principle, opposite condition).
         tracked_forecastable_games = conn.execute(
-            "SELECT g.name, COUNT(DISTINCT pc.polled_at) AS snapshots FROM games g "
+            "SELECT g.appid, g.name, COUNT(DISTINCT pc.polled_at) AS snapshots FROM games g "
             "JOIN player_counts pc ON pc.appid = g.appid "
-            "GROUP BY g.name, g.peak_ccu "
+            "GROUP BY g.appid, g.name, g.peak_ccu "
             "HAVING COUNT(DISTINCT pc.polled_at) >= 2 "
             "ORDER BY g.peak_ccu DESC LIMIT 2"
         ).fetchall()
@@ -537,9 +553,27 @@ def build_golden_questions() -> list[GoldenQuestion]:
     # low-confidence logic (a longer horizon relative to the observed
     # span is flagged differently than a short one), not just cosmetic
     # variety.
+    # Slice 58 follow-up: the real projected_value used to be deliberately
+    # left out of reference_facts (it's data-dependent, computed live) --
+    # but that meant a judge run had nothing to check the model's own
+    # reported number against, and twice flagged a completely correct,
+    # tool-grounded answer as "fabricating data" for reporting the exact
+    # real projection (DOCEXP.md's Slice 58 entry). Fixed by computing the
+    # real projection here too, via the identical call the agent's own
+    # execute_tools_node makes -- same "call the real tool, don't guess"
+    # principle as _outlier_check_and_reference() above. This is safe to
+    # precompute: _forecast() is a pure function of the DB's own snapshot
+    # timestamps/values and horizon_days, never wall-clock "now", and
+    # nothing writes to player_counts between here and the live agent
+    # call moments later in the same CI job -- so this is the actual
+    # number the tool will independently (re)compute, not a guess at it.
     horizons = [("next month", 30), ("next week", 7)]
-    for i, (name, snapshots) in enumerate(tracked_forecastable_games):
+    for i, (appid, name, snapshots) in enumerate(tracked_forecastable_games):
         phrase, horizon_days = horizons[i]
+        real_forecast = execute_run_forecast(
+            f"SELECT polled_at, player_count FROM player_counts WHERE appid = {appid}",
+            horizon_days,
+        )
         questions.append(
             GoldenQuestion(
                 id=f"forecast_tracked_game_{i + 1}_{phrase.replace(' ', '_')}",
@@ -549,8 +583,11 @@ def build_golden_questions() -> list[GoldenQuestion]:
                 reference_facts=(
                     f"{name!r} has {snapshots} real historical live-player snapshots, "
                     f"enough to fit a real (if not necessarily high-confidence) "
-                    f"linear-trend projection over this {horizon_days}-day horizon -- "
-                    "the tool should NOT report insufficient_history for this game."
+                    f"linear-trend projection over this {horizon_days}-day horizon. A real "
+                    f"linear-trend fit over that history projects approximately "
+                    f"{real_forecast['projected_value']:.0f} players -- the tool should "
+                    "NOT report insufficient_history for this game, and a reported "
+                    "number at or near this real projection is correct, not fabricated."
                 ),
             )
         )

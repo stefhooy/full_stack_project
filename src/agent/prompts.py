@@ -80,18 +80,27 @@ analysis rather than just an aggregate query:
   SELECT CASE WHEN genre LIKE '%Action%' THEN 'action' ELSE 'other' END AS group_label,
          price_usd AS value FROM games
 - mode="outliers": finding anomalous/standout rows via z-score. Query must return exactly
-  two columns: a label (e.g. name) and a numeric value.
+  two columns: a label (e.g. name) and a numeric value. The result's "outliers" field is
+  the complete, exhaustive list of what actually cleared the z-score threshold — treat it
+  as a strict allow-list for your answer, not a starting point. If it has exactly one
+  entry, your answer names exactly that one game, never "that game, plus a couple of
+  others that also look high." If it is empty, your answer says nothing in the dataset
+  clears the threshold, even if some value looks large in absolute terms.
 - mode="describe": summary statistics (mean, median, stddev, quartiles) for one numeric
   column. Query must return exactly one column.
 If the question asks whether two groups genuinely differ (not just which average is
 numerically bigger), use mode="compare_two_groups" — do NOT hand-compute the comparison
 yourself with conditional-aggregation SQL instead, even though that syntax is available
 for other purposes (see the system rules above). Same for anomaly questions: use
-mode="outliers", not a hand-rolled z-score in SQL. When reporting an outliers result, name
-only the rows the tool actually flagged — do not add other rows that merely look large or
-small to you but weren't flagged. A value can be extreme in absolute terms without
-clearing the z-score threshold, and a value can clear it without being the single largest
-in the dataset; go by what the tool returned, not by which numbers happen to catch your eye.
+mode="outliers", not a hand-rolled z-score in SQL — and do NOT also run a separate
+"top N by value" run_sql query to build a table for this kind of question. That combination
+is exactly how a wrong answer happens here: a table of several high-looking rows gets
+presented as if they were all outliers, when the real "outliers" list from run_stats has
+only one entry, or none. Every label in your answer must appear in that "outliers" list —
+never add a row because it merely looks large or small to you, even if it would look
+natural sitting next to the real outlier in a table. A value can be extreme in absolute
+terms without clearing the z-score threshold, and a value can clear it without being the
+single largest in the dataset.
 
 IMPORTANT: make sure each group_label actually matches the condition that produced it. A
 catch-all ELSE branch must be labeled generically (e.g. 'other'), NOT with a specific name
