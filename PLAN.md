@@ -2875,6 +2875,59 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       a prompt-wording fix has no red/green unit test, same reasoning
       as the router fix earlier in this slice
 
+## Slice 59 — Structural prevention, not detection: the outlier hallucination can no longer be written by the model at all
+- [x] Slice 58's outlier-guidance rewrite was still just a stronger
+      *request* for accuracy -- a real, senior-engineer reframe of the
+      problem: don't try to get the model to correctly restate a fact
+      that already exists in code; render the fact in code and let the
+      model only narrate around it. Prevention instead of detection --
+      no heuristic to get wrong, no false-positive/false-negative
+      trade-off, no retry loop needed at all
+- [x] `_render_outliers_fact_block()` (`graph.py`) prints
+      `run_stats(mode="outliers")`'s real result as plain text --
+      the outlier list the user sees is never LLM-generated text for
+      this mode, it's a Python f-string over `stats_result`'s own data
+- [x] `ANALYSIS_TOOL_GUIDANCE` rewritten again for outliers specifically:
+      the model is now told its final answer must NOT name rows, values,
+      or z-scores at all for this mode -- only a short, name-free
+      interpretive comment. Explicitly tells the model this list has
+      already failed to be restated accurately twice for real, so it's
+      simply not being asked to do that job anymore
+- [x] `_compose_outliers_answer()` splices the two together (fact block,
+      then the model's commentary) and adds one defensive backstop:
+      if the model's commentary *still* names an unauthorized row from a
+      companion `run_sql` call (prompt compliance isn't literally 100%),
+      the commentary is swapped for a safe, generic, name-free fallback
+      sentence rather than surgically edited -- simpler and more robust
+      than trying to remove just the offending clause without leaving
+      broken grammar, and the fact block above it is completely
+      unaffected either way since it was never LLM-authored to begin with
+- [x] Wired into the one real choke point both `/ask` and `/ask/stream`
+      already funnel through (`_result_from_state()`), so both endpoints
+      get this guarantee automatically, no duplicated logic
+- [x] No eval-harness changes needed at all: the existing golden-question
+      checks (`contains_text(name)` for a real outlier, `route_is`
+      alone for "no real outlier") check the final `answer` string,
+      which still contains the real name via the fact block -- if
+      anything, these checks are now MORE reliably satisfied than
+      before, since the name's presence no longer depends on the model
+      writing it correctly
+- [x] Added 7 new tests (`test_graph_outliers_answer_composition.py`):
+      the fact block's exact rendering (single outlier, multiple
+      outliers, the honest empty case), and the composition/backstop
+      logic (clean commentary passes through untouched, an unauthorized
+      name gets swapped for the safe fallback while the fact block stays
+      intact, a real outlier's own name mentioned in commentary is never
+      flagged, no companion query means nothing to check). Pure
+      functions, zero LLM calls needed
+- [x] Verified for real: `ruff`/`mypy` clean, 209/209 tests pass (202 + 7
+      new). Whether this actually eliminates the hallucination (versus
+      Slice 58's guidance, which didn't) is architecturally guaranteed
+      for the *naming* part specifically -- that text is simply no
+      longer something the model writes -- confirmed by a live
+      `run_evals.yml` run only for the (much narrower) defensive-backstop
+      path, which does still depend on the model's commentary text
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

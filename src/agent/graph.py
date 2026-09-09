@@ -487,6 +487,68 @@ def _strip_dashes(text: str) -> str:
     return text.replace("‑", "-")
 
 
+_SAFE_OUTLIERS_FALLBACK_COMMENTARY = (
+    "This was checked against the rest of the dataset using a standard statistical "
+    "outlier test."
+)
+
+
+def _render_outliers_fact_block(stats_result: dict) -> str:
+    """Deterministically renders a real run_stats(mode="outliers") result as
+    plain text. The model's own final answer never generates this sentence
+    -- see ANALYSIS_TOOL_GUIDANCE -- specifically so the outlier list shown
+    to the user can never be wrong: it's printed straight from stats_result's
+    own data, not written by an LLM. Prompting the model to accurately
+    restate this list failed twice for real (DOCEXP.md's Slice 58 and 59
+    entries: a real, repeated hallucination naming an unverified extra
+    "outlier" alongside the real one) -- this makes that specific failure
+    structurally impossible instead of merely less likely."""
+    threshold = stats_result.get("z_threshold", 2.5)
+    outliers = stats_result.get("outliers", [])
+    if not outliers:
+        return (
+            f"Statistical check (z-score threshold {threshold}): no value in the "
+            "dataset clears this threshold -- nothing here is a real outlier."
+        )
+    named = "; ".join(f"{o['label']} (z={o['z_score']:.2f})" for o in outliers)
+    return f"Statistical outliers (z-score threshold {threshold}): {named}."
+
+
+def _compose_outliers_answer(
+    stats_result: dict,
+    model_commentary: str,
+    candidate_rows: list | None,
+) -> str:
+    """Combines the deterministic fact block above with the model's own
+    (supposed-to-be name-free) commentary. `candidate_rows` is
+    last_successful_rows -- a companion run_sql call's results, if the
+    model made one to build a display table, the exact mechanism behind
+    the real hallucination this whole design exists to close. This is a
+    defensive backstop, not the primary mechanism: if the model's
+    commentary still names a row from that companion query that isn't a
+    real, tool-confirmed outlier -- prompt compliance isn't literally
+    100% -- the commentary is swapped for a safe, generic, name-free
+    fallback rather than surgically edited (simpler and more robust than
+    trying to remove just the offending clause without leaving broken
+    grammar behind), while the fact block above it, already guaranteed
+    correct, is completely unaffected either way."""
+    facts = _render_outliers_fact_block(stats_result)
+    authorized = {o["label"] for o in stats_result.get("outliers", [])}
+    commentary = model_commentary
+    if candidate_rows:
+        commentary_lower = model_commentary.lower()
+        for row in candidate_rows:
+            if not row:
+                continue
+            label = str(row[0])
+            if label in authorized:
+                continue
+            if label.lower() in commentary_lower:
+                commentary = _SAFE_OUTLIERS_FALLBACK_COMMENTARY
+                break
+    return f"{facts}\n\n{commentary}"
+
+
 def _result_from_state(final_state: dict, usage_by_model: dict) -> AgentResult:
     final_message = final_state["messages"][-1]
     answer = (
@@ -495,6 +557,15 @@ def _result_from_state(final_state: dict, usage_by_model: dict) -> AgentResult:
         else str(final_message.content)
     )
     answer = _strip_dashes(answer)
+    stats_result = final_state.get("last_stats_result")
+    if (
+        final_state.get("route") == "analysis"
+        and stats_result is not None
+        and stats_result.get("mode") == "outliers"
+    ):
+        answer = _compose_outliers_answer(
+            stats_result, answer, final_state.get("last_successful_rows")
+        )
     total_tokens = sum(u.get("total_tokens", 0) for u in usage_by_model.values())
     return AgentResult(
         answer=answer,
