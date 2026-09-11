@@ -1,18 +1,17 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import Chart from "@/components/Chart";
 import DinoGame from "@/components/DinoGame";
 import FilmStrip from "@/components/FilmStrip";
-import GenreShowcase from "@/components/GenreShowcase";
 import HeroPreview from "@/components/HeroPreview";
 import LiquidGlassAskButton from "@/components/LiquidGlassAskButton";
 import Markdown from "@/components/Markdown";
 import MeetLudo from "@/components/MeetLudo";
 import TraceSteps from "@/components/TraceSteps";
 import {
+  prewarmBackend,
   streamAsk,
   type AskResult,
   type ForecastResult,
@@ -27,6 +26,17 @@ import { useReducedMotion } from "@/lib/useReducedMotion";
 const GradientBackground = dynamic(() => import("@/components/GradientBackground"), {
   ssr: false,
 });
+
+// Neither is needed for first paint -- Chart only ever renders after a real
+// question result comes back (never during the initial page load), and
+// GenreShowcase sits at the very bottom of the page. Splitting both into
+// their own chunks (still server-rendered, just not bundled into the
+// critical initial one) means the browser has less JS to parse before the
+// hero and ask bar are interactive. Measured directly (not assumed):
+// ~600KB of eager JS and a real ~2s gap between the page's load event and
+// first paint, before this change.
+const Chart = dynamic(() => import("@/components/Chart"));
+const GenreShowcase = dynamic(() => import("@/components/GenreShowcase"));
 
 const EXAMPLE_QUESTIONS = [
   "What are the 5 highest rated games with more than 1000 positive reviews?",
@@ -234,6 +244,15 @@ export default function Home() {
   // browser is idle (or 200ms have passed), so a pure decorative
   // background flourish never competes with the hero's own first paint.
   const showGradientBackground = useDeferredMount();
+
+  // Fires once, as early as possible, so Render's free-tier cold start (if
+  // the backend has spun down from inactivity) happens in the background
+  // while a new visitor is still reading the hero or typing a question --
+  // not only once they hit "Ask", which is what used to make the very
+  // first real question of a visit feel especially slow.
+  useEffect(() => {
+    prewarmBackend();
+  }, []);
 
   async function ask(q: string) {
     if (!q.trim() || loading) return;

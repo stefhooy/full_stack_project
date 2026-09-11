@@ -59,6 +59,23 @@ export type StreamEvent =
   | { type: "final"; result: AskResult }
   | { type: "error"; message: string };
 
+// Render's free tier spins the backend down after inactivity -- the first
+// real request after that can take 50s+ to wake it back up. Called once,
+// on page mount (see app/page.tsx), so that wake-up happens in the
+// background while a new visitor is still reading the hero/typing a
+// question, instead of only starting once they hit "Ask". Fire-and-forget
+// on purpose: nothing the page does depends on this succeeding, and a
+// failure (network hiccup, ad blocker) shouldn't surface as a visible
+// error for a request the user never asked for. Hits /health specifically
+// -- the cheapest real endpoint that still fully wakes the container,
+// not a dedicated warm-up route, since one already existed for other
+// reasons (deploy-freshness checks).
+export function prewarmBackend(): void {
+  fetch(`${API_BASE_URL}/health`).catch(() => {
+    // Intentionally silent -- see the function comment above.
+  });
+}
+
 export async function streamAsk(
   question: string,
   onEvent: (event: StreamEvent) => void,
