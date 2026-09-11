@@ -1,7 +1,7 @@
 // Backs app/catalog/page.tsx — the full-catalog browse page. Plain catalog
 // lookups (GET /catalog, src/db/catalog.py), no LLM round trip, same as
 // lib/genres.ts's fetchGamesByGenre.
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, fetchWithRetry } from "@/lib/api";
 
 export interface CatalogGame {
   appid: number;
@@ -57,7 +57,9 @@ export async function fetchCatalog(
   if (query.page) params.set("page", String(query.page));
   if (query.pageSize) params.set("page_size", String(query.pageSize));
 
-  const response = await fetch(`${API_BASE_URL}/catalog?${params.toString()}`, { signal });
+  const response = await fetchWithRetry(`${API_BASE_URL}/catalog?${params.toString()}`, {
+    signal,
+  });
   if (!response.ok) throw new Error(`catalog request failed (${response.status})`);
   return response.json();
 }

@@ -14,7 +14,7 @@
 // degrade gracefully for a genre outside this curated set (which can happen
 // — the catalog's real top-8 can shift as it grows) via GenreIcon's Generic
 // fallback glyph and a templated question below.
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, fetchWithRetry } from "@/lib/api";
 
 export interface Genre {
   id: string;
@@ -62,7 +62,7 @@ function questionFor(label: string): string {
 }
 
 export async function fetchGenres(signal?: AbortSignal): Promise<Genre[]> {
-  const response = await fetch(`${API_BASE_URL}/genres`, { signal });
+  const response = await fetchWithRetry(`${API_BASE_URL}/genres`, { signal });
   if (!response.ok) throw new Error(`genres request failed (${response.status})`);
   const data: { genres: { label: string; count: number }[] } = await response.json();
   return data.genres.map((g, i) => ({
@@ -91,7 +91,7 @@ export async function fetchGamesByGenre(
   signal?: AbortSignal
 ): Promise<GenreGame[]> {
   const url = `${API_BASE_URL}/games?genre=${encodeURIComponent(label)}&limit=${limit}`;
-  const response = await fetch(url, { signal });
+  const response = await fetchWithRetry(url, { signal });
   if (!response.ok) throw new Error(`games request failed (${response.status})`);
   const data: { games: GenreGame[] } = await response.json();
   return data.games;

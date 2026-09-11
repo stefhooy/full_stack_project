@@ -2995,6 +2995,59 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       `analysis_price_outliers` (5 outliers each) still list their real
       outliers normally, comfortably under the new cutoff
 
+## Slice 60 — A real reported bug ("I have to refresh once or twice"), and a wrong diagnosis corrected along the way
+- [x] Investigating "make the page load faster" started by actually
+      measuring, not guessing: a real Playwright test found a ~1.9-2.2s
+      gap between the page's `load` event and first paint. Built a fix
+      for it (lazy-loading `Chart`/`GenreShowcase` via `next/dynamic`) --
+      then re-measured and the number didn't move. Traced it further: the
+      delay only appeared on a browser's *first-ever* navigation: 3
+      repeat navigations in the same already-open browser gave 120ms,
+      188ms, then a clean 5-run median of 88ms. The "slow load" was
+      Chromium's own first-launch warmup inside the test harness, not a
+      real property of this page -- a wrong diagnosis, corrected here
+      rather than left standing. The lazy-loading change is kept anyway
+      (less JS shipped is never wrong), just not credited with a fix it
+      didn't produce
+- [x] Redirected by a concrete report instead: "I have to refresh the
+      page once or twice before loading everything." Measured the real,
+      actual cause live against production: `/health` took **40.4
+      seconds** to respond on a cold Render free-tier instance --
+      confirmed, not assumed
+- [x] Traced the real bug this causes: `GenreShowcase.tsx` (`if (failed)
+      return null`) renders NOTHING, permanently, the instant its one
+      `fetchGenres()` call fails once -- no retry existed anywhere.
+      During Render's real ~40s cold start, the very first request from
+      a fresh visitor has a real chance of hitting a 502/503 (the proxy
+      answering before the container is even listening), and that single
+      failure used to be unrecoverable without a manual refresh. The
+      exact same gap existed for `fetchGamesByGenre` and `fetchCatalog`,
+      and `CatalogClient.tsx`'s own genre-filter fetch silently swallowed
+      failures outright (`.catch(() => {})`)
+- [x] Fixed at the shared network layer, once, not four separate
+      patches: `fetchWithRetry()` (`lib/api.ts`) retries specifically on
+      a thrown network error or 502/503/504 -- never a real 4xx or other
+      5xx a retry can't fix -- with delays summing to ~50s, comfortably
+      past the real measured cold-start window. `fetchGenres`,
+      `fetchGamesByGenre`, and `fetchCatalog` all route through it now
+- [x] `prewarmBackend()` (Slice 59-adjacent work from the same
+      investigation) also added to `/catalog`'s own mount
+      (`CatalogClient.tsx`) -- a direct visit to `/catalog` (a bookmark,
+      a shared link) never mounts the main page at all, so it was getting
+      none of the early wake-up call the main page already fires
+- [x] Verified live, not assumed: no unit-test framework exists for this
+      frontend (consistent with this project's whole history -- verified
+      via `tsc`/`eslint`/build plus live Playwright checks, same as the
+      dino game). Built a real Playwright test mocking `/genres` to fail
+      503 three times then succeed, confirming `fetchWithRetry` actually
+      retries and the UI genuinely recovers (checked via the mocked
+      response's own real count text, not a static string that
+      happens to appear elsewhere on the page regardless of whether
+      data loaded -- a real false-positive caught and fixed in the test
+      itself before trusting its result)
+- [x] Verified for real: `tsc --noEmit`, `eslint`, and `next build` all
+      clean
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

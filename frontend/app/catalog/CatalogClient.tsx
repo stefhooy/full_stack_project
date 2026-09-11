@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
+import { prewarmBackend } from "@/lib/api";
 import { fetchCatalog, type CatalogGame, type CatalogSort } from "@/lib/catalog";
 import { formatDate, formatOwners, formatPlatforms, formatPrice } from "@/lib/formatGame";
 import { fetchGenres, type Genre } from "@/lib/genres";
@@ -51,6 +52,15 @@ export default function CatalogClient() {
     }, 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // A direct visit to /catalog (a bookmark, a shared link) never mounts
+  // app/page.tsx, so it gets none of the main page's own prewarm call --
+  // fired here too so this route also starts Render's real, measured
+  // ~40s cold start as early as possible instead of only once the first
+  // fetch below hits it.
+  useEffect(() => {
+    prewarmBackend();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();

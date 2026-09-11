@@ -76,6 +76,52 @@ export function prewarmBackend(): void {
   });
 }
 
+// A real, measured cold start on Render's free tier takes ~40 seconds --
+// and during that window, requests can fail outright (502/503/504 from
+// Render's own proxy answering before the container is listening yet),
+// not just arrive slowly. A single such failure used to be permanent for
+// the whole page: GenreShowcase.tsx rendered nothing at all until a
+// manual refresh, and the catalog page's own genre filter silently gave
+// up -- a real, reported bug ("I have to refresh once or twice"), not
+// hypothetical. Delays sum to ~50s, comfortably past the real measured
+// cold-start window. Only retries what a cold start actually produces (a
+// thrown network error, or 502/503/504) -- never a real 4xx or other 5xx
+// that a retry can't fix, so a genuine bug still surfaces as an error
+// instead of silently retrying 7 times for nothing.
+const COLD_START_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 20000];
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
+export async function fetchWithRetry(input: string, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(input, init);
+      const retryable = [502, 503, 504].includes(response.status);
+      if (!retryable || attempt >= COLD_START_RETRY_DELAYS_MS.length) return response;
+    } catch (err) {
+      const isAbort = err instanceof DOMException && err.name === "AbortError";
+      if (isAbort || attempt >= COLD_START_RETRY_DELAYS_MS.length) throw err;
+    }
+    await delay(COLD_START_RETRY_DELAYS_MS[attempt], init?.signal ?? undefined);
+  }
+}
+
 export async function streamAsk(
   question: string,
   onEvent: (event: StreamEvent) => void,

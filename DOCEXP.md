@@ -8556,3 +8556,120 @@ outliers each) still list their real outliers normally.
   `not_normal_enough` path end-to-end (does the live agent's own
   `run_stats` call reach the same conclusion the golden question's
   reference facts now expect) -- needs one more live run to confirm.
+  **Resolved same day**: the next live run came back 18/18 route +
+  deterministic, a perfect 5.0/5 average judge score -- confirmed both
+  `analysis_ccu_outliers` (lists both real outliers with exact z-scores)
+  and `analysis_discount_outliers` (lists 6 real outliers on CI's
+  smaller catalog, correctly not degrading since 6 is well under the
+  15-count cutoff) working exactly as designed.
+
+---
+
+## Slice 60 — "Make it load faster," a wrong diagnosis caught before it shipped, and the real bug underneath
+
+**Date:** 2026-09-12
+
+### Starting with the wrong problem, and correcting it in the open
+
+Asked to make the page load faster for new users. A real Playwright
+measurement found a ~1.9-2.2s gap between the page's `load` event and
+first paint -- built a fix for it (`Chart` and `GenreShowcase` moved to
+`next/dynamic`, since neither is needed for first paint: `Chart` never
+renders until a real question result exists, `GenreShowcase` sits at
+the very bottom of the page), then re-measured to confirm the fix
+worked.
+
+It didn't move the number at all. Rather than rationalize that away,
+traced it further: navigated the *same* page a second and third time in
+the *same already-open* browser, instead of a fresh one each time. FCP
+dropped to 120ms, then 188ms. A clean run of 5 repeated navigations (the
+first discarded as a warm-up) gave a median of 88ms. The ~2s delay was
+never a property of this page -- it was headless Chromium's own
+first-launch warmup inside the Playwright test harness itself, which a
+real visitor's already-running browser never pays. Said this directly
+rather than let a wrong claim stand: the page was already fast, and the
+lazy-loading change, while harmless and kept, wasn't fixing anything
+that was actually broken.
+
+Worth naming the general lesson: a "before vs. after" measurement is
+only meaningful if the *only* thing that changed between the two runs
+is the thing being tested. Comparing two cold-browser first-navigations
+looks like a controlled comparison but isn't -- the browser's own
+startup cost dominates and can hide or fabricate a signal either way.
+
+### The real bug, from a much more specific report
+
+Reframed directly: "I have to refresh the page once or twice before
+loading everything." That's not a perception problem, it's a
+reliability bug, and a testable one. Measured Render's actual current
+cold-start time live, against the real production URL: **40.4 seconds**
+for `/health` to respond from a spun-down free-tier instance. Real
+number, not the generic "50 seconds or more" from Render's own
+dashboard disclaimer.
+
+Traced what that 40s window actually does to the frontend's data
+fetches. `GenreShowcase.tsx` has `if (failed) return null` -- the
+instant its one `fetchGenres()` call fails, the entire genre showcase
+section renders nothing, forever, with no retry and no way to recover
+short of a manual refresh. During a real cold start, Render's own proxy
+can return a 502/503 immediately (answering before the container is
+even listening) rather than queuing the request -- so a genuinely fresh
+visitor has a real chance of hitting that failure on their very first
+page load. The identical gap existed in `fetchGamesByGenre` and
+`fetchCatalog`, and `CatalogClient.tsx`'s own genre-filter fetch
+(`.catch(() => {})`) silently swallowed the same failure outright. Four
+call sites, one root cause, zero retry logic anywhere.
+
+### One fix, at the shared layer
+
+`fetchWithRetry()` (`lib/api.ts`): retries specifically on a thrown
+network error or a 502/503/504 response -- the failure modes a cold
+start actually produces -- never on a real 4xx or other 5xx, so an
+actual bug still surfaces as an error instead of silently retrying 7
+times for nothing it can fix. Delays (`1s, 2s, 4s, 8s, 15s, 20s`) sum to
+~50s, comfortably past the real measured 40.4s cold start. `fetchGenres`,
+`fetchGamesByGenre`, and `fetchCatalog` all route through it now,
+instead of three independent copies of the same retry logic (or worse,
+three independent gaps).
+
+`prewarmBackend()` (already built for the earlier, since-corrected
+investigation) turned out to still be genuinely useful here, just not
+for the reason first assumed: it's now also called from
+`CatalogClient.tsx`'s own mount, since a direct visit to `/catalog` (a
+bookmark, a shared link) never mounts the main page and was getting no
+early wake-up at all.
+
+### Verifying a fix with no unit-test framework to lean on
+
+This frontend has never had a unit-test framework (consistent across
+this whole project's history -- verified via `tsc`/`eslint`/`next
+build` plus live Playwright checks, the same pattern used for the dino
+game). Built a real Playwright test: mocked `/genres` to return 503
+three times, then a real payload, and confirmed `fetchWithRetry`
+actually retries and the UI genuinely recovers.
+
+The first version of that test passed for the wrong reason: it checked
+for the text "Action" appearing on the page, which also exists as
+static example-question copy elsewhere on the page regardless of
+whether genre data ever loaded -- a false positive that would have
+"confirmed" the fix even if it were completely broken. Caught by
+checking what actually renders: `GenreShowcase.tsx` shows a genre's own
+real count (`"{count} games"`), which can only come from a genuinely
+successful response. Switched the test to check for the mocked count
+text specifically, and re-ran it: 3 real 503s, then true recovery,
+confirmed for real.
+
+### Verified for real
+
+`tsc --noEmit`, `eslint`, and `next build` all clean. No regressions.
+
+### Open questions (new)
+
+- Whether the retry delays (summing to ~50s) should be shorter for
+  `fetchGamesByGenre` specifically, since that one fires on every genre
+  card click, not just once on page load -- a user clicking mid-cold-start
+  now waits up to 50s for that specific interaction to recover, which is
+  strictly better than the previous silent failure but still a long time
+  for a click. Not changed here to keep the fix uniform and the shared
+  helper simple; worth revisiting if real usage shows this specific path
+  matters.
