@@ -90,7 +90,12 @@ analysis rather than just an aggregate query:
   (1-2 sentence) interpretive comment about what the result means or why it might matter —
   no names, no numbers, no z-scores, nothing from your own query results presented as if it
   might also be an outlier. If the "outliers" field is empty, your comment should reflect
-  that nothing stood out, still without naming any specific row.
+  that nothing stood out, still without naming any specific row. If the result instead has
+  "not_normal_enough": true, the tool itself already determined this metric isn't
+  distributed close enough to normal for a z-score check to mean anything (too many values
+  technically clear the threshold for that to be a real outlier count) — your comment
+  should reflect that honestly (this metric isn't well-suited to this kind of check), not
+  list the values that triggered it.
 - mode="describe": summary statistics (mean, median, stddev, quartiles) for one numeric
   column. Query must return exactly one column.
 If the question asks whether two groups genuinely differ (not just which average is

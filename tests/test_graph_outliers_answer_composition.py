@@ -55,6 +55,25 @@ def test_renders_an_honest_no_outlier_message_without_naming_anything():
     assert "outlier" in block.lower()
 
 
+def test_renders_the_tools_own_honest_note_when_not_normal_enough():
+    # DOCEXP.md's Slice 59 follow-up: when stats_tool.py's own _outliers()
+    # detects an implausible outlier count (too many values clearing the
+    # threshold for a z-score test to mean anything), it returns
+    # not_normal_enough=True and a real explanatory "note" instead of a
+    # long, misleading outliers list -- this must render that note
+    # verbatim, not fall back to the generic "no outliers" message, which
+    # would misleadingly imply the test ran cleanly and found nothing.
+    result = {
+        "mode": "outliers",
+        "z_threshold": 2.5,
+        "outliers": [],
+        "not_normal_enough": True,
+        "note": "12 of 100 values (12%) clear z_threshold=2.5 -- not a real outlier count.",
+    }
+    block = _render_outliers_fact_block(result)
+    assert block == result["note"]
+
+
 # --- _compose_outliers_answer -----------------------------------------------
 
 

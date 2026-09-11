@@ -35,6 +35,22 @@ from scipy import stats as scipy_stats
 from src.config import settings
 from src.db.connection import get_read_only_connection, run_guarded_query
 
+# See _outliers()'s own comment for the full statistical reasoning.
+# Deliberately an ABSOLUTE count, not a fraction of the dataset: a
+# fraction-based cutoff (originally tried at 10%) turned out not to be
+# robust across very different sample sizes -- a real n=1000 catalog's
+# discount_pct column produced 79 outliers (7.9%, under a 10% cutoff, yet
+# obviously impractical to name individually), while a small n=25 test
+# fixture's single genuine outlier is already ~4% just from having few
+# rows at all, nowhere near actually implausible. An absolute count holds
+# steady in both directions: more than 15 individually-named "outliers"
+# is impractical to present as a useful answer regardless of how large
+# the dataset is, and for a real normal distribution, seeing this many
+# this far out (a few hundred values should rarely produce more than a
+# handful of real z>2.5 points) is itself a strong sign the data isn't
+# distributed normally enough for the test to be trustworthy.
+MAX_PLAUSIBLE_OUTLIER_COUNT = 15
+
 
 def execute_run_stats(query: str, mode: str, z_threshold: float = 2.5) -> dict:
     # Tool-call args arrive from the LLM's function-calling output, not from
@@ -154,6 +170,39 @@ def _outliers(columns: list[str], rows: Sequence[Sequence[Any]], z_threshold: fl
         if abs(z_scores[i]) > z_threshold
     ]
     outliers.sort(key=lambda o: -abs(o["z_score"]))
+
+    # A z-score test's entire premise is that outliers are rare -- for a
+    # genuinely normal distribution, only ~0.6% of values should ever
+    # exceed z=2.5. If more than MAX_PLAUSIBLE_OUTLIER_COUNT clear the
+    # threshold, the honest conclusion isn't "here are N outliers" -- it's
+    # that this column isn't distributed close enough to normal for a
+    # z-score test to mean anything here (found for real: discount_pct
+    # clusters at conventional sale tiers -- 25%/50%/75%/90% -- rather
+    # than spreading smoothly, and flagged 79 of 1000 games as
+    # "outliers"). Same honesty-over-a-technically-computed-but-
+    # misleading-number principle as forecast_tool.py's
+    # insufficient_history: a number that answers the literal formula
+    # isn't the same as a number that answers the question honestly.
+    if len(outliers) > MAX_PLAUSIBLE_OUTLIER_COUNT:
+        return {
+            "mode": "outliers",
+            "n": len(values),
+            "mean": mean,
+            "stddev": std,
+            "z_threshold": z_threshold,
+            "outliers": [],
+            "not_normal_enough": True,
+            "note": (
+                f"{len(outliers)} of {len(values)} values clear z_threshold={z_threshold} "
+                "-- far more than a real outlier count should be (true outliers are rare "
+                "by definition). This usually means the underlying values aren't "
+                "distributed close enough to normal for a z-score test to be meaningful "
+                "here (e.g. clustered at a few common tiers rather than spread smoothly). "
+                "Try mode='describe' instead to see the real distribution shape, and "
+                "report honestly that this metric isn't well-suited to an outlier check "
+                "rather than listing every value that technically clears the threshold."
+            ),
+        }
 
     return {
         "mode": "outliers",

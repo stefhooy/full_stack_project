@@ -88,11 +88,37 @@ def test_a_real_statistical_outlier_is_expected_to_be_named(games_db):
     _insert_games(games_db, prices)
 
     q = _price_outlier_question(games_db)
-    assert "SHOULD flag it by name" in q.reference_facts
+    assert "SHOULD name all of them" in q.reference_facts
     assert "Synthetic Game 2000" in q.reference_facts
 
     flagging_it_result = _fake_result(answer="Yes, Synthetic Game 2000 is a clear outlier.")
     assert q.check(flagging_it_result).passed
+
+
+def test_two_real_outliers_are_both_required_and_both_named(games_db):
+    # A real, live-observed case (DOCEXP.md's Slice 59 follow-up): a real
+    # catalog can have more than one genuine outlier on a given day, and
+    # a reference that only describes the single highest one incorrectly
+    # marks the agent's other, equally real, tool-confirmed name as
+    # "unsupported." Two extreme values here, both clearing the threshold.
+    prices = {1000 + i: 8.0 + (i % 5) for i in range(20)}
+    prices[2000] = 300.0  # real z ~3.72 against this dataset's full shape
+    prices[2001] = 250.0  # real z ~3.03 -- also clears 2.5, with margin
+    _insert_games(games_db, prices)
+
+    q = _price_outlier_question(games_db)
+    assert "Synthetic Game 2000" in q.reference_facts
+    assert "Synthetic Game 2001" in q.reference_facts
+
+    both_named_result = _fake_result(
+        answer="Synthetic Game 2000 and Synthetic Game 2001 are both clear outliers."
+    )
+    assert q.check(both_named_result).passed
+
+    # The whole point of naming both: an answer that only names the more
+    # extreme one is missing a real, equally-confirmed fact.
+    only_one_named_result = _fake_result(answer="Synthetic Game 2000 is a clear outlier.")
+    assert not q.check(only_one_named_result).passed
 
 
 def test_no_real_outlier_does_not_demand_a_specific_name(games_db):
@@ -113,3 +139,42 @@ def test_no_real_outlier_does_not_demand_a_specific_name(games_db):
         stats_result={"mode": "outliers", "outliers": []},
     )
     assert q.check(honest_no_outlier_result).passed
+
+
+def test_too_many_real_outliers_degrades_honestly_instead_of_listing_dozens(games_db):
+    # A real, found-not-hypothesized case (DOCEXP.md's Slice 59 follow-up):
+    # analysis_discount_outliers flagged 79 of 1000 real games as
+    # "outliers" on the full local catalog -- discount_pct clusters at
+    # conventional sale tiers rather than spreading smoothly, breaking the
+    # z-score test's normality assumption. This mirrors that shape with
+    # price_usd instead (the helper is shared and column-agnostic): 180
+    # games at $10, 20 at $200 -- 20 outliers, past the
+    # MAX_PLAUSIBLE_OUTLIER_COUNT=15 cutoff shared with stats_tool.py's
+    # own _outliers(), with a clean margin (z~3.0, not right at the edge).
+    prices = {1000 + i: 10.0 for i in range(180)} | {2000 + i: 200.0 for i in range(20)}
+    _insert_games(games_db, prices)
+
+    q = _price_outlier_question(games_db)
+    assert "isn't well-suited to this kind of check" in q.reference_facts
+    assert "Synthetic Game 2000" not in q.reference_facts  # no dozens of names listed
+
+    honest_result = _fake_result(
+        answer="Price doesn't look like a good fit for a statistical outlier check here.",
+        stats_result={"mode": "outliers", "outliers": [], "not_normal_enough": True},
+    )
+    assert q.check(honest_result).passed
+
+
+def test_a_real_low_side_outlier_is_not_mistaken_for_a_high_one(games_db):
+    # Real bug hit writing this fix: the fixture's own genuinely
+    # free-to-play row (appid 4, $0.00) becomes a real LOW z-score
+    # outlier next to a tightly clustered synthetic sample -- and this
+    # question is specifically about unusually HIGH prices. A two-sided
+    # abs(z-score) check would incorrectly surface that free game here;
+    # this question's own reference facts must never mention it.
+    prices = {1000 + i: 8.0 + (i % 5) for i in range(20)}
+    prices[2000] = 15.0  # not a real high outlier either -- see the test above
+    _insert_games(games_db, prices)
+
+    q = _price_outlier_question(games_db)
+    assert "Free Arena" not in q.reference_facts

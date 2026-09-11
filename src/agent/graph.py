@@ -505,6 +505,18 @@ def _render_outliers_fact_block(stats_result: dict) -> str:
     structurally impossible instead of merely less likely."""
     threshold = stats_result.get("z_threshold", 2.5)
     outliers = stats_result.get("outliers", [])
+    if stats_result.get("not_normal_enough"):
+        # The tool itself already detected an implausible outlier count
+        # (see stats_tool.py's _outliers(): a real z-score test predicts
+        # outliers are rare, so a huge fraction clearing the threshold
+        # means the column isn't distributed close enough to normal for
+        # the test to mean anything -- not that dozens of real outliers
+        # exist). Render the tool's own honest explanation, not a
+        # generic "no outliers" message, which would misleadingly imply
+        # the test ran cleanly and simply found nothing.
+        return stats_result.get(
+            "note", f"Statistical check (z-score threshold {threshold}): inconclusive."
+        )
     if not outliers:
         return (
             f"Statistical check (z-score threshold {threshold}): no value in the "

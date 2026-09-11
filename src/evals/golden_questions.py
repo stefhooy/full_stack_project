@@ -40,6 +40,7 @@ from src.evals.checks import (
     stats_result_has_mode,
 )
 from src.tools.forecast_tool import execute_run_forecast
+from src.tools.stats_tool import MAX_PLAUSIBLE_OUTLIER_COUNT
 
 
 @dataclass
@@ -117,33 +118,82 @@ def _check_action_vs_f2p_not_mislabeled(result: AgentResult) -> CheckResult:
 def _outlier_check_and_reference(
     conn: duckdb.DuckDBPyConnection, column: str, noun: str
 ) -> tuple[Check, str]:
-    """Whether the single highest `column` value in the dataset is a real
-    z-score outlier, computed with the exact same formula run_stats's own
-    outliers mode uses (src/tools/stats_tool.py: sample stddev,
-    z_threshold=2.5) -- not assumed. Shared by analysis_price_outliers
-    and analysis_ccu_outliers, both of which used to just assume "the
-    single highest X" is automatically a clear outlier -- a real,
-    confirmed bug (DOCEXP.md's Slice 54 entry, found a second time in
-    Slice 56's own audit for exactly this pattern): on a smaller/
-    differently-shaped catalog, the top value sometimes doesn't clear
-    the threshold at all, and a model correctly saying so was being
-    marked wrong for being right. `column` is always one of this
-    module's own hardcoded call sites, never user input -- the f-string
-    below is safe for that reason, not because the value is escaped."""
-    row = conn.execute(
-        f"SELECT name, "
-        f"({column} - (SELECT AVG({column}) FROM games)) "
-        f"/ (SELECT STDDEV_SAMP({column}) FROM games) AS z_score "
-        f"FROM games ORDER BY {column} DESC LIMIT 1"
-    ).fetchone()
-    assert row is not None, "games table appears to be empty"
-    name, z_score = row
-    if abs(z_score) > 2.5:
-        check = all_of(route_is("analysis"), contains_text(name))
+    """The complete set of real z-score outliers for `column`, computed
+    with the exact same formula run_stats's own outliers mode uses
+    (src/tools/stats_tool.py's _outliers(): sample stddev, z_threshold=2.5)
+    -- not assumed, and not limited to just the single highest value.
+    Shared by analysis_price_outliers, analysis_ccu_outliers, and
+    analysis_discount_outliers.
+
+    This used to check only the single highest value -- a real, confirmed
+    bug (DOCEXP.md's Slice 54 entry, found a second time in Slice 56's own
+    audit): on a smaller/differently-shaped catalog, the top value
+    sometimes doesn't clear the threshold at all, and a model correctly
+    saying so was being marked wrong for being right. Rewritten again
+    (Slice 59 follow-up) after a live run surfaced a second real gap in
+    the same spirit: real data can have MORE THAN ONE genuine outlier on
+    a given day (peak_ccu: both Counter-Strike: Global Offensive and
+    PUBG: BATTLEGROUNDS cleared the threshold the same run; discount_pct:
+    three separate games did) -- describing only the top-1 value made the
+    judge incorrectly flag the agent's other, equally real, tool-confirmed
+    names as "unsupported," when they were exactly as correct as the
+    first. Deliberately one-sided (a HIGH z-score only, not abs(z-score)):
+    every golden question that uses this helper asks about "unusually
+    HIGH/large" values specifically, never unusually low ones -- checking
+    both directions surfaced a real, but off-topic, low-side outlier in
+    testing (a genuinely free game's $0.00 price, next to a tightly
+    clustered synthetic sample) that has nothing to do with what any of
+    these questions actually ask. `column` is always one of this module's
+    own hardcoded call sites, never user input -- the f-strings below are
+    safe for that reason, not because the value is escaped."""
+    rows = conn.execute(
+        f"SELECT name, {column} FROM games WHERE {column} IS NOT NULL"
+    ).fetchall()
+    assert rows, "games table appears to be empty"
+    values = np.array([r[1] for r in rows], dtype=float)
+    mean, std = float(values.mean()), float(values.std(ddof=1))
+    z_scores = (values - mean) / std if std > 0 else np.zeros_like(values)
+
+    # Mirrors stats_tool.py's own _outliers() honesty check exactly (same
+    # constant, same two-sided count -- see its own comment for why this
+    # is an absolute count, not a fraction) -- found for real (DOCEXP.md's
+    # Slice 59 follow-up): discount_pct clusters at conventional sale
+    # tiers rather than spreading smoothly, and flagged 79 of 1000 games
+    # as "outliers," a technically-computed but statistically meaningless
+    # result. If the real live tool call would hit that same honest
+    # degradation, this golden question's reference facts must expect it
+    # too, not a list of dozens of names.
+    two_sided_outlier_count = int((np.abs(z_scores) > 2.5).sum())
+    if two_sided_outlier_count > MAX_PLAUSIBLE_OUTLIER_COUNT:
+        check = route_is("analysis")
         reference_facts = (
-            f"{name!r} has the single highest {noun} in the dataset, a real z-score of "
-            f"{z_score:.2f} against the standard z_threshold=2.5 run_stats itself uses -- "
-            "a rigorous outlier check SHOULD flag it by name."
+            f"{two_sided_outlier_count} of {len(rows)} games clear the standard "
+            f"z_threshold=2.5 for {noun} -- far more than a real outlier count should be "
+            f"(true outliers are rare by definition). This means {noun} isn't distributed "
+            "close enough to normal for a z-score outlier check to be meaningful here. "
+            "The real run_stats tool itself detects this and returns an honest note "
+            "instead of a misleading list -- a rigorous answer should reflect that (this "
+            "metric isn't well-suited to this kind of check), not list every value that "
+            "technically clears the threshold."
+        )
+        return check, reference_facts
+
+    outliers = sorted(
+        (
+            (str(rows[i][0]), float(z_scores[i]))
+            for i in range(len(rows))
+            if z_scores[i] > 2.5
+        ),
+        key=lambda pair: -pair[1],
+    )
+    if outliers:
+        check = all_of(route_is("analysis"), *(contains_text(name) for name, _ in outliers))
+        described = "; ".join(f"{name!r} (z={z:.2f})" for name, z in outliers)
+        reference_facts = (
+            f"The real z-score outliers for {noun} (threshold 2.5, the same formula "
+            f"run_stats's own outliers mode uses) are: {described}. A rigorous outlier "
+            "check SHOULD name all of them, not just the single highest one -- there is "
+            "no one 'the' outlier when more than one game genuinely clears the threshold."
         )
         return check, reference_facts
 
@@ -154,13 +204,15 @@ def _outlier_check_and_reference(
     # project avoids elsewhere. The LLM judge, given the accurate
     # reference facts below, already assesses this correctly (confirmed
     # directly for the price case, DOCEXP.md's Slice 54 entry).
+    top_name, top_value = max(rows, key=lambda r: r[1])
+    top_z = (float(top_value) - mean) / std if std > 0 else 0.0
     check = route_is("analysis")
     reference_facts = (
-        f"{name!r} has the single highest {noun} in the dataset, but its real z-score is "
-        f"only {z_score:.2f} -- below the standard z_threshold=2.5 run_stats itself uses. "
-        "A rigorous outlier check should honestly report that nothing clears the threshold, "
-        f"not force this game forward as a clear outlier just because it's the single "
-        f"highest {noun}."
+        f"No game clears the standard z_threshold=2.5 run_stats itself uses for {noun}. "
+        f"{top_name!r} has the single highest {noun} in the dataset, a real z-score of "
+        f"only {top_z:.2f} -- still below the threshold. A rigorous outlier check should "
+        "honestly report that nothing clears the threshold, not force this game forward "
+        f"as a clear outlier just because it's the single highest {noun}."
     )
     return check, reference_facts
 

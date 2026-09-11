@@ -77,7 +77,7 @@ def test_a_real_statistical_outlier_is_expected_to_be_named(games_db):
     _insert_games(games_db, ccu_values)
 
     q = _ccu_outlier_question(games_db)
-    assert "SHOULD flag it by name" in q.reference_facts
+    assert "SHOULD name all of them" in q.reference_facts
     assert "Synthetic Game 2000" in q.reference_facts
 
     flagging_it_result = _fake_result(answer="Yes, Synthetic Game 2000 is a clear outlier.")

@@ -2928,6 +2928,73 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       `run_evals.yml` run only for the (much narrower) defensive-backstop
       path, which does still depend on the model's commentary text
 
+## Slice 59 follow-up — Live confirmation, and a real gap that confirmation itself surfaced
+- [x] The first live `run_evals.yml` run after Slice 59 came back 18/18
+      route + deterministic, avg judge 4.7/5 (up from 4.1/5) -- and the
+      two "2/5 judge" rows (`analysis_ccu_outliers`,
+      `analysis_discount_outliers`) turned out NOT to be the old
+      hallucination returning: the answer text was the deterministic fact
+      block verbatim, listing REAL, tool-confirmed second/third outliers
+      (e.g. PUBG at z=2.66, genuinely clearing the threshold same-day as
+      CS:GO). The bug was in the golden question's own reference facts
+      (`_outlier_check_and_reference`), which only ever described the
+      single highest value -- real data can have more than one genuine
+      outlier on a given day, and describing only one made the judge
+      incorrectly flag the agent's other, equally correct names as
+      "unsupported"
+- [x] Rewrote `_outlier_check_and_reference` to compute the *complete*
+      real outliers list (every row clearing the threshold, matching
+      `stats_tool.py`'s own `_outliers()` exactly), not just the top-1
+      value. Deliberately one-sided (real z-score, not `abs()`) since
+      every golden question using this helper asks about "unusually
+      HIGH/large" values specifically -- checking both directions
+      surfaced a genuine but off-topic low-side outlier in testing (a
+      real free-to-play game's $0.00 price next to a tightly clustered
+      synthetic sample)
+- [x] Sanity-checking the rewrite against the real local catalog surfaced
+      a second, more interesting real bug: `analysis_discount_outliers`
+      exploded to **79 "outliers"** (discount_pct clusters at
+      conventional sale tiers -- 25/50/75/90% -- rather than spreading
+      smoothly, breaking the z-score test's normality assumption).
+      Reframed per "what would an AI engineer do": rather than capping
+      the display list (a band-aid hiding a statistically meaningless
+      result) or swapping the golden question's column (working around
+      one instance without protecting real users), fixed the actual
+      statistical tool. `stats_tool.py`'s `_outliers()` now detects an
+      implausible outlier count and returns an honest
+      `not_normal_enough`/`note` result instead -- the same
+      honesty-over-a-technically-computed-but-misleading-number
+      principle as `forecast_tool.py`'s `insufficient_history`. Protects
+      *any* column a real user might ask about live, not just the 3
+      tested here
+- [x] `MAX_PLAUSIBLE_OUTLIER_COUNT = 15` -- deliberately an absolute
+      count, not a fraction (first tried at 10% of the dataset, which
+      didn't actually catch discount_pct's real 79/1000 = 7.9%, and
+      separately would have broken small test fixtures where a single
+      genuine outlier is already a large fraction of a tiny sample). An
+      absolute count holds steady across both a 25-row test fixture and
+      a 1000-row real catalog
+- [x] `_render_outliers_fact_block()` (`graph.py`) gained a third branch
+      alongside "real outlier(s)" and "honestly none": render the tool's
+      own `note` verbatim when `not_normal_enough` is set, not the
+      generic "no outliers" message (which would misleadingly imply the
+      test ran cleanly and simply found nothing)
+- [x] `ANALYSIS_TOOL_GUIDANCE` gained a short addition explaining the new
+      signal, so the model doesn't get confused seeing `not_normal_enough`
+      in the tool's raw JSON output before the code-level splice happens
+- [x] Added 4 new tests: `stats_tool.py`'s honesty degradation (a clean
+      bimodal 180/20 split, 20 outliers, past the cutoff with margin) and
+      its inverse (4 outliers, well under -- must NOT degrade); the fact
+      block's new branch; a golden-question-level test mirroring the real
+      discount_pct shape with price_usd (column-agnostic helper, same
+      code path)
+- [x] Verified for real: `ruff`/`mypy` clean, 215/215 tests pass (209 + 6
+      new across this follow-up), sanity-checked against the real local
+      catalog -- `analysis_discount_outliers` now correctly degrades
+      (79 of 1000, honest note) while `analysis_ccu_outliers`/
+      `analysis_price_outliers` (5 outliers each) still list their real
+      outliers normally, comfortably under the new cutoff
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~ — decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

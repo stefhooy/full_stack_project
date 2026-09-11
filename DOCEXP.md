@@ -8416,3 +8416,143 @@ worth reading closely, not just accepting silently.
   was a reference-facts completeness issue (Slice 58/59's own p25/p75
   fix), not a naming hallucination. Worth revisiting only if either mode
   shows this same failure pattern for real.
+
+---
+
+## Slice 59 follow-up — What live confirmation actually found, and "what would an AI engineer do" a second time
+
+**Date:** 2026-09-11
+
+### The first live run: 18/18, and two judge scores that looked like the old bug but weren't
+
+The first genuinely fresh `run_evals.yml` run after Slice 59 came back
+clean on the metrics that matter -- 18/18 route accuracy, 18/18
+deterministic checks, avg judge 4.7/5, up from 4.1/5. But two rows still
+scored 2/5: `analysis_ccu_outliers` and `analysis_discount_outliers`,
+both flagged for "adding" extra names the judge said weren't in the
+reference facts.
+
+Reading the actual answer text mattered here. It wasn't free-form model
+prose anymore -- it was the deterministic fact block, verbatim:
+`"Statistical outliers (z-score threshold 2.5): Counter-Strike: Global
+Offensive (z=9.23); PUBG: BATTLEGROUNDS (z=2.66)."` PUBG's z-score is
+real. It genuinely cleared 2.5 that day. The model had no hand in
+writing that sentence at all -- Slice 59 made that structurally
+impossible, and it held. The judge wasn't catching a hallucination; it
+was catching an *incomplete reference fact*, because
+`_outlier_check_and_reference()` (the golden question's own ground-truth
+computation) only ever checked whether the single highest value was a
+real outlier, never "how many genuinely are." Real data can have more
+than one on any given day -- discount sales cluster, popular games
+cluster -- and a reference describing only the first one made the
+agent's second, equally real name look unsupported.
+
+Fixed by rewriting the helper to compute the complete real outliers set
+(every row clearing the threshold), matching `stats_tool.py`'s own
+`_outliers()` exactly rather than a single `ORDER BY ... LIMIT 1`. Kept
+deliberately one-sided (a positive z-score, not `abs()`): every golden
+question built on this helper asks about "unusually HIGH/large" values
+specifically, and checking both directions in testing surfaced a real
+but off-topic low-side outlier -- the fixture's own genuinely
+free-to-play game's $0.00 price, next to a tightly clustered synthetic
+price sample, which has nothing to do with what these questions ask.
+
+### Sanity-checking the rewrite against the real catalog found something bigger
+
+Running the rewritten helper against the full local ~1000-game catalog
+(not just small test fixtures) to eyeball the output before shipping it
+turned up `analysis_discount_outliers` returning **79 "outliers."**
+Not a bug in the rewrite -- a real property of `discount_pct`'s actual
+distribution. Steam discounts cluster at conventional sale tiers (25%,
+50%, 75%, 90%) rather than spreading smoothly across a range, which
+breaks the one assumption a z-score test depends on: that the data is
+close enough to normally distributed for "more than 2.5 standard
+deviations out" to mean anything. `price_usd` and `peak_ccu` settle
+around 5 real outliers each on the same catalog; `discount_pct` gives
+79 -- not because 79 games are each individually remarkable, but
+because the whole test is the wrong lens for this shape of data.
+
+### "What would an AI engineer do" -- again
+
+The first instinct was to patch around it: cap the fact block's display
+at some reasonable number of names, or just swap the golden question to
+a better-behaved column. Asked directly whether there was a better
+answer, and there was, for the same reason Slice 59's own reframe held:
+**fix the tool's own validity check, not one symptom of not having
+one.** Capping the display list would have hidden that the underlying
+statistical test had failed, not fixed it -- and it would have done
+nothing for a real user asking about a different column that happens to
+have the same clustering problem on some future day. Swapping the
+golden question's column would have worked around this one instance
+without protecting anyone asking about `discount_pct` for real.
+
+The actual fix: `stats_tool.py`'s `_outliers()` now checks whether an
+implausible fraction of the dataset cleared the threshold and, if so,
+returns an honest `not_normal_enough` result with a real explanation
+instead of the raw list -- the exact same "a number that answers the
+literal formula isn't the same as a number that answers the question
+honestly" principle `forecast_tool.py`'s `insufficient_history` already
+established. This lives in the tool itself, so it protects *any*
+column a real user might ask about, live, not just the three this
+project's golden questions happen to test.
+
+### Getting the threshold right took a second pass
+
+The first version used a **fraction** of the dataset (10%) as the
+cutoff. Two things wrong with that, both found by actually testing it
+rather than assuming it would work:
+
+1. Discount_pct's real 79-out-of-1000 is 7.9% -- *under* a 10% cutoff.
+   The threshold was too lenient for the exact case it was built to
+   catch.
+2. A fraction doesn't hold across wildly different sample sizes. This
+   project's own small test fixtures (20-25 rows) have a single genuine
+   outlier sitting at ~4% of the sample just because the sample is
+   small -- nowhere near actually implausible, but already above a
+   naive 3-5% cutoff tight enough to actually catch discount_pct.
+
+Switched to an **absolute count** (`MAX_PLAUSIBLE_OUTLIER_COUNT = 15`)
+instead: more than 15 individually-named "outliers" is impractical to
+present as a useful answer regardless of how large the dataset is, and
+for a genuinely normal distribution, seeing this many this far out is
+itself already several times the expected rate. This held steady
+against both the 25-row test fixtures (comfortably under 15) and the
+1000-row real catalog (79, comfortably over) -- the property a fraction
+couldn't deliver.
+
+The golden-question helper mirrors this exact same constant and
+two-sided computation, imported from `stats_tool.py` rather than a
+second hardcoded copy -- so the golden question's own expectation of
+"will the live tool degrade honestly here" stays in lockstep with what
+the live tool actually does, not a parallel guess at it.
+
+### Verified for real
+
+Added 6 new tests across this follow-up: `stats_tool.py`'s honesty
+degradation (a clean two-cluster split producing exactly 20 outliers,
+comfortably past the cutoff) and its inverse (4 outliers, comfortably
+under -- confirming this isn't "flag anything above zero"); the fact
+block's new third rendering branch; a golden-question-level test
+reproducing the real discount_pct shape with `price_usd` (the helper is
+column-agnostic, so this exercises the identical code path). `ruff
+check .` and `uv run mypy src` clean, 215/215 tests pass. Sanity-checked
+against the real local catalog again after the threshold fix:
+`analysis_discount_outliers` now correctly degrades (79 of 1000, honest
+note) while `analysis_ccu_outliers`/`analysis_price_outliers` (5
+outliers each) still list their real outliers normally.
+
+### Open questions (new)
+
+- Whether `MAX_PLAUSIBLE_OUTLIER_COUNT=15` is the right number long-term,
+  or just the right number for catalogs in the ~200-1000 game range this
+  project actually runs against. A much larger future catalog could
+  legitimately have more than 15 real, rare outliers without the
+  underlying distribution being any less normal -- an absolute count
+  doesn't scale with n perfectly either, it just happens to fit this
+  project's real scale better than the fraction did. Worth revisiting
+  only if the catalog size changes by an order of magnitude.
+- Not yet live-verified: whether the real `run_evals.yml` run against
+  `analysis_discount_outliers` actually exercises the new
+  `not_normal_enough` path end-to-end (does the live agent's own
+  `run_stats` call reach the same conclusion the golden question's
+  reference facts now expect) -- needs one more live run to confirm.
