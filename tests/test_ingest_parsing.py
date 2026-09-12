@@ -2,7 +2,7 @@
 Slice 11 Steam-storefront enrichment (release date, Metacritic, platforms,
 categories). The fixture data below is the real shape captured from a live
 `store.steampowered.com/api/appdetails?appids=620` (Portal 2) response
-during development, not invented — including the real duplicate-category
+during development, not invented, including the real duplicate-category
 ids Steam's own data actually has (two different ids both labeled "Steam
 Workshop").
 """

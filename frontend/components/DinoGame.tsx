@@ -314,7 +314,7 @@ export default function DinoGame() {
   return (
     <div className="mt-3 select-none">
       <div className="mb-1.5 flex items-center justify-between font-mono text-[10px] text-[var(--muted)]">
-        <span>{phase === "idle" ? "space / tap to start" : phase === "over" ? "game over — tap to retry" : "space / tap to jump"}</span>
+        <span>{phase === "idle" ? "space / tap to start" : phase === "over" ? "game over, tap to retry" : "space / tap to jump"}</span>
         <span>
           score {score} · best {highScore}
         </span>

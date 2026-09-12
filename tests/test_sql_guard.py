@@ -1,7 +1,7 @@
-"""Tests for src/db/connection.py — the one safety boundary in the whole
+"""Tests for src/db/connection.py, the one safety boundary in the whole
 system (see that module's own docstring). This has been exercised by hand
 repeatedly throughout the project's history (a real DROP TABLE sent through
-both the agent and the MCP server, confirmed rejected identically — see
+both the agent and the MCP server, confirmed rejected identically, see
 DOCEXP.md's Slice 8 entry) but never had a checked-in regression suite
 until now. These tests capture that manual verification as something that
 runs on every change, not just something someone remembered to try once.
@@ -69,7 +69,7 @@ def test_rejects_a_disallowed_table():
 
 def test_rejects_union_across_two_selects():
     # Not a security hole (both sides are still plain SELECTs against
-    # allowlisted tables) but explicitly unsupported — see
+    # allowlisted tables) but explicitly unsupported, see
     # src/agent/prompts.py's "no_union" rule; conditional aggregation is
     # the sanctioned way to compare two groups in one query instead.
     with pytest.raises(UnsafeQueryError):
@@ -96,7 +96,7 @@ def test_leaves_a_limit_under_the_cap_alone():
 
 def test_a_real_drop_table_is_rejected_end_to_end(games_db):
     """The exact scenario DOCEXP.md's Slice 8 entry verified by hand against
-    a live MCP session — same guard, same guarantee, now a real regression
+    a live MCP session, same guard, same guarantee, now a real regression
     test instead of a one-time manual check."""
     import duckdb
 

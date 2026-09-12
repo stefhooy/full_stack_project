@@ -1,10 +1,10 @@
-"""Backs the frontend's full catalog page (/catalog) — search, genre
+"""Backs the frontend's full catalog page (/catalog), search, genre
 filter, sort, and pagination over the whole ~1000-game catalog.
 
 Filters and sorts in Python rather than building dynamic SQL: the sort
 column comes from user input, and interpolating a column name into SQL
 (can't be a bound parameter) means either an allowlist or a real
-injection risk — the allowlist here is just a Python dict instead.
+injection risk, the allowlist here is just a Python dict instead.
 Genre filtering reuses genre_stats.py's same comma-split token-match
 approach (SteamSpy's `genre` field is free-text, comma-joined) for the
 same reason get_games_by_genre() does it that way: a raw ILIKE substring
@@ -42,7 +42,7 @@ _CATALOG_COLUMNS = [
 
 # Each key is a sort option the frontend can request, mapped to the row
 # field it reads. A game with no Metacritic score isn't "worst," it's just
-# unscored (see schema_corpus.py's same warning) — same for a missing
+# unscored (see schema_corpus.py's same warning), same for a missing
 # release date or price -- so NULLs are always sorted to the end,
 # regardless of ascending/descending. That can't be done with a single
 # floor value + `reverse=`: flooring NULLs to a low sentinel puts them

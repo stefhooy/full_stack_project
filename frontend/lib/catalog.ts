@@ -1,4 +1,4 @@
-// Backs app/catalog/page.tsx — the full-catalog browse page. Plain catalog
+// Backs app/catalog/page.tsx, the full-catalog browse page. Plain catalog
 // lookups (GET /catalog, src/db/catalog.py), no LLM round trip, same as
 // lib/genres.ts's fetchGamesByGenre.
 import { API_BASE_URL, fetchWithRetry } from "@/lib/api";

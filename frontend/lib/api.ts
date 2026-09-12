@@ -3,7 +3,7 @@
 // Not using the browser's EventSource for this: EventSource only supports
 // GET requests, and the question has to go in a POST body (arbitrary
 // length, JSON). So this parses the SSE wire format by hand from a plain
-// fetch() ReadableStream — the format is simple (`data: <json>\n\n` per
+// fetch() ReadableStream, the format is simple (`data: <json>\n\n` per
 // event) and doing it directly avoids pulling in an SSE client library for
 // something this small.
 

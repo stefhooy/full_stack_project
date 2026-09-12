@@ -5,10 +5,10 @@ import { motion } from "motion/react";
 // Turns the streamed progress events into the same node-by-node "trace"
 // visual used in ARCHITECTURE.md's agent diagram/artifact, instead of a
 // flat scrolling text log. STEPS is the graph's happy-path node order (see
-// src/agent/graph.py's build_graph()) — lookup, analysis, AND forecast all
+// src/agent/graph.py's build_graph()), lookup, analysis, AND forecast all
 // flow through this exact same path now (forecast used to be its own
 // terminal node; see graph.py's module docstring for why that changed).
-// execute_tools can repeat (the self-correction retry loop) — a repeat
+// execute_tools can repeat (the self-correction retry loop), a repeat
 // visit just re-pulses that same dot rather than adding a new one, same as
 // the interactive artifact does. ask_clarification is the one remaining
 // alternate terminal (too-ambiguous questions never enter this pipeline).

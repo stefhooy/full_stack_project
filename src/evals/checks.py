@@ -3,7 +3,7 @@
 Each builder returns a function AgentResult -> CheckResult. Kept separate
 from golden_questions.py so the check *logic* (how do we decide pass/fail)
 is easy to scan independently of the *content* (which questions, which
-reference facts) — the same separation of concerns as prompts.py vs.
+reference facts), the same separation of concerns as prompts.py vs.
 schema_corpus.py elsewhere in this codebase.
 """
 
@@ -32,7 +32,7 @@ def _numbers_in(text: str) -> list[float]:
 def contains_number(expected: float, tolerance: float = 0.05, rel: bool = True) -> Check:
     """Pass if any number-looking substring in the answer is within
     `tolerance` of `expected`. `rel=True` treats tolerance as a fraction of
-    `expected` (5% by default); `rel=False` treats it as an absolute gap —
+    `expected` (5% by default); `rel=False` treats it as an absolute gap -
     use absolute for small/zero expected values where a relative tolerance
     would be meaninglessly tight."""
 
@@ -87,7 +87,7 @@ def forecast_has_real_projection() -> Check:
     """For a forecast question where enough real history exists: the tool
     must have actually run and produced a real (not insufficient-history)
     projection, not the model answering from schema-level guesswork alone
-    (a real, previously-observed failure mode — see DOCEXP.md's Slice 32
+    (a real, previously-observed failure mode, see DOCEXP.md's Slice 32
     entry)."""
 
     def check(result: AgentResult) -> CheckResult:
@@ -138,7 +138,7 @@ def stats_result_has_mode(expected_mode: str) -> Check:
 
 def no_data_fabricated() -> Check:
     """For forecast/clarification questions: the agent must not have run a
-    query or produced a stats result — there's nothing it should be
+    query or produced a stats result, there's nothing it should be
     computing on those paths."""
 
     def check(result: AgentResult) -> CheckResult:

@@ -1,7 +1,7 @@
 """The golden question set.
 
-Reference facts are computed *live* from the DB via independent queries —
-not hardcoded numbers — so this eval set stays correct if ingestion is
+Reference facts are computed *live* from the DB via independent queries -
+not hardcoded numbers, so this eval set stays correct if ingestion is
 re-run with different games or updated prices/reviews. `build_golden_questions()`
 is a function, not a module-level constant, specifically so it queries the
 DB at eval time rather than at import time (importing this module shouldn't
@@ -11,7 +11,7 @@ Q3 exists specifically to catch the group-mislabeling bug found in Slice 4
 (DOCEXP.md): the model previously labeled a SQL group 'free_to_play'
 without actually filtering to price_usd = 0. Free-to-play games are free
 *by definition* (price_usd = 0), so a correctly-labeled free-to-play group
-must have a mean price of ~$0 — any other value proves the label doesn't
+must have a mean price of ~$0, any other value proves the label doesn't
 match the filter, regardless of whether the reported p-value looks
 plausible. This is a regression test for a real, previously-observed bug,
 not a hypothetical one.
@@ -480,7 +480,7 @@ def build_golden_questions() -> list[GoldenQuestion]:
             check=all_of(route_is("needs_clarification"), no_data_fabricated()),
             reference_facts=(
                 "The question doesn't name a game, so the correct response is a clarifying "
-                "question asking which game — not a guess."
+                "question asking which game, not a guess."
             ),
         ),
         # Slice 43: grown from 5 to 15 questions (a 5-question set was sound

@@ -1,4 +1,4 @@
-# DOCEXP — Engineering Log
+# DOCEXP, Engineering Log
 
 A running lab notebook: decisions and why, what broke, what surprised me,
 open questions. Written as I go, not after the fact. For the current
@@ -6,7 +6,7 @@ system's shape without the history, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## Slice 1 — Repo, ingestion, guarded DB, minimal self-correcting SQL agent
+## Slice 1, Repo, ingestion, guarded DB, minimal self-correcting SQL agent
 
 **Date:** 2026-08-22
 
@@ -19,7 +19,7 @@ src/
   db/                 # schema + the read-only guarded connection (the safety boundary)
   agent/               # LangGraph graph, prompts, provider seam
   tools/               # run_sql today; stats/forecast/viz tools land in Slice 4
-  api/                 # FastAPI — thin, translates HTTP <-> agent
+  api/                 # FastAPI, thin, translates HTTP <-> agent
 data/
   raw/                 # cached SteamSpy responses (gitignored)
   db/                  # the DuckDB file (gitignored)
@@ -29,7 +29,7 @@ Why split this way instead of one file: each top-level package maps to one
 layer of the final architecture (ingestion, storage, reasoning, tools,
 transport), so slices 2-8 mostly mean *adding* files to these packages
 rather than restructuring. `api/` importing from `agent/` but not vice versa
-is deliberate — the agent has to run standalone (scriptable, testable,
+is deliberate, the agent has to run standalone (scriptable, testable,
 traceable) without ever knowing FastAPI exists. That's also what keeps the
 deployment-target decision (see Open Questions) from leaking into the
 agent code.
@@ -39,7 +39,7 @@ agent code.
 This is the one part of the system I did not want to get subtly wrong, so
 I spent the most care here. Two independent layers:
 
-1. DuckDB connection opened with `read_only=True` — the engine itself
+1. DuckDB connection opened with `read_only=True`, the engine itself
    refuses writes, regardless of what Python code does.
 2. `src/db/connection.py::validate_select_only()` parses every query with
    **sqlglot** (a real SQL parser) before it reaches DuckDB at all, and
@@ -47,18 +47,18 @@ I spent the most care here. Two independent layers:
    only the `games` table.
 
 Layer 2 exists even though layer 1 already blocks writes, because
-`read_only=True` doesn't stop everything that could be a problem — `ATTACH`,
+`read_only=True` doesn't stop everything that could be a problem, `ATTACH`,
 `COPY ... TO`, or stacked statements (`SELECT ...; DROP TABLE ...;`) aren't
 writes to *our* table but aren't things an LLM-generated query should ever
 be allowed to try either. I initially considered regex/keyword blacklisting
 (reject if the string contains "DROP", "INSERT", etc.) and deliberately
-rejected that approach — it's trivially defeated by comments, string
+rejected that approach, it's trivially defeated by comments, string
 literals, or case tricks, and it can't tell a legitimate `WITH deleted AS
 (...)` CTE from an actual `DELETE`. A real parser can.
 
 Tested the guard directly against a battery of attacks before ever wiring
 it to an LLM (`DROP TABLE`, stacked `SELECT; DROP`, `INSERT`, cross-table
-`UNION`, `ATTACH 'evil.db'`, unknown table names) — all correctly rejected;
+`UNION`, `ATTACH 'evil.db'`, unknown table names), all correctly rejected;
 legitimate `SELECT` and CTE queries correctly passed and got their `LIMIT`
 clause capped. Row capping is done by editing the parsed AST (add or shrink
 a `LIMIT` node) rather than string-concatenating `" LIMIT N"` onto
@@ -66,7 +66,7 @@ arbitrary SQL, which would break on queries that already end in a comment
 or a trailing semicolon.
 
 **Surprising finding:** the parser-based approach means any query that
-isn't literally an `exp.Select` node gets rejected — including legitimate
+isn't literally an `exp.Select` node gets rejected, including legitimate
 `UNION` queries, since sqlglot parses those as `exp.Union`, not
 `exp.Select`. Not a problem for Slice 1 (single-table catalog, no reason
 to union), but worth knowing: if a future slice needs UNION (e.g. comparing
@@ -103,21 +103,21 @@ signature or any call site outside of where the retrieval step gets added.
 
 `src/agent/llm_provider.py::get_llm()` is the only place allowed to branch
 on `MODEL_PROVIDER`. Everything else calls `get_llm()` and gets back a
-LangChain `BaseChatModel` — the graph code has no idea whether it's Groq,
+LangChain `BaseChatModel`, the graph code has no idea whether it's Groq,
 Ollama, or (later) Gemini. The Gemini branch currently raises
 `NotImplementedError` on purpose: didn't want to add the
 `langchain-google-genai` dependency before a slice actually needs it, but
 the seam (the `if provider == "gemini":` branch) is there so adding it
 later is additive, not a refactor.
 
-### SteamSpy API — what I learned poking at it directly
+### SteamSpy API, what I learned poking at it directly
 
 Two endpoints matter for this slice:
 - `request=all&page=0`: bulk listing, ~1000 games per page, already sorted
-  by owners descending. Cheap — no rate limit concern, one request gets us
+  by owners descending. Cheap, no rate limit concern, one request gets us
   the whole candidate pool.
 - `request=appdetails&appid=X`: per-game detail. This is the *only* place
-  `genre`, `languages`, and `tags` show up — the bulk `all` endpoint does
+  `genre`, `languages`, and `tags` show up, the bulk `all` endpoint does
   not include them. SteamSpy's own guidance asks for ~1 request/second on
   this endpoint, which is why ingesting 200 games takes ~3-4 minutes.
 
@@ -133,12 +133,12 @@ times, second run finished near-instantly.
 
 First ingestion run failed immediately with
 `SSLCertVerificationError: unable to get local issuer certificate` on a
-plain `requests.get()` to steamspy.com — before any of our code, just the
+plain `requests.get()` to steamspy.com, before any of our code, just the
 TLS handshake. Root cause: this machine's Avast antivirus does HTTPS
 web-shield interception, re-signing traffic with its own locally-installed
 root CA. Windows trusts that CA (Avast installed it into the system store);
 Python's `requests`/`urllib3` don't use the Windows trust store by
-default — they validate against `certifi`'s bundled CA list, which
+default, they validate against `certifi`'s bundled CA list, which
 obviously doesn't include a locally-generated antivirus root cert. curl
 (used to explore the API earlier) worked fine because it uses the OS trust
 store directly on Windows, which is what pointed at the real cause.
@@ -148,18 +148,18 @@ package and called `truststore.inject_into_ssl()` once at import time in
 `steamspy_client.py`. This makes the stdlib `ssl` module validate against
 the OS trust store instead of `certifi`, which is correct on any machine
 (not just this one) and doesn't disable verification (`verify=False` was
-the tempting shortcut and deliberately not what I did — that would silently
+the tempting shortcut and deliberately not what I did, that would silently
 accept a real MITM too, not just Avast's).
 
 ### What worked without any fuss
 
-- DuckDB's `ON CONFLICT ... DO UPDATE` — worked first try, no schema
+- DuckDB's `ON CONFLICT ... DO UPDATE`, worked first try, no schema
   migration ceremony needed for an idempotent upsert.
-- `pydantic-settings` reading `.env` — one `Settings` object, and
+- `pydantic-settings` reading `.env`, one `Settings` object, and
   `load_dotenv()` at the top of `config.py` also populates `os.environ`
   directly, which turned out to matter for LangSmith: its tracer reads
   `LANGSMITH_*` straight from `os.environ`, not from anything our code
-  passes it, so tracing "just works" once the `.env` values are set — no
+  passes it, so tracing "just works" once the `.env` values are set, no
   extra wiring needed beyond making sure they land in the process
   environment before any LangChain code runs.
 
@@ -170,11 +170,11 @@ a read-only connection to the same file failed immediately:
 `IO Error: Cannot open file ... The process cannot access the file because
 it is being used by another process.` DuckDB allows multiple concurrent
 *read-only* connections to a file, but a read-write connection takes an
-exclusive OS-level lock — no reader can open the file at all until the
+exclusive OS-level lock, no reader can open the file at all until the
 writer closes it. Not a bug, just a constraint to design around: the API
 can't serve `/ask` while ingestion is running against the same file. Fine
 for a local dev loop (ingestion finishes in a few minutes, then serve), but
-worth remembering once ingestion is scheduled (Slice 7) — it'll need to
+worth remembering once ingestion is scheduled (Slice 7), it'll need to
 write to a fresh file and swap/rename rather than hold a long-lived write
 connection open on the file the live API is reading from.
 
@@ -185,15 +185,15 @@ connection open on the file the live API is reading from.
   Python functions or a Vercel frontend + a separate free Python host
   (Render/Fly/Railway free tier). Revisit at Slice 6. Keeping `src/agent`
   and `src/db` free of any FastAPI import is what keeps both paths open.
-- **UNION queries** — noted above; `validate_select_only` will need an
+- **UNION queries**, noted above; `validate_select_only` will need an
   explicit `exp.Union` allowance if a later slice needs to compare two
   result sets in one query, rather than assuming "anything that isn't
   `exp.Select` is unsafe."
-- **Row cap vs. time cap** — Slice 1 only enforces a row cap. A query that
+- **Row cap vs. time cap**, Slice 1 only enforces a row cap. A query that
   scans a lot but returns few rows (unlikely on a ~200-row table, but will
   matter once `player_counts` time-series data shows up in Slice 7) has no
   cost guard yet.
-- **Ingestion candidate pool** — top-N by owners (page 0 of `all`, already
+- **Ingestion candidate pool**, top-N by owners (page 0 of `all`, already
   sorted) rather than a random or genre-diverse sample. Good enough for a
   first working slice; may want a more representative sample later so the
   agent isn't only ever talking about the same handful of mega-hits.
@@ -205,7 +205,7 @@ started the FastAPI server, and hit `POST /ask` over HTTP (not just calling
 `run_agent()` in-process) with all three README example questions.
 
 Tested against **Ollama (llama3.1:8b, local)** rather than Groq, since I
-don't have a Groq key in this environment — this doubled as a real test of
+don't have a Groq key in this environment, this doubled as a real test of
 the provider seam (`MODEL_PROVIDER=ollama` in `.env`, zero code changes)
 before ever running it against Groq.
 
@@ -217,7 +217,7 @@ before ever running it against Groq.
 - *"Average price of Action games vs. free-to-play games"* → **failed
   outright on the first attempt.** The model wrote a `UNION` query to
   combine the two averages, which the guard rejects (see the UNION note
-  above) — it burned all 3 retries retrying variants of the same rejected
+  above), it burned all 3 retries retrying variants of the same rejected
   pattern and gave up, correctly responding "I was unable to complete the
   query" rather than fabricating numbers. That's the safety system doing
   exactly its job (fail honestly, don't hallucinate), but it meant a README
@@ -226,13 +226,13 @@ before ever running it against Groq.
   (`AVG(CASE WHEN ... THEN price_usd END)`) instead of `UNION` for
   comparing two groups. Retested: worked first try after the prompt change.
 
-  Worth flagging honestly: the corrected query is *subtly wrong* — the
+  Worth flagging honestly: the corrected query is *subtly wrong*, the
   `CASE WHEN price_usd = 0` free-to-play average ends up computed inside
   the outer `WHERE genre LIKE '%Action%'` filter, so it actually answers
   "average price of free *Action* games," not "average price of free-to-play
   games overall" (it happened to still print $0.00, which is correct by
-  coincidence — any qualifying row has price 0). This is a small local
-  model's reasoning limitation, not a guardrail/architecture gap — the SQL
+  coincidence, any qualifying row has price 0). This is a small local
+  model's reasoning limitation, not a guardrail/architecture gap, the SQL
   is syntactically valid and the guard has no way to (and shouldn't try to)
   catch semantic mistakes like this. It's exactly the kind of thing the
   Slice 5 eval harness needs to catch systematically, and a reason to
@@ -246,7 +246,7 @@ boundary.
 
 ---
 
-## Slice 2 — RAG over the schema
+## Slice 2, RAG over the schema
 
 **Date:** 2026-08-24
 
@@ -255,35 +255,35 @@ boundary.
 Slice 1's `GAMES_TABLE_DESCRIPTION` was one hardcoded string, always
 injected into the system prompt whole. Slice 2 replaces it with:
 
-- `src/agent/rag/schema_corpus.py` — the same facts, broken into small
+- `src/agent/rag/schema_corpus.py`, the same facts, broken into small
   independent `SchemaChunk`s: one per table (a one-line orientation), one
   per column, and a handful of "metric notes" for gotchas that aren't tied
   to a single column (unit conversions, the owners-midpoint convention, the
   no-UNION rule).
-- `src/agent/rag/embeddings.py` — an embedding-provider seam, structurally
+- `src/agent/rag/embeddings.py`, an embedding-provider seam, structurally
   identical to `llm_provider.py`'s `get_llm()`: one config value
   (`EMBEDDING_PROVIDER`), everything else just calls `get_embedder()`.
-- `src/agent/rag/schema_index.py` — a brute-force in-memory cosine-similarity
+- `src/agent/rag/schema_index.py`, a brute-force in-memory cosine-similarity
   index over the ~24 chunks, plus `assemble_schema_text()` to turn a
   retrieved chunk list back into prompt text.
 - A new graph node, `retrieve_schema`, now the entry point:
   `retrieve_schema -> agent -> execute_tools -> agent -> ... -> END`. It
   embeds the question, retrieves the top-K chunks, and builds the system
-  prompt from only those — same "make it a visible node" principle as
+  prompt from only those, same "make it a visible node" principle as
   Slice 1's self-correction loop, so it's traced and explainable, not
   implicit setup.
-- `/ask` now also returns `retrieved_schema_chunks` — which chunk IDs the
+- `/ask` now also returns `retrieved_schema_chunks`, which chunk IDs the
   retrieval step actually picked for that question. Cheap to add, and it
   turns "trust me, RAG is working" into something you can see per request.
 
 ### Embedding provider: why fastembed, not sentence-transformers or a hosted API
 
 Groq has no embeddings endpoint, so "reuse whatever `MODEL_PROVIDER` is
-configured" was never on the table — this needed its own decision.
+configured" was never on the table, this needed its own decision.
 Considered three options:
 
 - **sentence-transformers** (torch-based): the most common choice, but
-  pulls in torch as a dependency — heavy (hundreds of MB), and a poor fit
+  pulls in torch as a dependency, heavy (hundreds of MB), and a poor fit
   for a project that's explicitly trying to stay deployable on free-tier
   serverless hosting (Slice 6's open question).
 - **A hosted embeddings API** (OpenAI/Cohere/etc.): adds yet another API
@@ -297,7 +297,7 @@ Considered three options:
   model, but fastembed is the default specifically because it has no
   runtime dependency on a separate daemon being up.
 
-### Same TLS issue, different library — and a cleanup
+### Same TLS issue, different library, and a cleanup
 
 fastembed's first run failed with the identical
 `SSLCertVerificationError` from Slice 1 (Avast TLS interception), this
@@ -308,7 +308,7 @@ out of `steamspy_client.py` and into `src/config.py` (imported by nearly
 everything) so it applies once, process-wide, instead of being duplicated
 per-module that happens to make HTTP calls.
 
-### Retrieval-quality testing found two real gaps — and they taught something
+### Retrieval-quality testing found two real gaps, and they taught something
 
 Tested retrieval directly (not just "does the agent still answer
 correctly") by embedding sample questions and inspecting which chunks
@@ -323,7 +323,7 @@ misses, both the same underlying cause:
 
 Root cause: a small bi-encoder embedding model measures semantic
 similarity between the *question text* and the *chunk text*. A specific
-value — a game's actual name, a specific genre string — doesn't embed
+value, a game's actual name, a specific genre string, doesn't embed
 close to a generic column description ("Game title", "comma-separated
 genres"). The words that would make the match ("Palworld" is a name; "RPG"
 is a genre) aren't in the chunk at all. This is a known-in-the-literature
@@ -332,10 +332,10 @@ was glad to catch it empirically with a print statement before assuming
 retrieval was "done" just because the agent's answers looked fine.
 
 Fix: added an `always_include` flag to `SchemaChunk`, set on `table:games`,
-`column:name`, and `column:genre` — chunks that bypass ranking and are
+`column:name`, and `column:genre`, chunks that bypass ranking and are
 always present regardless of similarity score. This is deliberately
 *not* "always include everything" (that would defeat the point of doing
-RAG at all) — it's reserved for chunks that are structurally relevant to
+RAG at all), it's reserved for chunks that are structurally relevant to
 nearly any question (every answer is about specific game(s); genre is one
 of the most commonly filtered dimensions here), decided from two
 independent failing test questions per column, not from tuning to make
@@ -343,7 +343,7 @@ one example pass.
 
 **What this proved, interestingly:** *before* the `column:name` /
 `column:genre` fix, the agent still answered the RPG playtime question
-correctly — Llama 3.1 8B guessed a column named `genre` existed from
+correctly, Llama 3.1 8B guessed a column named `genre` existed from
 general knowledge of how game databases are usually modeled, wrote a
 working query, and it happened to be right. That's a fragile thing to rely
 on (a less conventional schema would have broken it), not evidence that
@@ -363,7 +363,7 @@ nonzero avg playtime 2weeks:  0 / 200 games
 ```
 
 Every single ingested game has `average_playtime_forever_min = 0`. Not an
-ingestion bug — this is a documented SteamSpy limitation: since a 2018
+ingestion bug, this is a documented SteamSpy limitation: since a 2018
 Steam privacy API change, SteamSpy has largely been unable to compute
 playtime statistics, and the field is 0 for the overwhelming majority of
 games in the modern API. Confirmed the raw cached `appdetails` JSON in
@@ -372,7 +372,7 @@ something introduced by `_row_from_appdetails()`.
 
 Fixed the right layer: this isn't a code bug to patch, it's a data
 limitation the agent should disclose. Added a `metric:playtime_often_zero`
-chunk to the RAG corpus describing exactly this, and re-tested — the
+chunk to the RAG corpus describing exactly this, and re-tested, the
 agent's answer changed from a bare, misleading "0 hours" to "0 hours, due
 to a known SteamSpy data limitation..." once that chunk was retrievable.
 This is a good demonstration of what RAG-over-metrics is actually *for*:
@@ -383,13 +383,13 @@ and a model wouldn't, unless told.
 
 Re-ran all three Slice 1 example questions as a regression check.
 Highest-rated and highest-CCU both still correct. The Action-vs-F2P price
-comparison — already flagged in Slice 1 as a small-model weak spot — was
+comparison, already flagged in Slice 1 as a small-model weak spot, was
 wrong *again*, but in a different way this run: it dropped the
 `CASE WHEN` filter entirely for the free-to-play side and computed
 `AVG(price_usd)` over *all* games, mislabeling the result as
 `avg_f2p_price`. Same query pattern, non-deterministic failure mode,
 consistent with Slice 1's note that this is Llama 3.1 8B's reasoning
-reliability, not a guard or retrieval problem — retrieval correctly
+reliability, not a guard or retrieval problem, retrieval correctly
 surfaced `genre`, `price_usd`, and the `metric:no_union` note for this
 question. Deliberately did not chase this with another prompt patch:
 that's exactly the kind of failure the Slice 5 eval harness exists to
@@ -409,12 +409,12 @@ whack-a-mole fixing one observed instance at a time.
 - **fastembed's model cache is process-local disk, not committed.** First
   run on a fresh machine (or deployment) pays a ~130MB download + ~10s
   init cost. Fine for local dev; worth remembering for Slice 6 (cold-start
-  latency on serverless would make this worse — another data point for the
+  latency on serverless would make this worse, another data point for the
   deployment-target decision).
 
 ---
 
-## Slice 3 — Supervisor-router
+## Slice 3, Supervisor-router
 
 **Date:** 2026-08-24
 
@@ -432,7 +432,7 @@ router -> [lookup/analysis]     -> retrieve_schema -> agent <-> execute_tools ->
 The router classifies the question into one of four categories using the
 LLM's structured-output feature (`with_structured_output(RouteDecision)`,
 a Pydantic model with a `Literal` field) rather than a free-text prompt
-parsed by hand — the result is always one of exactly four valid values,
+parsed by hand, the result is always one of exactly four valid values,
 no guarding against the model inventing a fifth category or wrapping its
 answer in prose needed.
 
@@ -442,22 +442,22 @@ The four categories are real and independently tested, but only two
 distinct *behaviors* exist behind them right now:
 
 - `lookup` and `analysis` both go to the existing `retrieve_schema ->
-  agent -> execute_tools` SQL pipeline — the same one, unchanged. That's
+  agent -> execute_tools` SQL pipeline, the same one, unchanged. That's
   because Slice 4's dedicated statistical-analysis tool (cohorts,
   significance, anomalies) doesn't exist yet; until it does, "analysis"
   and "lookup" are both, mechanically, "write a SELECT and answer." The
   classification is genuine and already correctly distinguishes a
-  ranking/filter question from a cross-group comparison — giving
+  ranking/filter question from a cross-group comparison, giving
   `analysis` its own handler in Slice 4 is a small additive change to
   `route_after_router`, not a redesign.
 - `forecast` and `needs_clarification` get genuinely new, distinct
   behavior: an honest "I can't do that yet" and a clarifying question,
-  respectively — neither existed at all before this slice. Before the
+  respectively, neither existed at all before this slice. Before the
   router, a forecast question would have gone straight into the SQL
   agent, which has no time-series data or forecasting logic and would
   have either produced a nonsense query or a confidently wrong answer
   from whatever it managed to compute. Same for an ambiguous question
-  like "Is this game good?" — previously the agent would have just
+  like "Is this game good?", previously the agent would have just
   guessed at a game and answered as if the question were unambiguous.
 
 Called this out explicitly rather than silently merging lookup/analysis
@@ -467,7 +467,7 @@ between), not a shortcut passed off as complete.
 
 ### Testing: classification in isolation, then the full graph, then live HTTP
 
-Same three-layer discipline as Slices 1 and 2 — didn't just check "does
+Same three-layer discipline as Slices 1 and 2, didn't just check "does
 the agent still answer questions."
 
 1. `classify_question()` directly against 4 hand-picked questions (one per
@@ -475,7 +475,7 @@ the agent still answer questions."
    good?"). All 4 classified correctly on the first try, and the
    clarifying question generated for the ambiguous one was sensible
    ("What is the name of the game you are referring to?").
-2. Full graph via `run_agent()` for the same 4 questions — confirmed
+2. Full graph via `run_agent()` for the same 4 questions, confirmed
    `route` is populated correctly, confirmed `sql`/`retrieved_chunk_ids`
    are `None` for the forecast and clarification branches (they never
    reach `retrieve_schema`, which is the intended "don't even attempt a
@@ -485,8 +485,8 @@ the agent still answer questions."
    `route: "needs_clarification"` and `retrieved_schema_chunks: null` come
    through the API correctly.
 
-Notably, the Action-vs-free-to-play comparison question — flagged in both
-Slice 1 and Slice 2 as an unreliable pattern for the local 8B model — came
+Notably, the Action-vs-free-to-play comparison question, flagged in both
+Slice 1 and Slice 2 as an unreliable pattern for the local 8B model, came
 back *correct* this run. Consistent with the standing conclusion: this is
 non-deterministic small-model reliability, not a bug in the guard,
 retrieval, or now the router. Still a Slice 5 (eval harness) problem, not
@@ -495,19 +495,19 @@ something to keep manually re-testing and hoping for the best on.
 ### A real interruption, and how it was handled
 
 Mid-testing, the local Ollama runtime crashed (`CUDA error: shared object
-initialization failed`) — a transient GPU/driver issue in the Ollama
+initialization failed`), a transient GPU/driver issue in the Ollama
 process itself, unrelated to any code in this repo. Killed both
 `ollama.exe` processes and let Ollama's own launcher restart them; the
 next request succeeded normally. Noting this mainly as a reminder for
 Slice 6: whichever deployment target gets picked, it won't be running a
-local GPU-backed Ollama daemon — this class of failure is specific to the
+local GPU-backed Ollama daemon, this class of failure is specific to the
 local-dev provider path and shouldn't recur against Groq's hosted API.
 
 ### Open questions (new)
 
 - **The router adds one extra LLM round-trip per question**, before any
   DB work happens. Cheap relative to the SQL agent's own calls, but worth
-  measuring once there's real latency data (Slice 5/6) — a small/fast
+  measuring once there's real latency data (Slice 5/6), a small/fast
   model dedicated to routing (vs. reusing whatever `MODEL_PROVIDER` is
   configured for the main agent) could be a worthwhile split later if
   routing latency turns out to matter.
@@ -519,7 +519,7 @@ local-dev provider path and shouldn't recur against Groq's hosted API.
 
 ---
 
-## Slice 4 — Specialized analysis tools (stats + viz; forecast deferred)
+## Slice 4, Specialized analysis tools (stats + viz; forecast deferred)
 
 **Date:** 2026-08-24
 
@@ -527,7 +527,7 @@ local-dev provider path and shouldn't recur against Groq's hosted API.
 
 The original plan bundles statistical analysis, forecasting, and
 visualization into one slice. Built two of three. Forecasting needs
-something to forecast *over* — time-series data — and none exists yet;
+something to forecast *over*, time-series data, and none exists yet;
 that's Slice 7's `player_counts` table. A "forecasting tool" today would
 have nothing real to operate on. Building one anyway (e.g. a fake linear
 extrapolation over a single current-snapshot number) would be decorative,
@@ -546,13 +546,13 @@ aggregates don't: a real hypothesis test with a p-value
 (`compare_two_groups`, Welch's t-test + Cohen's d via `scipy.stats`,
 chosen over the equal-variance Student's t-test as the safer default when
 group variances aren't known to be equal) and z-score outlier flagging
-(`outliers`) — DuckDB has no significance-testing primitive at all, and
+(`outliers`), DuckDB has no significance-testing primitive at all, and
 while it *could* compute z-scores via a window function, the
 interpretation/thresholding logic is cleaner in Python than SQL.
 `describe` rounds out the set for plain summary stats.
 
 Every mode runs its query through the same guarded, read-only connection
-as `run_sql` (`run_guarded_query`) — this tool is not a bypass of the
+as `run_sql` (`run_guarded_query`), this tool is not a bypass of the
 SELECT-only/allowlist guard, it's "SQL in, statistics out."
 
 ### Closing the loop from Slice 3: analysis finally gets a different toolset
@@ -562,7 +562,7 @@ both go to the same backend... giving `analysis` its own handler is a
 small additive change to `route_after_router`, not a redesign." That
 change landed here: `agent_node` now binds `[run_sql]` for `lookup` and
 `[run_sql, run_stats]` for `analysis` (`_tools_for_route()` in graph.py).
-The router isn't just a label anymore — it gates what the model is even
+The router isn't just a label anymore, it gates what the model is even
 capable of doing for a given question.
 
 ### Testing: tools in isolation against real data, then the full graph
@@ -576,7 +576,7 @@ LLM:
   -0.059). Sanity-checked by hand: means of $17.81 vs $18.94 are close, so
   a non-significant result is the right answer.
 - `outliers` (peak_ccu, z > 2.5): flagged Counter-Strike: Global Offensive
-  (z ≈ 13) and PUBG (z ≈ 3.9) — both obviously legitimate standouts, not
+  (z ≈ 13) and PUBG (z ≈ 3.9), both obviously legitimate standouts, not
   false positives.
 - `describe` (review_score): sane bounded output (mean ≈ 0.85, correctly
   within the 0..1 fraction range documented in the RAG corpus).
@@ -588,7 +588,7 @@ Slice 1.
 ### The comparison question, revisited: better tool, more visible failure
 
 With `run_stats` available, the model correctly reached for
-`compare_two_groups` *without being asked for significance explicitly* —
+`compare_two_groups` *without being asked for significance explicitly* -
 progress. The computed statistics were internally correct (t-test, p-value,
 Cohen's d all check out against the query it actually ran). But the
 query itself mislabeled a group:
@@ -599,28 +599,28 @@ SELECT CASE WHEN genre LIKE '%Action%' THEN 'action' ELSE 'free_to_play' END AS 
 ```
 
 The `ELSE` branch is labeled `'free_to_play'` but never checks
-`price_usd = 0` — it's actually "everything that isn't Action," which
+`price_usd = 0`, it's actually "everything that isn't Action," which
 includes plenty of paid games. The tool computed a perfectly correct
 p-value for the wrong comparison, and the final answer ("free-to-play
 games average $18.94") was confidently, fluently wrong.
 
 This was only catchable because of a transparency field added *because of*
 finding this bug: `AgentResult`/`/ask` didn't originally expose the actual
-query behind a stats result the way `sql` does for `run_sql` — added
+query behind a stats result the way `sql` does for `run_sql`, added
 `stats_query` specifically once this looked suspicious, and it immediately
 confirmed the mislabeling. Kept the field permanently: without it, this
-class of bug is invisible in the API response — a well-formatted, correct-
+class of bug is invisible in the API response, a well-formatted, correct-
 looking p-value with no way to check what it was actually computed over.
 
 Tried the direct fix: added an explicit warning to the analysis tool
 guidance ("a catch-all ELSE must be labeled generically, not with a name
-implying a filter you didn't apply — e.g. `ELSE 'free_to_play'` is WRONG
+implying a filter you didn't apply, e.g. `ELSE 'free_to_play'` is WRONG
 unless that branch checks price_usd = 0"). Re-ran the identical question:
 **same mislabeling, same wrong answer**, word-for-word identical query.
-Consistent with the standing conclusion since Slice 1 — this is Llama 3.1
+Consistent with the standing conclusion since Slice 1, this is Llama 3.1
 8B's reliability ceiling on this specific pattern, not something more
 prompt text fixes. Kept the guidance anyway (real, correct instruction,
-worth having for whatever model reads it — likely more effective against
+worth having for whatever model reads it, likely more effective against
 Groq's 70B), logged the negative result rather than hiding it, and did not
 keep iterating on the prompt. This is precisely the kind of thing Slice 5's
 eval harness needs to catch systematically (run N times, measure the
@@ -632,24 +632,24 @@ Testing the `outliers` mode through the full graph crashed:
 `numpy._core._exceptions._UFuncNoLoopError` comparing a float array against
 `z_threshold`. Root cause: Ollama's function-calling returned `z_threshold`
 as the JSON string `"2.5"` rather than a number, despite the tool schema
-declaring it a float — LangChain passes tool-call args through mostly
+declaring it a float, LangChain passes tool-call args through mostly
 as-received. This is not a reasoning failure, it's an interface contract
 the LLM's tool-calling layer didn't honor. Fixed at the tool boundary
 (`execute_run_stats` now does `z_threshold = float(z_threshold)` before use)
-rather than trusting the declared schema type — same "validate at the
+rather than trusting the declared schema type, same "validate at the
 boundary, don't trust what arrives" principle as the SQL guard, just
 applied to argument *types* instead of query *safety* this time.
 
 ### Chart-spec generation: deliberately not an LLM call
 
 `src/tools/viz_tool.py::infer_chart_spec()` looks only at the shape of a
-successful query result — column count, and whether each column's actual
-Python values are numeric or not — to pick bar/scatter/table. This is a
+successful query result, column count, and whether each column's actual
+Python values are numeric or not, to pick bar/scatter/table. This is a
 mechanical decision with one correct answer given the shape, so there's no
 ambiguity to spend an LLM call resolving; it runs as a plain function in a
 new `build_chart_spec` graph node after a successful `run_sql` result, not
 as a bindable tool. The spec shape (`{type, x, y, data}`) is deliberately
-framework-agnostic — not tied to Vega-Lite/Chart.js/Recharts — so it
+framework-agnostic, not tied to Vega-Lite/Chart.js/Recharts, so it
 doesn't need to change once Slice 6 picks a frontend charting library.
 
 ### Open questions (new)
@@ -657,26 +657,26 @@ doesn't need to change once Slice 6 picks a frontend charting library.
 - **The mislabeled-group failure mode is now visible but not prevented.**
   `stats_query` makes it auditable; nothing yet stops the wrong answer
   from reaching the user. Options for later: a lightweight sanity check
-  (does a labeled group's aggregate match what the label claims — e.g. if
+  (does a labeled group's aggregate match what the label claims, e.g. if
   a group is labeled `free_to_play`, assert its mean price actually is ~0
   before trusting the label) or just leaning on Slice 5's eval harness to
   quantify how often this happens and whether Groq's larger model avoids
   it.
 - **Chart-spec heuristics are untested against a genuinely wide variety of
-  query shapes** — validated against the two shapes Slice 4's example
+  query shapes**, validated against the two shapes Slice 4's example
   questions naturally produce (name+numeric, label+numeric). Three+ column
   results and time-series-shaped results (once Slice 7 lands) aren't
-  handled yet — currently fall back to `None` (table view) rather than
+  handled yet, currently fall back to `None` (table view) rather than
   guessing.
 - **`run_stats`'s modes require the LLM to shape its query correctly**
-  (exactly 1 or 2 columns, right order) — same class of risk as any
+  (exactly 1 or 2 columns, right order), same class of risk as any
   LLM-authored SQL. The self-correction loop catches shape errors (they
   raise `ValueError`, which is caught the same way SQL errors are), but a
   golden-question eval would quantify how often that's actually needed.
 
 ---
 
-## Slice 5 — Eval harness
+## Slice 5, Eval harness
 
 **Date:** 2026-08-24
 
@@ -684,14 +684,14 @@ doesn't need to change once Slice 6 picks a frontend charting library.
 
 Slice 4 ended with two things I couldn't answer from a single manual test:
 how *often* the group-mislabeling bug happens, and whether it's specific
-to the local 8B model. This slice exists to answer both — not as a
+to the local 8B model. This slice exists to answer both, not as a
 generic "add an eval harness" checkbox, but pointed at a real, previously
 observed defect.
 
 ### Design: live ground truth, not hardcoded numbers
 
 `src/evals/golden_questions.py::build_golden_questions()` is a function,
-not a module-level list — it queries the live DuckDB file for every
+not a module-level list, it queries the live DuckDB file for every
 reference fact (top peak_ccu game, count of games with review_score > 0.9,
 count of free-to-play games) at eval time. Considered hardcoding expected
 values instead (simpler, no DB dependency at eval time) and rejected it:
@@ -701,24 +701,24 @@ stale the next time someone runs `python -m src.ingestion.ingest` and
 start failing the suite for the wrong reason (data drift, not a real
 regression). Computing ground truth live means the suite is always
 checking "does the agent's answer match what's actually in the database
-right now" — the only check that stays meaningful over time.
+right now", the only check that stays meaningful over time.
 
 ### The bug-specific check, not a generic one
 
 The eval that targets Slice 4's mislabeling bug
 (`_check_action_vs_f2p_not_mislabeled` in golden_questions.py) doesn't
-compare the agent's stated conclusion to a reference conclusion — it
+compare the agent's stated conclusion to a reference conclusion, it
 checks a fact the agent's own claimed label logically implies. Free-to-play
 means price = 0 *by definition*; a group the agent calls "free-to-play"
 must have a mean price of ~$0, full stop, regardless of what p-value or
 comparison it's embedded in. This is a stronger check than "does the
-number match the expected number" — it doesn't need to know the correct
+number match the expected number", it doesn't need to know the correct
 number in advance, it just needs the agent's own label to be internally
 consistent with the data. Worth being explicit about, because it's the
 difference between an eval that would have caught this specific bug
 reliably and one that happens to catch it by luck.
 
-### Results against Ollama (llama3.1:8b) — same tool used for every prior slice
+### Results against Ollama (llama3.1:8b), same tool used for every prior slice
 
 ```
 route accuracy:        6/6
@@ -735,13 +735,13 @@ independently:
   free-to-play games have an average price of $18.94, which is higher than
   the actual mean price of $0.00."*
 
-Two independently-built signals — one a hand-written numeric assertion,
-one an LLM given only the question/answer/reference-facts — converging on
+Two independently-built signals, one a hand-written numeric assertion,
+one an LLM given only the question/answer/reference-facts, converging on
 the identical diagnosis is a good sign the check design is sound, not
 just tuned to pass on this one run.
 
-**The second open question — whether this is specific to the local 8B
-model — is still open.** No Groq key available in this environment to test
+**The second open question, whether this is specific to the local 8B
+model, is still open.** No Groq key available in this environment to test
 against the 70B default. `python -m src.evals.run_evals` is exactly the
 command to run once a key is added; the harness was built so answering
 that question is "run one command," not "write new test code."
@@ -751,7 +751,7 @@ that question is "run one command," not "write new test code."
 Deliberately made `run_evals.py`'s exit code depend only on route
 correctness + deterministic checks, not the judge score. The judge is a
 second opinion, useful for catching wording/clarity issues the
-deterministic checks don't anticipate — but it's still an LLM call with
+deterministic checks don't anticipate, but it's still an LLM call with
 its own sampling noise, and a "regression check" that can flip pass/fail
 on unrelated LLM variance defeats the purpose of having one. The
 deterministic checks are the gate; the judge is a report.
@@ -761,14 +761,14 @@ deterministic checks are the gate; the judge is a report.
 - **Six golden questions is a start, not full coverage.** One per route
   plus the two Slice 4-specific regression checks. No coverage yet for
   malformed/adversarial input, multi-part questions, or the RAG retrieval
-  quality gaps found in Slice 2 (that's a different kind of eval — scoring
-  retrieved chunks against expected chunks — not yet built here).
+  quality gaps found in Slice 2 (that's a different kind of eval, scoring
+  retrieved chunks against expected chunks, not yet built here).
 - **No repeated-run variance measurement.** Ran the suite once per
   provider tested. Given Slice 1-4's evidence that the local model's
   failures are non-deterministic (same question, different wrong answer
   across runs), a single run understates the true failure rate in either
   direction. Running N=5-10 times per question and reporting a pass rate
-  would be a more honest reliability number — noted as a natural next
+  would be a more honest reliability number, noted as a natural next
   improvement, not done here to keep this slice thin.
 - **No CI wiring yet.** The harness is runnable and has a real exit code,
   but nothing invokes it automatically. Natural fit once there's a CI
@@ -776,7 +776,7 @@ deterministic checks are the gate; the judge is a report.
 
 ---
 
-## Slice 6 — Frontend + deploy
+## Slice 6, Frontend + deploy
 
 **Date:** 2026-08-24
 
@@ -788,11 +788,11 @@ slice by actually looking at what this stack needs, not just picking one:
 fastembed's ONNX model (~130MB), scipy, a DuckDB file, and an agent that
 can make 2+ sequential LLM calls with retries (10-30s+ isn't unusual, as
 directly observed throughout Slices 1-5). Vercel Hobby's Python functions
-cap around 250MB unzipped and ~10s execution — this stack would be fighting
+cap around 250MB unzipped and ~10s execution, this stack would be fighting
 both limits from day one. Chose **Vercel for the frontend, Render or
 Fly.io (a normal long-running Python process) for the backend** instead.
 This is exactly why `src/agent` and `src/db` never import FastAPI (a
-decision made explicit as far back as Slice 1's README) — the entire
+decision made explicit as far back as Slice 1's README), the entire
 hosting decision only ever touched `src/api/main.py` and new files
 (`Dockerfile`, `render.yaml`), never the agent logic itself.
 
@@ -805,7 +805,7 @@ mapped to a human-readable message ("Classifying your question...",
 instead (more common for chat UIs) and deliberately didn't: this agent's
 useful latency isn't in generating the final sentence character-by-character,
 it's in the multi-step pipeline before that (routing, retrieval, tool
-calls, retries) — a token-level stream would sit silent through most of
+calls, retries), a token-level stream would sit silent through most of
 that and then dump the whole answer at once anyway. Node-level progress
 events match what's actually slow, and match the project's standing
 design principle that every step should be a visible, nameable thing
@@ -814,7 +814,7 @@ graph nodes back in Slices 1 and 2) rather than an opaque wait.
 
 Implementation note: `stream_agent` manually accumulates node updates into
 a plain dict rather than replicating LangGraph's internal state-merging
-logic — works correctly here specifically because every node in this graph
+logic, works correctly here specifically because every node in this graph
 returns only *new* values (the messages list) or the *current* full value
 (everything else), never something needing a custom merge beyond
 last-write-wins. Verified directly (not just assumed) before relying on it:
@@ -823,16 +823,16 @@ ran `stream_agent()` standalone and confirmed the final answer text matched
 
 ### Semantic cache: calibrated, not guessed
 
-`src/agent/cache.py` reuses the Slice 2 embedding provider seam — cosine
+`src/agent/cache.py` reuses the Slice 2 embedding provider seam, cosine
 similarity between question embeddings, in-memory. Picked an initial
 similarity threshold of 0.96 without measuring anything, then actually
 measured before shipping it: a clear paraphrase of a cached question
-("most owners" vs. "highest number of owners") scored 0.957 — just under
+("most owners" vs. "highest number of owners") scored 0.957, just under
 0.96, meaning the "obvious" threshold would have missed the single most
 common real-world cache scenario (someone rephrasing the same question).
 A related-but-different question ("most players" vs. "most owners") scored
 0.834, and an unrelated question scored 0.481. Lowered the threshold to
-0.93 — clears the paraphrase, stays well clear of the related-but-different
+0.93, clears the paraphrase, stays well clear of the related-but-different
 case. Same discipline as Slice 2's RAG retrieval-quality testing: don't
 ship a similarity threshold without checking what it actually does on a
 real example.
@@ -842,10 +842,10 @@ real example.
 Per-IP rate limiting (`src/api/rate_limit.py`, in-memory sliding window)
 was verified with FastAPI's `TestClient` and the agent call mocked out
 (so the test runs in under a second instead of waiting on 10+ real LLM
-calls) — confirmed exactly 10 requests succeed, the 11th onward get 429.
+calls), confirmed exactly 10 requests succeed, the 11th onward get 429.
 Graceful error handling was verified the same way: patched `run_agent` to
 raise, confirmed `DEBUG=false` (the default) returns the generic "high
-demand" message while `DEBUG=true` returns the real exception — both
+demand" message while `DEBUG=true` returns the real exception, both
 paths still log the full traceback server-side either way, so nothing is
 lost for debugging, only what reaches the client changes.
 
@@ -853,22 +853,22 @@ lost for debugging, only what reaches the client changes.
 
 Built with Next.js 16 / React 19 (App Router, TypeScript, Tailwind v4).
 `lib/api.ts` hand-parses the `/ask/stream` SSE wire format from a plain
-`fetch()` `ReadableStream` rather than using the browser's `EventSource` —
+`fetch()` `ReadableStream` rather than using the browser's `EventSource` -
 `EventSource` only supports GET, and the question has to go in a POST
 body. `components/Chart.tsx` follows the project's dataviz skill: single
-hue (every question produces at most one series, so no legend needed —
+hue (every question produces at most one series, so no legend needed -
 the heading names it), colors from the validated default palette's
 series-1 slot as CSS custom properties (light/dark both defined), thin
 bars with rounded top corners, recessive gridlines.
 
 Tested by actually launching the app and driving it with Playwright
-(`chromium.launch()`, no `chromium-cli` available in this environment) —
+(`chromium.launch()`, no `chromium-cli` available in this environment) -
 not just `npm run build` succeeding. This caught a real bug: the first
 click through the UI returned the graceful "high demand" message instead
 of a real answer. Traced it to the backend log rather than assuming the
 frontend was broken: another **Ollama CUDA crash**, the same transient
 GPU/driver issue from Slice 3, this time hitting the `router` node.
-Restarted Ollama (same fix as before) and re-tested successfully — and
+Restarted Ollama (same fix as before) and re-tested successfully, and
 this incidentally validated the graceful-error feature working exactly as
 designed under a real failure, not a synthetic one: friendly message to
 the browser, full traceback in the server log.
@@ -879,30 +879,30 @@ The rendered example-question buttons showed what looked like rainbow/
 chromatic-fringed text in every screenshot. Didn't assume and didn't
 guess-fix:
 1. First hypothesis: missing an explicit text-color class (the buttons
-   had no `text-*` utility). Added one. **No change** — which is itself
+   had no `text-*` utility). Added one. **No change**, which is itself
    informative, not a wasted step.
 2. Checked `getComputedStyle` directly rather than trust the screenshot:
-   `color: lab(27.036 0 0)` — a single, flat, uniform gray. Proves the
+   `color: lab(27.036 0 0)`, a single, flat, uniform gray. Proves the
    CSS was already correct; whatever's happening isn't the `color`
    property.
 3. Suspected Playwright's default headless-only "Chrome Headless Shell"
    browser (a stripped-down variant, not full Chromium) might not fully
    support the modern `lab()`/`oklch()` color functions Tailwind v4
    generates by default. Tested against the system's real installed
-   Chrome via `channel: 'chrome'` — **same artifact**, ruling that out.
+   Chrome via `channel: 'chrome'`, **same artifact**, ruling that out.
 4. Tested fully non-headless (a real, visible browser window, not
-   headless emulation) — **still the same artifact**, ruling out
+   headless emulation), **still the same artifact**, ruling out
    anything headless-specific at all.
 
-Conclusion: this is subpixel/ClearType antialiasing on small text — a
+Conclusion: this is subpixel/ClearType antialiasing on small text, a
 real, well-known phenomenon where a screenshot captured and viewed
 pixel-for-pixel shows the individual R/G/B subpixel fringes that a
 physical LCD panel and the human eye's optical blending are designed to
 merge into smooth gray. It's not something a real user looking at a real
-screen would perceive as "rainbow text" — it only shows up because a
+screen would perceive as "rainbow text", it only shows up because a
 screenshot is a literal pixel capture, not an optically-blended view.
 Confirmed this is a screenshot-viewing artifact, not a product bug, only
-after four independent checks each ruling out a different cause — worth
+after four independent checks each ruling out a different cause, worth
 recording the process, not just the conclusion, since "it looked like a
 CSS bug and turned out not to be one" is exactly the kind of thing worth
 being able to explain rather than silently having fixed (or worse,
@@ -910,12 +910,12 @@ silently having ignored a real bug because it "probably wasn't important").
 
 ### Deployment config: written carefully, not verified live
 
-`Dockerfile` runs ingestion **at build time** — a deliberate trade-off for
+`Dockerfile` runs ingestion **at build time**, a deliberate trade-off for
 a mostly-static demo dataset (bakes a SteamSpy snapshot into the image;
 re-deploy to refresh) rather than needing a persistent volume or an
 external data store for what's currently ~200 rows. `render.yaml` mirrors
 `.env.example`'s settings as a Render Blueprint. Neither is verified
-against a live build or a live Render/Fly account — no Docker available in
+against a live build or a live Render/Fly account, no Docker available in
 this environment, and per the earlier scoping conversation, the user is
 deploying manually. Said so plainly in the README's Deploying section
 rather than implying these are tested when they aren't.
@@ -926,12 +926,12 @@ rather than implying these are tested when they aren't.
   deploy. If `libgomp1` isn't actually what onnxruntime needs on the
   platform's base image, or if build-time network access to steamspy.com
   is restricted on some platform, the ingestion `RUN` step would need
-  adjusting — flagged as the most likely failure point, not silently
+  adjusting, flagged as the most likely failure point, not silently
   assumed to be fine.
 - **No scheduled data refresh.** The deployed backend's catalog is frozen
   at whatever the image build saw. Revisit once Slice 7 builds real
   scheduling infrastructure (GitHub Actions cron) for the player-count
-  poller — reusing that mechanism for a periodic SteamSpy re-ingest is a
+  poller, reusing that mechanism for a periodic SteamSpy re-ingest is a
   natural, cheap extension at that point, not before.
 - **CORS is a manual two-way env var handoff** (backend needs the
   frontend's URL, frontend needs the backend's URL, and the frontend's
@@ -941,17 +941,17 @@ rather than implying these are tested when they aren't.
 
 ---
 
-## Slice 7 — Live player-count time series
+## Slice 7, Live player-count time series
 
 **Date:** 2026-08-24
 
 ### Two tables, two different freshness contracts
 
-`player_counts` isn't just "another table" — it has the opposite data
+`player_counts` isn't just "another table", it has the opposite data
 character from `games`. SteamSpy's catalog reflects *current* state: every
 re-fetch overwrites what we knew, and there's zero value in an old
 snapshot (that's why `games` ingestion has always been UPSERT). Steam's
-live player-count endpoint has no history API at all — every poll captures
+live player-count endpoint has no history API at all, every poll captures
 a moment that can never be recovered later. That difference drove every
 design decision this slice: `games` is rebuilt fresh each run;
 `player_counts` only ever accumulates, and the raw polls themselves
@@ -960,18 +960,18 @@ because they're the only copy of that history that will ever exist.
 
 ### Why polling and table-building are two separate scripts
 
-GitHub Actions runners are ephemeral — nothing written to a local file
+GitHub Actions runners are ephemeral, nothing written to a local file
 during one scheduled run survives to the next. So persistence has to
 happen through something that *does* persist: git. `poll_player_counts.py`
-does exactly one thing — fetch live counts, write a timestamped JSON
+does exactly one thing, fetch live counts, write a timestamped JSON
 snapshot, done. A separate script, `build_player_counts_table.py`, rebuilds
 the actual DuckDB table by replaying *every* committed snapshot
-(idempotent — `ON CONFLICT (appid, polled_at) DO NOTHING`). This is the
+(idempotent, `ON CONFLICT (appid, polled_at) DO NOTHING`). This is the
 same collect-raw-then-build split already established for SteamSpy in
 Slice 1 (`steamspy_client.py` caches to disk, `ingest.py` builds the table
 from it), applied for a different reason: there, the cache is a
 performance/idempotency shortcut; here, the raw snapshots *are* the
-durable data — the DuckDB table is the disposable, always-regenerable
+durable data, the DuckDB table is the disposable, always-regenerable
 artifact, same as `games` always was.
 
 ### Verified the "no API key" assumption before building around it
@@ -979,16 +979,16 @@ artifact, same as `games` always was.
 Steam's docs are inconsistent about whether `GetNumberOfCurrentPlayers`
 needs a key. Curled it directly first: `?appid=730` returns real data with
 no key, `?appid=999999999` returns `{"result": 42}` (no data, but still
-HTTP 200). Built the client around that — then hit a *third* response
+HTTP 200). Built the client around that, then hit a *third* response
 shape in the actual 200-game poll run that the two-appid spot check
 didn't surface: a real, currently-catalogued appid returned a bare
 **404**, not the `result != 1` pattern. `resp.raise_for_status()` crashed
 the entire batch on that one appid. Root cause, best guess: SteamSpy's
-index and Steam's live store don't perfectly agree on what still exists —
+index and Steam's live store don't perfectly agree on what still exists -
 a game can be delisted from Steam while still sitting in SteamSpy's
 catalog. Fixed by treating a 404 the same as `result != 1` (skip this game,
 keep going) while still letting real connection failures (timeouts, 5xx)
-propagate and fail the run loudly — the same "some failures should skip,
+propagate and fail the run loudly, the same "some failures should skip,
 some should stop everything" judgment call as `sql_tool.py`'s error
 handling, just for a different kind of error. 199/200 games polled
 successfully after the fix; the one skip is correct, not a bug.
@@ -996,19 +996,19 @@ successfully after the fix; the one skip is correct, not a bug.
 ### The payoff: zero agent code changed
 
 Added `player_counts` to `ALLOWLISTED_TABLES`, added its RAG corpus
-chunks, and — nothing else. Asked the agent *"What is the current live
+chunks, and, nothing else. Asked the agent *"What is the current live
 player count for Counter-Strike: Global Offensive?"* and it correctly
 wrote the join and answered right, with no change to graph.py, no new
 tool, no new route. This is exactly the payoff `schema.py`'s very first
 comment (Slice 1) promised: "this file is named schema.py and not
-games_table.py — it's meant to grow." Three slices later, growing it
+games_table.py, it's meant to grow." Three slices later, growing it
 really was this cheap.
 
-### A real regression from adding a second table — caught and quantified, not just noticed
+### A real regression from adding a second table, caught and quantified, not just noticed
 
 Re-ran the full eval suite after adding `player_counts` (same discipline
 as every slice: don't just eyeball a few manual tests). A previously
-*passing* question — the CCU outliers question — now failed:
+*passing* question, the CCU outliers question, now failed:
 
 ```
 before Slice 7:  deterministic 5/6, avg judge 4.3/5
@@ -1018,21 +1018,21 @@ after Slice 7:   deterministic 4/6, avg judge 3.7/5
 Root cause, confirmed by checking retrieval directly rather than guessing:
 `games.peak_ccu` ("peak concurrent players yesterday") and the new
 `player_counts.player_count` ("live concurrent players right now") both
-plausibly answer "concurrent players," and both got retrieved — this
+plausibly answer "concurrent players," and both got retrieved, this
 wasn't a retrieval gap, `peak_ccu` was right there in the top-8. The model
 picked `player_counts.player_count` but the first attempt wrote
-`SELECT name, player_count FROM player_counts` — forgetting `player_counts`
+`SELECT name, player_count FROM player_counts`, forgetting `player_counts`
 has no `name` column, exactly the mistake the join note exists to prevent.
 Added one more targeted RAG chunk explicitly disambiguating the two
 columns and when to use which
 (`metric:peak_ccu_vs_player_counts`).
 
 **Partial fix, and said so honestly:** on retry, the model *did* write the
-correct join this time — proof the disambiguation note worked for what it
+correct join this time, proof the disambiguation note worked for what it
 targeted. But instead of emitting that corrected query as a real
 structured tool call, it leaked the corrected query as prose with an
 embedded pseudo-JSON blob ("It seems like the `name` column is actually
-located in the `games` table... {"name": "run_stats", ...}") — a
+located in the `games` table... {"name": "run_stats", ...}"), a
 degraded-tool-calling failure, not a schema-confusion one. Traced the full
 message history (not just the final answer) to confirm this precisely:
 message 2 was a real malformed tool call (schema confusion, the bug the
@@ -1043,10 +1043,10 @@ failure modes stacked in one run.
 Did not chase the second one further. It reproduced deterministically
 (temperature=0, identical output both times), which rules out random
 sampling noise, but it's the same category of small-model tool-calling
-unreliability documented since Slice 3 — a local 8B model narrating what
+unreliability documented since Slice 3, a local 8B model narrating what
 it would do instead of doing it, under multi-turn retry pressure. Worth
 noting what *did* hold up despite the degraded output: the graph's
-termination guarantee — no infinite loop, no crash, the retry-cap design
+termination guarantee, no infinite loop, no crash, the retry-cap design
 from Slice 1 worked exactly as intended even when the model's behavior
 was unexpected. The failure is in answer quality, not system safety.
 
@@ -1054,29 +1054,29 @@ was unexpected. The failure is in answer quality, not system safety.
 
 - **`data/player_counts_raw/` now holds one real snapshot** from this
   session's local testing (199 games, genuinely polled from the live
-  Steam API, not synthetic) — kept it rather than deleting it, since it's
+  Steam API, not synthetic), kept it rather than deleting it, since it's
   real collected data and gives a working demo a first data point before
   the scheduled workflow has ever run.
 - **The peak_ccu vs. player_count disambiguation is unverified at scale.**
   Confirmed it changes behavior (the retry attempt got the join right),
   but the eval suite's `analysis_ccu_outliers` question still fails
-  end-to-end because of the separate tool-calling issue — can't yet tell
+  end-to-end because of the separate tool-calling issue, can't yet tell
   from one example whether the disambiguation note reliably prevents the
   *schema* confusion on a fresh (non-retry) first attempt. Another
   concrete case for running the eval suite N times once that's built out.
 - **The two GitHub Actions workflows are unverified against a live
-  GitHub repo** — no way to test a scheduled workflow, git push
+  GitHub repo**, no way to test a scheduled workflow, git push
   permissions, or a real deploy hook from this local environment. First
   real test is after the user pushes and enables Actions.
 - **No cron-frequency tuning.** 6-hourly polling and weekly catalog
-  refresh are reasonable starting guesses, not measured — worth revisiting
+  refresh are reasonable starting guesses, not measured, worth revisiting
   once there's enough `player_counts` history to see whether 6h resolution
   actually shows interesting patterns (daily cycles, event spikes) or is
   needlessly frequent.
 
 ---
 
-## Interlude — requirements.txt → pyproject.toml + uv
+## Interlude, requirements.txt → pyproject.toml + uv
 
 **Date:** 2026-08-25
 
@@ -1085,15 +1085,15 @@ was confirmed available. Replaced `requirements.txt` +
 `requirements-ingestion.txt` with one `pyproject.toml` (+ committed
 `uv.lock`), using `[project.optional-dependencies]` to formalize a split
 that already existed informally: a lean base (everything
-`src/ingestion/`, `src/db/`, `src/config.py` need — no LLM/RAG stack) and
-an `agent` extra (FastAPI, LangGraph, LangChain, fastembed, scipy — what
+`src/ingestion/`, `src/db/`, `src/config.py` need, no LLM/RAG stack) and
+an `agent` extra (FastAPI, LangGraph, LangChain, fastembed, scipy, what
 `src/agent/`, `src/tools/`, `src/api/` need on top). GitHub Actions' poller
 job now runs `uv sync` (base only); local dev and the Docker build run
 `uv sync --extra agent`. Same intent as the two-file split, expressed as
 one manifest that can't drift out of sync with itself the way two
 hand-maintained files could.
 
-`pyproject.toml` deliberately has no `[build-system]` table —
+`pyproject.toml` deliberately has no `[build-system]` table -
 `[tool.uv] package = false` tells uv this is an application (run via
 `python -m src.x.y`, imported as `from src.x import y`), not something
 meant to be built into a distributable wheel. Worth being explicit about,
@@ -1101,13 +1101,13 @@ since the default assumption for a `pyproject.toml` is a real package.
 
 **Third occurrence of the same Avast TLS problem, different tool this
 time:** `uv lock` failed immediately with `invalid peer certificate:
-UnknownIssuer` — the identical root cause from Slices 1 and 2
+UnknownIssuer`, the identical root cause from Slices 1 and 2
 (`requests` and `fastembed`'s `httpx`/`huggingface_hub` calls), now
 hitting uv's own Rust TLS stack, which `truststore` (a Python-only fix)
 can't touch. uv has its own equivalent: `--native-tls` uses the OS trust
 store instead of uv's bundled one. Set permanently via
 `[tool.uv] native-tls = true` in `pyproject.toml` rather than requiring
-the flag on every invocation — same "fix it once, centrally" instinct as
+the flag on every invocation, same "fix it once, centrally" instinct as
 centralizing `truststore.inject_into_ssl()` in `src/config.py` back in
 Slice 2. Three tools, three different TLS stacks, same underlying cause
 each time, same "find the tool's own OS-trust-store escape hatch rather
@@ -1115,40 +1115,40 @@ than disabling verification" response each time.
 
 **Verified, not just written:** ran `uv lock` (resolved 71 packages) and
 `uv sync --extra agent` against the existing `.venv` (already `pip`-managed
-from earlier slices) and confirmed uv reconciled it correctly — Checked 69
+from earlier slices) and confirmed uv reconciled it correctly, Checked 69
 packages, no reinstall needed, since the dependency set matches what was
 already there. Re-imported the app afterward to confirm nothing broke.
 Also updated the Dockerfile to install `uv` as a static binary (copied
 from its official distroless image) and use `uv sync --extra agent
---frozen` instead of `pip install -r requirements.txt` — faster and,
+--frozen` instead of `pip install -r requirements.txt`, faster and,
 via `uv.lock`, pinned to exact resolved versions rather than whatever
 `>=` ranges happen to resolve to on build day.
 
 ### Open questions (new)
 
 - **The Dockerfile's uv-based build is unverified**, same caveat as the
-  rest of the Dockerfile since Slice 6 — no Docker available in this
+  rest of the Dockerfile since Slice 6, no Docker available in this
   environment to actually run the build.
 - **`native-tls = true` is a machine-specific workaround being committed
   as a permanent project setting.** Harmless on machines without TLS
   interception (it just uses the OS store instead of uv's bundled one),
   but worth knowing it's there if uv behavior ever seems to silently
-  trust something unexpected — it's a deliberate, documented choice, not
+  trust something unexpected, it's a deliberate, documented choice, not
   a default.
 
 ---
 
-## Interlude — real Groq key, and the standing question finally answered
+## Interlude, real Groq key, and the standing question finally answered
 
 **Date:** 2026-08-25
 
 `llama-3.3-70b-versatile` (the model picked back in Slice 1) no longer
-exists on Groq — `groq.NotFoundError: model_not_found`. Queried
+exists on Groq, `groq.NotFoundError: model_not_found`. Queried
 `/openai/v1/models` directly rather than guess a replacement: Groq's
 catalog now leans on OpenAI's open-weight GPT-OSS models
 (`openai/gpt-oss-120b`, `-20b`) plus Groq's own `groq/compound` system and
 a few others. Picked `openai/gpt-oss-120b` over `groq/compound`
-deliberately — `compound` is itself an agentic system with built-in tools
+deliberately, `compound` is itself an agentic system with built-in tools
 (web search, code execution), and layering our own `bind_tools` orchestration
 on top of a model that already has opinions about tool use seemed like
 exactly the kind of hidden-behavior risk this project has avoided
@@ -1158,7 +1158,7 @@ correctly against `gpt-oss-120b` before adopting it as the default.
 
 **The eval harness finally got to answer the question it was built for.**
 Ran it against real Groq for the first time: route accuracy 6/6, avg judge
-score 4.5/5 — the highest of any provider tested. More importantly:
+score 4.5/5, the highest of any provider tested. More importantly:
 **zero occurrences of the group-mislabeling bug**, across both the direct
 question and the eval run. `gpt-oss-120b` wrote genuinely correct
 conditional-aggregation SQL (`AVG(CASE WHEN price_usd = 0 THEN price_usd
@@ -1167,16 +1167,16 @@ evidence rather than a hunch, what Slices 1 through 7 kept concluding
 without being able to fully prove: the mislabeling bug was a Llama-3.1-8B
 reliability ceiling, not an architecture, prompt, or guard problem.
 
-The eval suite still reports 4/6 deterministic — but both "failures" are
+The eval suite still reports 4/6 deterministic, but both "failures" are
 eval-design gaps, not model errors, confirmed by re-reading what actually
 happened: `analysis_action_vs_f2p_not_mislabeled`'s check specifically
 requires a `compare_two_groups` stats_result (i.e. "did it call
-run_stats"), and this run answered correctly via plain SQL instead — the
+run_stats"), and this run answered correctly via plain SQL instead, the
 judge independently scored it 5/5 as factually correct. Same for the
 outliers question: the judge marked it 2/5 for including PUBG as a second
 outlier, but PUBG *is* a legitimate outlier at the z ≥ 2.5 threshold used
 elsewhere in this project (confirmed via direct `run_stats` testing in
-Slice 4) — the golden question's `reference_facts` just didn't mention
+Slice 4), the golden question's `reference_facts` just didn't mention
 it, so the judge had no way to know. Left the golden questions unchanged
 rather than patch them reactively; noted as the next real refinement
 rather than declared "fixed" without re-verifying against multiple
@@ -1184,10 +1184,10 @@ providers again.
 
 **A real, unrelated bug found and fixed along the way:** the eval
 report crashed with `UnicodeEncodeError` printing `gpt-oss-120b`'s output
-— it writes with proper Unicode typography (non-breaking hyphens, narrow
+- it writes with proper Unicode typography (non-breaking hyphens, narrow
 no-break spaces) that Windows' default console encoding (cp1252) can't
 represent. Fixed by reconfiguring stdout to UTF-8 with replacement at the
-top of `run_evals.py`. Not cosmetic — this would crash the harness on any
+top of `run_evals.py`. Not cosmetic, this would crash the harness on any
 Windows machine the moment a model's output contained such characters,
 which is exactly what happened.
 
@@ -1197,61 +1197,61 @@ which is exactly what happened.
   weaker model produced**, not the range of valid correct answers a
   stronger model can produce. `analysis_action_vs_f2p_not_mislabeled`
   should probably accept *either* a correctly-computed plain-SQL answer
-  *or* a correct `run_stats` result — not require the tool call
+  *or* a correct `run_stats` result, not require the tool call
   specifically. Worth revisiting once there's a reason to run evals across
   multiple providers routinely (Slice 5 already flagged this general
   shape of gap).
 - **`groq/compound` untested.** Deliberately avoided it for the reason
   above, but never actually confirmed whether its built-in tool use would
-  conflict with or complement this project's own `bind_tools` design —
+  conflict with or complement this project's own `bind_tools` design -
   an assumption, not a measured result.
 
 ---
 
-## Slice 8 — MCP server
+## Slice 8, MCP server
 
 **Date:** 2026-08-25
 
 ### Scope: dropped Gemini, sequenced the rest
 
 User explicitly ruled out Gemini as a fallback provider (free-tier keys
-expire too fast to be a reliable fallback) — removed it from the roadmap
+expire too fast to be a reliable fallback), removed it from the roadmap
 rather than leaving it as a silently-stale TODO; the seam in
 `llm_provider.py` stays (costs nothing to leave a branch that raises
 `NotImplementedError`). The remaining Slice 8 items (MCP server, Expo
 mobile) got split into their own slices with a proposed order: MCP first
-(cheapest — mostly reusing code that already exists), frontend visual
+(cheapest, mostly reusing code that already exists), frontend visual
 polish next (highest-visibility ROI for a portfolio piece, and settling
 on a look here makes the mobile UI faster later), Expo last (most new
-surface area, and — worth flagging since cost keeps coming up — building/
+surface area, and, worth flagging since cost keeps coming up, building/
 testing it is free via Expo Go, but *publishing* to app stores isn't:
 $99/yr Apple, $25 one-time Google. Recommended skipping store publishing
 by default.)
 
-### The SDK's API had moved since my training data — checked, didn't guess
+### The SDK's API had moved since my training data, checked, didn't guess
 
 Went to write the server using `from mcp.server.fastmcp import FastMCP`,
 the pattern I expected from prior knowledge of the SDK. It doesn't exist
 in the installed version (`mcp==2.1.0`): `ModuleNotFoundError`. Rather
 than guess at a replacement, introspected the installed package directly
 (`pkgutil.walk_packages`, then `inspect.signature` on candidates) and
-found the successor: `MCPServer` in `mcp.server` — same decorator-based
+found the successor: `MCPServer` in `mcp.server`, same decorator-based
 API (`.tool()`, `.resource()`, `.run()`), just renamed and moved during
 what looks like a significant SDK restructuring (also added
-auth/OAuth support, an `apps` module, elicitation, subscriptions — a much
+auth/OAuth support, an `apps` module, elicitation, subscriptions, a much
 bigger surface than the version I remembered). Worth calling out as a
 general lesson, not just an MCP-specific one: for a fast-moving SDK,
 `inspect.signature()` against the actual installed version is more
 reliable than remembered API shape, and took under a minute here.
 
-### Reuse, not reimplementation — and proved it, not just claimed it
+### Reuse, not reimplementation, and proved it, not just claimed it
 
 `src/mcp_server/server.py`'s `run_sql`/`run_stats` tools call
-`execute_run_sql`/`execute_run_stats` directly — the identical functions
+`execute_run_sql`/`execute_run_stats` directly, the identical functions
 `src/agent/graph.py`'s `execute_tools` node calls. The safety guard
 (`validate_select_only` in `src/db/connection.py`) is reached the same way
 regardless of caller; there's no second implementation to keep in sync or
-accidentally leave less-guarded. Didn't just assert this — verified it
+accidentally leave less-guarded. Didn't just assert this, verified it
 with a real MCP client session (`ClientSession` over `stdio_client`,
 spawning the actual server subprocess, not a mock): listed tools and
 resources, read `schema://games`, ran a real query, and specifically sent
@@ -1262,7 +1262,7 @@ guard, same code path, proven rather than assumed.
 
 ### The schema resource reuses the RAG corpus, not a separate description
 
-`schema://games` (an MCP *resource*, not a tool — read-only reference
+`schema://games` (an MCP *resource*, not a tool, read-only reference
 data a client fetches once, not an action) calls
 `assemble_schema_text(SCHEMA_CHUNKS)` from Slice 2's RAG module directly.
 Considered writing a separate, MCP-specific schema description and
@@ -1270,7 +1270,7 @@ rejected it immediately: two hand-maintained descriptions of the same
 schema is exactly the kind of drift risk this project has avoided
 everywhere else (the RAG corpus itself exists specifically so the schema
 is described in one place). The MCP resource gets the full, unfiltered
-corpus (no retrieval/ranking — there's no "question" to rank against for
+corpus (no retrieval/ranking, there's no "question" to rank against for
 a static resource a client reads once up front), which is a fine, simple
 default at this corpus's current size (~24 chunks).
 
@@ -1279,12 +1279,12 @@ default at this corpus's current size (~24 chunks).
 Chose stdio transport exclusively for now, not `sse`/`streamable-http`
 (both of which `MCPServer.run()` also supports). Stdio means: the client
 (Claude Desktop, Claude Code) spawns the server as a local subprocess for
-the duration of its own session — no hosting, no network exposure, no
+the duration of its own session, no hosting, no network exposure, no
 cost, and no separate deployment decision to make. A hosted, remotely
 reachable MCP server is a real possible future step (could piggyback on
 the already-deployed backend, per the earlier deployment discussion), but
 would need its own auth story (the SDK's new `auth`/OAuth module exists
-for exactly this) — deliberately out of scope until there's an actual
+for exactly this), deliberately out of scope until there's an actual
 reason to want the server reachable from somewhere other than the calling
 app's own machine.
 
@@ -1299,7 +1299,7 @@ decorated object, even though the MCP server never uses that object) and
 `src.agent.rag.schema_index` (which imports the embedding provider,
 pulling in `fastembed`, even though the MCP resource never calls it). A
 truly lean MCP-only extra would need refactoring those modules to make
-their heavier imports lazy — real, legitimate cleanup, but out of
+their heavier imports lazy, real, legitimate cleanup, but out of
 proportion to what this slice needed, and the MCP server is inherently a
 local-dev tool run on a machine that already has the full `agent` extra
 installed to run the web app anyway. Noted as a real option, not pursued.
@@ -1310,7 +1310,7 @@ installed to run the web app anyway. Noted as a real option, not pursued.
   there's ever a concrete reason to want this reachable from outside the
   calling app's own machine (the SDK already has the auth pieces for it).
 - **The lean-extra option for `src/tools/` and `src/agent/rag/` is real
-  but unpursued** — `sql_tool.py` and `schema_index.py` both have
+  but unpursued**, `sql_tool.py` and `schema_index.py` both have
   heavier-than-necessary module-level imports for their MCP use case
   specifically. Worth doing if a genuinely lean, MCP-only install ever
   matters (e.g. distributing this as a standalone MCP server package
@@ -1322,13 +1322,13 @@ installed to run the web app anyway. Noted as a real option, not pursued.
 
 ---
 
-## Slice 9 — Frontend UI/design polish
+## Slice 9, Frontend UI/design polish
 
 **Date:** 2026-08-25
 
 Slice 6 built the frontend's plumbing (SSE streaming, chart rendering, dark
 mode via Tailwind's `dark:` classes) but deliberately left the visual design
-plain — right call at the time, wrong call to leave standing once the rest
+plain, right call at the time, wrong call to leave standing once the rest
 of the system had real content to show off. This slice is the visual pass,
 requested explicitly with a "gaming AI" identity and real motion.
 
@@ -1336,13 +1336,13 @@ requested explicitly with a "gaming AI" identity and real motion.
 
 The request that kicked this off named four animation libraries (Anime.js,
 motion.dev, react-spring, Framer Motion) plus a couple of UI-kit references.
-Framer Motion *is* motion.dev — Framer Motion was renamed "Motion" and now
-ships from the `motion` package, same author, same lineage — so two of the
+Framer Motion *is* motion.dev, Framer Motion was renamed "Motion" and now
+ships from the `motion` package, same author, same lineage, so two of the
 four names were the same library twice. Running Anime.js, react-spring, and
 Motion side by side in one app would mean three animation engines' worth of
 bundle weight and three different easing/spring feels for no real gain, so
 the app standardizes on Motion (`motion/react`) alone. Same reasoning for
-"Kokonut UI": it's a copy-paste component registry (shadcn-style — you
+"Kokonut UI": it's a copy-paste component registry (shadcn-style, you
 `npx shadcn add` a component's source into your own tree), not an
 installable package, so there's nothing to add to `package.json` for it;
 its glow-card/gradient-border idiom is instead hand-built directly in
@@ -1353,64 +1353,64 @@ its glow-card/gradient-border idiom is instead hand-built directly in
 Rather than invent a new palette and type pairing from scratch, this slice
 deliberately reused the one already established for the Slice 8 interactive
 agent-trace artifact: the same amber accent (`#f0a63a` dark / `#a8650f`
-light), the same Archivo + IBM Plex Mono pairing. The alternative — a
-distinct look for the live app versus the docs' interactive artifact — would
+light), the same Archivo + IBM Plex Mono pairing. The alternative, a
+distinct look for the live app versus the docs' interactive artifact, would
 have made the project read as two different projects wearing one name. The
 same reasoning extended into the product itself: `components/TraceSteps.tsx`
 re-renders the streamed progress events as a node-by-node stepper using the
 graph's real node names (router → retrieve_schema → agent → execute_tools →
 build_chart_spec), the same visual grammar as the ARCHITECTURE.md diagram,
 instead of Slice 6's flat scrolling text log. The trace concept isn't just
-documentation anymore — it's now a real UI element a user watches live.
+documentation anymore, it's now a real UI element a user watches live.
 
 ### Genre identity: real counts, not invented ones, and why 8 not 12
 
 "Illustrated identity per genre" needed an actual genre list before anything
 else. SteamSpy's `genre` field turned out to be free-text and comma-joined
-(`"Action, Adventure, RPG"`, not an enum) — queried the real 200-game
+(`"Action, Adventure, RPG"`, not an enum), queried the real 200-game
 catalog directly (`data/db/games.duckdb`), split every row's genre string on
 comma, and counted tokens rather than guessing a plausible-looking list.
 Real result, most common first: Action 148, Adventure 75, Indie 67, Free To
 Play 52, RPG 50, Simulation 41, Massively Multiplayer 38, Strategy 33,
 Casual 24, Early Access 13, Sports 13, Racing 7 (plus a handful of one-off
-non-game tags like "Photo Editing" — noise from a few mislabeled catalog
+non-game tags like "Photo Editing", noise from a few mislabeled catalog
 entries).
 
 Cut this to 8 for `lib/genres.ts`: "Early Access" (a release status, not a
 genre) and "Free To Play" (a pricing model) were excluded on category
 grounds, and the dataviz skill's categorical-palette rule is a hard 8-hue
-cap regardless — a 9th series never gets a generated hue, it folds into
+cap regardless, a 9th series never gets a generated hue, it folds into
 "Other." That cap happened to land exactly on a clean real cutoff (Casual at
 24 vs. the excluded pair's actual genre-adjacent neighbors Sports/Racing at
 13/7), so nothing had to be forced.
 
 Colors reuse the dataviz skill's already-validated default 8-slot
 categorical palette (`references/palette.md`) rather than deriving a new
-one — assigned in the genres' real prevalence order (Action → slot 1 blue,
+one, assigned in the genres' real prevalence order (Action → slot 1 blue,
 … Casual → slot 8 red), which preserves the CVD-safety guarantee that was
 validated for this exact hue *sequence* (re-ordering which hue means which
 genre is fine; what the validator actually checked was adjacency within
 this sequence). Re-ran `validate_palette.js` against this app's own light/
 dark chrome surfaces (`#faf8f4`/`#141310`, not the skill's reference
 surfaces) rather than assuming the original validation still holds on a
-different ground — both pass every check; light mode WARNs on raw contrast
+different ground, both pass every check; light mode WARNs on raw contrast
 for 3 of the 8 hues (aqua/yellow/magenta), which the skill flags as needing
-a relief channel — satisfied here since every genre card always carries a
+a relief channel, satisfied here since every genre card always carries a
 matching icon and text label, so identity is never color-alone regardless.
 One caveat logged honestly: the categorical validator's "adjacent pairs"
 model is a linear sequence (bars/lines), and this palette is displayed in a
 2D grid, where a card has up to 4 visual neighbors, not 2. Didn't re-derive
-for grid-adjacency specifically — the icon+label pairing already makes
+for grid-adjacency specifically, the icon+label pairing already makes
 color non-load-bearing, which covers the gap.
 
-Eight hand-authored line-art SVG glyphs (`components/GenreIcon.tsx`) — a
+Eight hand-authored line-art SVG glyphs (`components/GenreIcon.tsx`), a
 crosshair, compass, pixel-heart, gem, gear-spokes, network nodes, a 3×3
-grid, a smiley — rather than pulling in an icon library for 8 shapes.
+grid, a smiley, rather than pulling in an icon library for 8 shapes.
 
 Genre cards aren't decorative: clicking one calls the same `ask()` path as
 the Slice 6 example-question chips, with a genre-specific real question
 (`lib/genres.ts`'s `question` field) that the existing agent can already
-answer with zero backend changes — same reasoning Slice 7 leaned on for
+answer with zero backend changes, same reasoning Slice 7 leaned on for
 player-count questions ("meant to grow" schema, no new code needed).
 
 ### Accessibility: `MotionConfig reducedMotion="user"`, once
@@ -1419,12 +1419,12 @@ Rather than checking `prefers-reduced-motion` in every animated component,
 `components/MotionProvider.tsx` wraps the whole app in a single
 `<MotionConfig reducedMotion="user">`. Motion's own reduced-motion mode
 keeps opacity/color transitions but makes positional animation (the hero's
-stagger-in, card lift, trace-dot scale) instant — one line, whole-app
+stagger-in, card lift, trace-dot scale) instant, one line, whole-app
 coverage.
 
 ### Verification, and a real bug found in the process
 
-Built the whole slice, then drove it in an actual browser (Playwright) —
+Built the whole slice, then drove it in an actual browser (Playwright) -
 not just visual screenshots of static markup, but a real interaction: click
 a genre card, watch the trace stepper animate through real streamed
 progress events, wait for either a result or a failure. Checked light and
@@ -1432,16 +1432,16 @@ dark themes, and a hover state (the card's radial glow).
 
 That last check surfaced a real, pre-existing **backend** bug, unrelated to
 this slice's own code: `POST /ask/stream` crashes the whole Python process
-—not a Python exception with a traceback, a hard native fault
+-not a Python exception with a traceback, a hard native fault
 (`OPENSSL_Uplink(...): no OPENSSL_Applink` printed to stderr, then the
-process exits) — reproducibly, on the first request that does real work.
+process exits), reproducibly, on the first request that does real work.
 `/health` (no outbound network call) works fine every time; the crash
 happens exactly when the agent would make its first real HTTPS call (Groq).
 Working hypothesis, not yet confirmed: `truststore.inject_into_ssl()` (added
 back in the pyproject.toml/uv migration, to route around Avast's TLS
 interception via the OS trust store) patches Python's global `ssl` module
 in a way that collides with another native extension's own statically
-linked OpenSSL the first time a real TLS handshake actually happens — the
+linked OpenSSL the first time a real TLS handshake actually happens, the
 same family of Windows TLS issue this project has already hit twice before
 (`uv sync`/`uv lock`'s `UnknownIssuer` errors), just triggered from inside
 the running app instead of from `uv`. Not chased further here: it's a
@@ -1449,33 +1449,33 @@ backend runtime issue, out of scope for a frontend-visual-polish slice, and
 guessing at a fix without reproducing it outside this one environment risked
 breaking the ingestion/eval paths that already depend on `truststore`/
 `native-tls`. What *was* verified: the frontend's own handling of a dropped
-connection is correct — `lib/api.ts`'s `fetch` rejects, `page.tsx`'s catch
+connection is correct, `lib/api.ts`'s `fetch` rejects, `page.tsx`'s catch
 block sets the existing "Couldn't reach the backend" error state, no crash,
 no stuck loading spinner.
 
 ### Open questions (new)
 
-- **The `/ask/stream` native crash needs real investigation** — likely
+- **The `/ask/stream` native crash needs real investigation**, likely
   `truststore` vs. some other native extension's bundled OpenSSL on
   Windows, per the hypothesis above, but unconfirmed. Next step if
   picked up: reproduce with `MODEL_PROVIDER=ollama` (no outbound HTTPS at
   all) to test whether the crash is specifically tied to the first real
   TLS handshake, then bisect which native extension collides with
   `truststore`'s patched `ssl` module.
-- **Grid-adjacency CVD validation for the genre palette** — validated as a
+- **Grid-adjacency CVD validation for the genre palette**, validated as a
   linear sequence per the dataviz skill's method; a true 2D-grid adjacency
   check would need extending the validator's pairlist logic, not attempted
   here since the icon+label pairing already covers the accessibility gap.
 
 ---
 
-## Slice 9b — Retro redesign, real forecasting, dynamic genre stats
+## Slice 9b, Retro redesign, real forecasting, dynamic genre stats
 
 **Date:** 2026-08-25
 
 The user tried Slice 9's frontend, and it worked (a real Groq round trip
 rendered correctly, screenshots included), but the reaction was blunt: it
-"feels like an AI slop website." Fair — re-reading it, the first pass had
+"feels like an AI slop website." Fair, re-reading it, the first pass had
 drifted into exactly the look the artifact-design skill's cliché list warns
 about: soft rounded-xl everything, muted warm neutrals, safe spacing. Good
 engineering, forgettable design. Three follow-on requests arrived together:
@@ -1484,31 +1484,31 @@ and stop hardcoding the genre-showcase counts.
 
 ### Picking a retro lane, not "retro" in general
 
-"Retro" spans unrelated worlds — asked the user to choose among three
+"Retro" spans unrelated worlds, asked the user to choose among three
 concrete directions (80s arcade/neon, 90s terminal/phosphor, Y2K
 retro-futurism) rather than guess, since a full visual identity is expensive
 to redo twice. Landed on 80s arcade/neon. That decision drove real,
 falsifiable choices, not just a vibe:
 - Sharp corners + thick borders everywhere a panel/console appears (cabinet
   bezel), contrasted with round pill buttons for actual clickable controls
-  (cabinet joystick buttons) — the contrast is the point, not an oversight.
+  (cabinet joystick buttons), the contrast is the point, not an oversight.
 - Four typefaces, each doing exactly one job, is a genuine departure from
   the "one display + one body" pairing structure `artifact-design` normally
   recommends: Archivo (body/UI, unchanged), IBM Plex Mono (data/code,
-  unchanged), **Monoton** (the hero headline, *only* the hero headline — a
+  unchanged), **Monoton** (the hero headline, *only* the hero headline, a
   neon-tube marquee face, illegible at paragraph length by design, which is
   exactly why it's confined to four words), **Press Start 2P** (pixel
-  labels — section eyebrows, route/cached badges, the trace stepper's node
+  labels, section eyebrows, route/cached badges, the trace stepper's node
   labels; same illegibility-at-length constraint, same confinement).
 - The marquee chase-light animated border (`.marquee-border` in
-  globals.css — a rotating `conic-gradient` masked to a ring via
+  globals.css, a rotating `conic-gradient` masked to a ring via
   `@property --marquee-angle`) went on exactly one element, the ask console.
-  Considered putting it on the result panel too and didn't — one orchestrated
+  Considered putting it on the result panel too and didn't, one orchestrated
   motion moment reads as a choice; two competing ones read as decoration.
 - Grounds got realigned to the *exact* hex values ARCHITECTURE.md's
   agent-trace artifact already used (`#0d1014` dark / `#f6f4f0` light) rather
   than the close-but-not-identical approximation Slice 9 shipped
-  (`#141310`/`#faf8f4`) — the user's second screenshot in this conversation
+  (`#141310`/`#faf8f4`), the user's second screenshot in this conversation
   was literally that artifact's graph, used as the reference for "this is
   the level of polish I want," so tightening brand continuity to match it
   exactly was the correct read of that signal, not a coincidence to ignore.
@@ -1521,9 +1521,9 @@ the identical retrieve_schema → agent → execute_tools loop as lookup/
 analysis (see ARCHITECTURE.md's updated graph), with `run_forecast`
 (`src/tools/forecast_tool.py`) bound alongside `run_sql`. The interesting
 design decision wasn't the linear regression (scipy `linregress`, nothing
-exotic) — it was where the "do we actually have enough data" honesty check
+exotic), it was where the "do we actually have enough data" honesty check
 lives. It does NOT live in the router (classify forecast questions as
-forecast regardless of whether data exists — the router's job is
+forecast regardless of whether data exists, the router's job is
 understanding the question, not knowing the DB's current state) and does
 NOT live in a route-level gate (a fixed "not supported" block would make the
 feature permanently disabled even once real history accumulates). It lives
@@ -1532,7 +1532,7 @@ snapshot count for whatever query the LLM wrote, and returns a structured
 `insufficient_history` result instead of fitting a line through one point.
 This means the feature **self-upgrades**: the moment the Slice 7 poller
 lands a second real snapshot for some game, that game's forecast questions
-start returning real projections, with zero code changes — verified this is
+start returning real projections, with zero code changes, verified this is
 architecturally true by unit-testing `_forecast()` directly against
 constructed multi-point data (a real 6-point rising series, both a
 near-horizon and a deliberately-absurd 365-day-out horizon), not just
@@ -1542,13 +1542,13 @@ Also added a `low_confidence` flag, separate from `insufficient_history`:
 even with ≥2 points, projecting further ahead than the *observed* span is
 extrapolation past what the data can support, and <5 points is thin enough
 that a line captures noise as easily as trend. Both conditions are checked
-independently and their reasons are returned as a list, not a boolean —
+independently and their reasons are returned as a list, not a boolean -
 the system prompt (`FORECAST_TOOL_GUIDANCE` in prompts.py) instructs the
 model to always surface these reasons in prose rather than stating a
 number with false confidence. Verified end-to-end with a real Groq call
 against "How many players will Counter-Strike have next year?" (the exact
 phrase the router/prompts docstrings use as their example, and one of the 4
-default example questions in the frontend) — the agent correctly reported
+default example questions in the frontend), the agent correctly reported
 insufficient history AND, on its own initiative, fell back to a real
 `run_sql` query for CS:GO's `peak_ccu` to give a useful answer instead of a
 bare refusal. That fallback behavior wasn't prompted for explicitly; it fell
@@ -1561,38 +1561,38 @@ out of binding `[run_sql, run_forecast]` together for the forecast route
 Mid-session interjection: "I dont want just 200 data timestamp, I want the
 retrieval of the data to be dynamic." Read literally this is about
 `player_counts`, but in context (right after seeing the genre showcase) it
-was about `lib/genres.ts` — Slice 9 baked the 8 genre labels/counts in as a
+was about `lib/genres.ts`, Slice 9 baked the 8 genre labels/counts in as a
 TypeScript literal, computed once by hand against a local export. That's
 exactly the kind of frozen snapshot the project's `refresh_catalog.yml`
 (weekly re-ingestion) would silently invalidate. Fixed by adding
-`GET /genres` (`src/db/genre_stats.py`) — the same split-comma-and-count
-logic, now running at request time against the live `games` table — and
+`GET /genres` (`src/db/genre_stats.py`), the same split-comma-and-count
+logic, now running at request time against the live `games` table, and
 having `GenreShowcase.tsx` fetch it on mount instead of importing a
 constant. Went further than just re-fetching the *counts*: which 8 labels
 even make the top-8 is now live too, since the real top-8 could shift as
-the catalog grows. That meant `lib/genres.ts` had to change shape — it's no
+the catalog grows. That meant `lib/genres.ts` had to change shape, it's no
 longer a list of genres, it's curation metadata (icon id, a nicer example
 question) keyed by label, with a generic fallback (`GenreIcon`'s new
 `Generic` glyph, a templated "What are the 5 highest-rated {label} games?"
 question) for any label outside the curated set. Deliberately did NOT try
-to curate icons for every SteamSpy tag the catalog could ever produce —
+to curate icons for every SteamSpy tag the catalog could ever produce -
 Sports and Racing got real hand-drawn icons since they're plausible top-8
 contenders; the long tail (the occasional mislabeled non-game entry
 producing a tag like "Photo Editing") gets the generic fallback and that's
 fine, it's meant to.
 
 This turned `genre_stats.py` into the first read path in the whole system
-that touches the DB *without* going through `connection.py`'s guard —
+that touches the DB *without* going through `connection.py`'s guard -
 worth being explicit about why that's correct, not an oversight: the guard
 exists to constrain **LLM-generated** SQL. `genre_stats.py` runs one fixed,
 hand-written query with no model or user input anywhere in it. Routing it
 through `validate_select_only` would add a dependency for zero safety
-benefit — there's nothing adversarial to guard against here.
+benefit, there's nothing adversarial to guard against here.
 
 ### A real bug, found by accident, that had nothing to do with any of this
 
 Tried to verify the forecast feature live and hit the exact `/ask/stream`
-crash flagged (but not investigated) at the end of Slice 9 — `OPENSSL_Uplink
+crash flagged (but not investigated) at the end of Slice 9, `OPENSSL_Uplink
 (...): no OPENSSL_Applink`, killing the whole Python process, no traceback.
 Slice 9's DOCEXP entry guessed this was `truststore`'s `ssl` patch colliding
 with some other native extension's bundled OpenSSL. **That hypothesis was
@@ -1602,20 +1602,20 @@ mislabeling entry).
 
 Isolated it properly this time, one layer at a time, in the actual venv:
 1. A **plain `requests.get()`** to a real HTTPS endpoint, zero project code
-   imported — crashed identically. Ruled out truststore, ruled out Groq's
+   imported, crashed identically. Ruled out truststore, ruled out Groq's
    SDK, ruled out LangChain/LangGraph entirely; this was never an agent-code
    bug.
-2. **Raw stdlib `ssl.wrap_socket()`**, no `requests`/`urllib3` either —
+2. **Raw stdlib `ssl.wrap_socket()`**, no `requests`/`urllib3` either -
    crashed identically. Ruled out the requests/urllib3 layer too. This is a
    fault in the Python installation's own TLS stack, full stop.
 3. The **already-installed Microsoft Store Python 3.12** on the same
-   machine — same real network, same Avast, same everything else — did a
+   machine, same real network, same Avast, same everything else, did a
    real TLS handshake to the same host with zero issue. This is what ruled
    out Avast as the cause of *this specific crash* (Avast's TLS interception
-   is real and is exactly why `truststore` exists at all — but it produces a
+   is real and is exactly why `truststore` exists at all, but it produces a
    catchable `CERTIFICATE_VERIFY_FAILED`, not a process-killing native
    fault, and this system Python hit neither).
-4. A **uv-managed Python 3.12.13** (`uv run --python 3.12`) — also clean.
+4. A **uv-managed Python 3.12.13** (`uv run --python 3.12`), also clean.
    At this point the only variable left was the interpreter build itself:
    the project's `.venv` was on uv's default pick, **3.14.2**, uv's newest
    available standalone Windows build at the time. Python 3.14 had only
@@ -1623,11 +1623,11 @@ Isolated it properly this time, one layer at a time, in the actual venv:
    standalone build was, by this point, the only hypothesis still standing.
 
 Fixed by pinning `.python-version` to `3.12` and rebuilding `.venv` (`rm -rf
-.venv && uv sync --extra agent`) — `requires-python = ">=3.12"` already
+.venv && uv sync --extra agent`), `requires-python = ">=3.12"` already
 permitted this, so no dependency constraint needed to change. Re-ran the
 same plain-`requests` probe on the rebuilt venv: it now failed with the
 *expected*, *already-understood*, *already-solved* Avast error
-(`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`) — and
+(`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`), and
 then succeeded cleanly once `src.config` (which calls
 `truststore.inject_into_ssl()` at import time) was imported first. That's
 the tell that this really was two separate, unrelated issues stacked on top
@@ -1635,12 +1635,12 @@ of each other: a genuine `python-build-standalone` 3.14.2 Windows bug (fixed
 by not using that build), sitting on top of the long-standing, already-
 correctly-handled Avast TLS interception (fixed by `truststore`, same as
 every prior occurrence in this project). Confirmed fixed against a real
-Groq call afterward — see the forecast section above.
+Groq call afterward, see the forecast section above.
 
 The methodological point worth keeping: the fix came from isolating variables
 one at a time against the *real* environment (this venv, this network, this
 Avast install) rather than pattern-matching to "we've seen a TLS error
-before, it's probably the same cause" — the previous entry's guess did
+before, it's probably the same cause", the previous entry's guess did
 exactly that pattern-match and was wrong.
 
 ### Open questions (new)
@@ -1650,18 +1650,18 @@ exactly that pattern-match and was wrong.
   for now; revisit if a similar issue ever shows up on a specific patch.
 - **Should this project's CI/deployment pin Python the same way?** The
   `Dockerfile` doesn't currently specify a Python version explicitly at all
-  (relies on whatever `uv sync` resolves inside the container image) — worth
+  (relies on whatever `uv sync` resolves inside the container image), worth
   checking it doesn't silently pick up a fresh, potentially-buggy standalone
   build the same way local dev just did.
 - **The result panel's answer text renders literal `**markdown**`
-  asterisks** — noticed during this slice's live screenshots (pre-existing,
+  asterisks**, noticed during this slice's live screenshots (pre-existing,
   not introduced here: `<p>{result.answer}</p>` has never parsed markdown).
-  Small, real, not fixed here — out of scope for a redesign+forecast slice.
+  Small, real, not fixed here, out of scope for a redesign+forecast slice.
   Fixed next in Slice 9c.
 
 ---
 
-## Slice 9c — Markdown, real genre browsing, Anime.js background
+## Slice 9c, Markdown, real genre browsing, Anime.js background
 
 **Date:** 2026-08-25
 
@@ -1672,18 +1672,18 @@ for background motion.
 
 ### Markdown: `react-markdown` over hand-rolling it
 
-Considered a small hand-written `**bold**`/`* item` regex parser first —
+Considered a small hand-written `**bold**`/`* item` regex parser first -
 consistent with this project's usual "no dependency for something this
 small" instinct (the SSE parsing in `lib/api.ts` is hand-rolled for exactly
 that reason). Went with `react-markdown` instead once the actual failure
 mode was reconsidered: the agent's answers are real LLM prose, not a fixed
 template, so what shows up (bold, bullet or numbered lists, occasional
-inline code) is whatever GPT-OSS decided to write — a hand parser would need
+inline code) is whatever GPT-OSS decided to write, a hand parser would need
 to cover CommonMark's real edge cases (nested lists, escaped characters,
 mixed list markers) to not just move the bug rather than fix it, at which
 point it's reimplementing a markdown parser, badly, instead of using the
 industry-standard one. `components/Markdown.tsx` wraps it with an explicit
-`components` map — every element (`p`, `strong`, `ul`/`li`, `code`, `a`) is
+`components` map, every element (`p`, `strong`, `ul`/`li`, `code`, `a`) is
 styled to this app's own tokens by hand, not a generic `@tailwindcss/
 typography` "prose" class, so the rendered markdown looks like it belongs
 to this app specifically rather than to a plugin's default theme.
@@ -1692,7 +1692,7 @@ to this app specifically rather than to a plugin's default theme.
 
 Slice 9 made a genre card fire a curated LLM question. Explicit correction
 this round: "when we click on it, we should display the games." This is a
-better design independent of being asked for — clicking a card to *browse*
+better design independent of being asked for, clicking a card to *browse*
 what's actually in that genre is a faster, more expected interaction than
 clicking a card to *ask an AI about* that genre, and it doesn't cost a Groq
 round trip to satisfy. `GET /games` (`get_games_by_genre` in
@@ -1701,12 +1701,12 @@ deterministic, no-LLM, no-guard endpoint for the same reason the first one
 is: it's one fixed query with a parameterized genre argument, not
 LLM-generated SQL, so `connection.py`'s guard has nothing to add. Matches on
 the comma-split token (case-insensitive), not a raw `ILIKE '%label%'`
-substring — same reasoning `get_genre_counts()` already established: a
+substring, same reasoning `get_genre_counts()` already established: a
 substring match on the whole free-text field can't distinguish a real match
 from an accidental one where the label happens to be a substring of a
 different, unrelated tag.
 
-The LLM-question path didn't disappear — a card's expanded panel has a
+The LLM-question path didn't disappear, a card's expanded panel has a
 secondary "ask the agent about {genre} →" link that calls the same
 `onPick` the old click behavior used, so both interactions coexist:
 fast/deterministic browsing as the primary action, the agent still one
@@ -1716,7 +1716,7 @@ One real implementation snag, not a design decision: the new-ish
 `react-hooks/set-state-in-effect` ESLint rule flagged calling `setGames(null)`/
 `setGamesLoading(true)` synchronously in the effect body that runs the
 fetch. Fixed by moving those two resets into the click handler itself
-(`toggle()`) — the effect now only sets state from the async fetch's
+(`toggle()`), the effect now only sets state from the async fetch's
 resolution (`.then`/`.catch`/`.finally`), which is what the rule is
 actually asking for: an effect should react to an external system's result,
 not synchronously mutate state itself the moment it runs.
@@ -1728,22 +1728,22 @@ after Slice 9's consolidation onto Motion alone (partly *because* the
 original ask listed Anime.js as one of four overlapping libraries for
 general UI animation). This isn't reopening that call: `components/
 RetroBackground.tsx` is a synthwave grid-horizon-plus-drifting-motes loop
-with **no React state involved at all** — nothing it animates is derived
+with **no React state involved at all**, nothing it animates is derived
 from or feeds back into a component's props/state. Motion's whole value
 proposition (`variants`, `AnimatePresence`, gesture props tied to render)
 doesn't apply to a background that never needs to know anything about the
-React tree. Anime.js's imperative, timeline-first API — grab a DOM/SVG ref,
-animate it, let it run — is a better fit for exactly that job, and using it
+React tree. Anime.js's imperative, timeline-first API, grab a DOM/SVG ref,
+animate it, let it run, is a better fit for exactly that job, and using it
 there isn't redundant with Motion's job anywhere else in the app. Kept
 strictly to this one file; nothing else in the app imports it.
 
 Implementation notes, since Anime.js v4 is a genuinely different API from
 the v3 most people remember (`anime({targets, ...})` → named exports
 `animate(targets, params)`, `easing` → `ease`, modular sub-path imports)
-— introspected the installed package's actual `.d.ts` files rather than
+- introspected the installed package's actual `.d.ts` files rather than
 trusting memorized v3 API shape, same discipline as the MCP SDK version
 drift in Slice 8. One real design choice inside it: the scrolling grid is
-NOT an animated SVG `<pattern>` (the first draft used one) — CSS `transform`
+NOT an animated SVG `<pattern>` (the first draft used one), CSS `transform`
 support on `<pattern>` elements is inconsistent across browsers since
 patterns aren't normal rendered/laid-out elements. Switched to animating a
 plain `<g>` of explicit `<line>` elements instead (universally reliable),
@@ -1752,24 +1752,24 @@ one-row-height loop reads as continuous with no visible seam at the wrap.
 
 ### Open questions (new)
 
-- **No table/task-list markdown styling** — `react-markdown`'s default
+- **No table/task-list markdown styling**, `react-markdown`'s default
   CommonMark support covers everything seen in real answers so far (bold,
   lists, occasional code); GFM extras (tables, strikethrough) aren't wired
   up (`remark-gfm` isn't installed) since no real answer has needed them
   yet. Add it if/when a stats answer actually wants a table.
 - **The games leaderboard always shows exactly what `get_games_by_genre`
-  returns (top 8 by review score, then peak CCU)** — no sort/filter control
+  returns (top 8 by review score, then peak CCU)**, no sort/filter control
   in the UI yet. Fine for a browsing entry point; would need one if this
   panel grows into something people spend real time in.
 
 ---
 
-## Slice 9d — One committed scene, not a subtle texture
+## Slice 9d, One committed scene, not a subtle texture
 
 **Date:** 2026-08-25
 
 The reaction to Slice 9c's ambient background: "I don't like the black or
-white," with a specific reference image — a magenta grid horizon under a
+white," with a specific reference image, a magenta grid horizon under a
 glowing sun, mountains in silhouette. Not "more retro texture," a
 correction: the earlier treatment was a faint decoration on top of a
 neutral near-black/near-white page; what was actually wanted is that scene
@@ -1782,18 +1782,18 @@ discipline this project followed carefully through Slices 6-9c: brand
 chrome (`--background`, `--surface`, `--foreground`, etc.) no longer has a
 light/dark split. One synthwave-night palette, always. Two reasons this is
 the right call here rather than a corner cut: (1) the reference is
-inherently a night scene — a "light mode" synthwave horizon isn't a
+inherently a night scene, a "light mode" synthwave horizon isn't a
 lighter version of the same thing, it's a different image, and diluting a
 specific, deliberate reference into two lesser variants would serve
 neither; (2) the `artifact-design` skill explicitly carves out exactly this
 case ("a design that deliberately commits to one visual world... may stay
 single-theme"). The genre categorical palette and `.viz-root` chart tokens
 both collapsed to their single already-dark-tuned values too, for the same
-reason — every surface in the app is dark-glass now regardless of OS
+reason, every surface in the app is dark-glass now regardless of OS
 theme, so keeping a light variant of hues tuned for a light surface that no
 longer exists would be dead code, not a real fallback.
 
-`--accent` didn't change value (`#ffc857`, close to the prior `#f0a63a`) —
+`--accent` didn't change value (`#ffc857`, close to the prior `#f0a63a`) -
 it's still the same warm-gold thread running through the trace artifact and
 the rest of the app, and it happens to double as "the sun's color" in the
 new scene without any adjustment needed. One brand color, two coincidentally
@@ -1804,7 +1804,7 @@ compatible contexts.
 `components/RetroBackground.tsx` (rewritten, not extended) draws sky
 (linear gradient, 5 stops), a sun (radial gradient circle, masked with a
 few horizontal black bars near its base for the classic "striped retro
-sun" look), two layers of low-poly mountain silhouettes (`ridge()` — a
+sun" look), two layers of low-poly mountain silhouettes (`ridge()`, a
 small deterministic sine-wobble generator, not hand-typed path data,
 consistent with the diagramming discipline's "avoid long decorative path
 data"), and a neon grid: static converging verticals fanned from a single
@@ -1818,9 +1818,9 @@ not boxes painted on top of it.
 ### Cartridges, and a real rendering bug found building them
 
 "Some cartridges to be the choices... like the old Game Boy or DS
-cartridges" — genre cards became `components/GenreCartridge.tsx`: a
+cartridges", genre cards became `components/GenreCartridge.tsx`: a
 chamfered-corner silhouette (one shape family for all 8 genres, not
-alternating Game Boy/DS shapes — cohesion over literal variety), a
+alternating Game Boy/DS shapes, cohesion over literal variety), a
 label-sticker window holding the existing `GenreIcon` glyph, and a
 connector-notch ridge at the bottom. Hover lifts and slightly rotates the
 cartridge (Motion spring, `whileHover`) for a physical "pop out" read.
@@ -1828,32 +1828,32 @@ cartridge (Motion spring, `whileHover`) for a physical "pop out" read.
 First draft used `clip-path: polygon(...)` alone on the glass-panel div to
 cut the chamfer. Screenshotted it to verify (the discipline that's caught
 every other visual bug this project has shipped) and the corner looked
-perfectly square — no chamfer visible anywhere, on any of the 8 cartridges.
+perfectly square, no chamfer visible anywhere, on any of the 8 cartridges.
 Root cause, once actually checked (`getComputedStyle` confirmed the
 clip-path value WAS applied correctly): `clip-path` genuinely removes the
 pixels outside the polygon, but it doesn't paint anything new along the
-edge it creates — the `border-2` on that div still only draws along the
+edge it creates, the `border-2` on that div still only draws along the
 *original* rectangular box edges, so where the clip line cuts through,
 there's no stroke at all, just a bare edge revealing whatever's behind it.
 Since what's behind it (the scene, at the point genre cards sit) is a
 similarly dark color to the panel's own near-black glass, the cut was real
-but had ~zero visual contrast — geometrically correct, invisible in
+but had ~zero visual contrast, geometrically correct, invisible in
 practice. Fixed by overlaying a second, stroke-only SVG `<polygon>` (same
-points, `fill="none"`) directly on top — that's what actually draws a
+points, `fill="none"`) directly on top, that's what actually draws a
 visible line along the diagonal, since an SVG stroke traces its shape's
 full boundary regardless of what a sibling element's CSS clip did.
 General lesson worth keeping: `clip-path` clips content, it does not
-imply an outline — anything that needs the cut *edge itself* to be
+imply an outline, anything that needs the cut *edge itself* to be
 visible needs something else to draw it.
 
 ### Addendum: font swap, and actually centering the sun
 
 Two immediate follow-ons once this was live: the body font still read as a
 generic modern grotesque next to Monoton/Press Start 2P/Plex Mono, and the
-sun sat too high — mostly hidden behind the hero copy rather than being a
+sun sat too high, mostly hidden behind the hero copy rather than being a
 real focal point.
 
-Swapped `--font-display` from Archivo to **Chakra Petch** — full weight
+Swapped `--font-display` from Archivo to **Chakra Petch**, full weight
 range (so it still works for both body copy and semibold labels, unlike
 Audiowide/Orbitron which are single-weight display faces that get
 illegible at paragraph size), with a squared-off, slightly-angular
@@ -1861,48 +1861,48 @@ character that actually reads as retro-computer rather than a neutral
 grotesque wearing a retro palette.
 
 Centering the sun took two tries. First attempt: changed the SVG's
-`preserveAspectRatio` from `xMidYMax slice` (bottom-anchored — where the
+`preserveAspectRatio` from `xMidYMax slice` (bottom-anchored, where the
 horizon/sun end up depends on how much the viewport's aspect ratio
 overflows vertically, which is what was pushing the sun up out of view)
 to `xMidYMid slice`, and grew the viewBox from `800x600` to `800x900` with
-the horizon fixed at the exact vertical middle (y=450) — this makes the
+the horizon fixed at the exact vertical middle (y=450), this makes the
 horizon land at the vertical center of *any* viewport predictably, not
 wherever the old aspect-ratio math happened to put it. Verified the math
 holds by hand for a few real viewport ratios before trusting it (a
 1280×1100 window: scale is width-driven at 1.6×, the visible vertical crop
-window maps back to a horizon position of exactly 50% — confirmed, not
+window maps back to a horizon position of exactly 50%, confirmed, not
 assumed) rather than just eyeballing one screenshot and hoping it
 generalizes to other window sizes. Also extended the ground/grid drawing
 to y=1000 (past the 900-tall viewBox) so no real aspect ratio produces a
-visible gap under the grid — checked this explicitly against a tall/narrow
+visible gap under the grid, checked this explicitly against a tall/narrow
 900×1400 viewport, the shape most likely to expose one.
 
 That first attempt centered the sun correctly but made it too large and
-too bright exactly where the hero paragraph lives — a real legibility
+too bright exactly where the hero paragraph lives, a real legibility
 regression, caught by screenshotting before calling it done (the same
 discipline that caught the invisible cartridge chamfer earlier in this
 slice). Fixed two ways together, not by picking one: shrank the sun
 (r 168→132) and biased it down slightly relative to the horizon so its
 brightest band sits mostly above the text column instead of behind it, and
 gave the hero paragraph a dark text-shadow plus switched it from the muted
-lavender tone to full foreground-white — belt-and-suspenders, since exact
+lavender tone to full foreground-white, belt-and-suspenders, since exact
 sun geometry will never guarantee zero overlap at every viewport size, but
 shadowed white text stays readable against anything behind it regardless.
 
 ### Open questions (new)
 
 - **No light-mode fallback exists anymore for anyone who'd genuinely prefer
-  one** — a deliberate scope choice (see above), not an oversight, but
+  one**, a deliberate scope choice (see above), not an oversight, but
   worth revisiting if that preference ever comes up for real.
 - **Mobile/narrow-viewport rendering of the scene and cartridges wasn't
-  separately verified this round** — desktop (1280px) was checked
+  separately verified this round**, desktop (1280px) was checked
   thoroughly (hover, selection, the leaderboard panel, no console errors);
   the responsive grid classes themselves are unchanged from Slice 9, so
   behavior should carry over, but that's inference, not a check.
 
 ---
 
-## Slice 9e — The markdown bug's real cause, and actually checking mobile
+## Slice 9e, The markdown bug's real cause, and actually checking mobile
 
 **Date:** 2026-08-25
 
@@ -1911,35 +1911,35 @@ flagged and left unfixed will eventually be the thing that breaks.
 
 ### The markdown bug wasn't a rendering bug
 
-Slice 9c added `react-markdown` and it worked — verified live with `<strong>`
+Slice 9c added `react-markdown` and it worked, verified live with `<strong>`
 count assertions and everything. So when the user reported the exact same
 raw-asterisks symptom afterward, the reflexive assumption would be "the fix
 didn't actually ship" or "there's a renderer edge case." Checked the actual
 API response first instead of guessing: the answer string itself was
-`"...* **Mean price – Indie games:** ≈$15.50 * **Mean price..."` — all one
+`"...* **Mean price, Indie games:** ≈$15.50 * **Mean price..."`, all one
 physical line, bullets separated by inline `*` with no newline anywhere
 between them. That is not valid CommonMark. No markdown renderer, correctly
-implemented, turns that into a list — the asterisks are ambiguous emphasis
+implemented, turns that into a list, the asterisks are ambiguous emphasis
 delimiters at best, literal characters at worst, and `react-markdown` was
 doing exactly the right thing with genuinely malformed input. The Slice 9c
 fix was real and still works (confirmed again this round); the bug was one
 level upstream, in what the model was writing, not in what parsed it.
 
 Fixed by adding an explicit formatting section to `SYSTEM_PROMPT_TEMPLATE`
-(`src/agent/prompts.py`) — spelling out, as literal instruction rather than
+(`src/agent/prompts.py`), spelling out, as literal instruction rather than
 implication, that the answer is rendered as markdown, that ≥3 related
 numbers should become a real GFM table (header row, `|---|---|` separator,
 data rows), and that a chained one-line `* label: value * label: value`
 run is explicitly called out as *not valid* and *not to be used*. Paired
 with a frontend change either way: added `remark-gfm` to `react-markdown`
 so that when the model does emit a real table, it renders as a real
-`<table>` (styled in `Markdown.tsx` to match the rest of the app — pixel-
+`<table>` (styled in `Markdown.tsx` to match the rest of the app, pixel-
 font gold headers, monospace data cells) instead of raw pipes and dashes.
 Neither fix alone would have been enough: prompt-only leaves a client that
 can't render a table if the model gets the syntax right; renderer-only
 does nothing about a model that never produces valid list/table syntax in
 the first place. Verified against the literal question that broke
-originally (Indie vs. other games price comparison) — real 2-row table,
+originally (Indie vs. other games price comparison), real 2-row table,
 zero raw `**`, zero raw `----`, confirmed as an actual `<table>` element in
 a live browser, not just well-formed markdown in the API response.
 
@@ -1947,48 +1947,48 @@ a live browser, not just well-formed markdown in the API response.
 
 Both the Slice 9c and Slice 9d entries logged "mobile wasn't separately
 verified, but the responsive classes are unchanged so it should be fine" as
-an open question — a reasonable-sounding inference that turned out to be
+an open question, a reasonable-sounding inference that turned out to be
 wrong. Ran Playwright with real device emulation (iPhone 14, Pixel 7) for
 the first time on this redesign and found a genuine bug immediately: the
 genre showcase's section header (`[ OR EXPLORE BY GENRE ]` next to "live
 from the catalog") had `justify-between` with no `flex-wrap`. Every other
 `justify-between` row in the app already had `flex-wrap` (added when each
-of those was originally built and visually checked) — this one line was
+of those was originally built and visually checked), this one line was
 just missed, and nothing caught it because desktop viewports never got
 narrow enough to expose it. Fixed by adding `flex-wrap` + explicit gap,
 same pattern as its siblings. The methodological point: "the classes didn't
-change" is not the same claim as "the layout still works" — narrower
+change" is not the same claim as "the layout still works", narrower
 viewports can expose a latent bug in code that was never touched, if it was
 never actually tested at that width to begin with.
 
 ### Dropping the Expo mobile client
 
 The user's call, stated directly: a native app isn't worth it for what this
-is — one tool, one page's worth of functionality, and doubling the UI
+is, one tool, one page's worth of functionality, and doubling the UI
 surface (Slice 9's whole visual system would need a second, React Native
 implementation) for what a responsive browser tab already covers once it's
 actually been verified to work on a phone-sized screen. Moved Slice 10 from
 "Expo mobile client" to a mobile-web-polish-plus-deployment slice instead;
 the Expo entry moved to Dropped in PLAN.md, next to the earlier Gemini
-decision — same shape of decision (a planned-for-later item, reconsidered
+decision, same shape of decision (a planned-for-later item, reconsidered
 once the actual cost/benefit was concrete instead of hypothetical).
 
 ### Addendum: 200 was a config default, not a SteamSpy limit
 
-The user asked directly whether 200 games was all SteamSpy would give —
+The user asked directly whether 200 games was all SteamSpy would give -
 worth checking the real ceiling rather than assuming. It wasn't a limit at
 all: `ingest_game_count = 200` in `src/config.py` was just the number
 `ingest.py` happened to slice off SteamSpy's bulk `all` listing.
 `get_all_page(page=0)` already returns ~1000 games (SteamSpy's own
-per-page size, sorted by owners descending) — `ingest.py` was only ever
+per-page size, sorted by owners descending), `ingest.py` was only ever
 asking for the first 200 of those. Getting more right now is a config
 change, not a code change; getting past ~1000 would be a real one
-(`ingest.py` only fetches page 0 — looping over page 1, 2, ... isn't built).
+(`ingest.py` only fetches page 0, looping over page 1, 2, ... isn't built).
 
 Bumped the default to 1000 everywhere it's declared (`src/config.py`,
 `.env.example`, the real `.env`) and re-ran ingestion. Deliberately did
 **not** bump the `Dockerfile`'s build-time `ARG INGEST_GAME_COUNT` default
-— that ingestion happens at Docker build time on whatever host deploys
+- that ingestion happens at Docker build time on whatever host deploys
 this, and rate-limited to ~1 req/sec, 1000 games adds real minutes to
 every future build. Left it at 200 (fast builds by default) with a
 comment already in place noting it's overridable via `--build-arg` for
@@ -2004,23 +2004,23 @@ build speed for it.
   10's job now, not assumed done.
 - **Deployment platform: sticking with the Slice 6 decision (Vercel +
   Render/Fly.io) unless a real reason to reconsider comes up.** The user
-  asked about alternatives (not Streamlit — correctly, this isn't a
+  asked about alternatives (not Streamlit, correctly, this isn't a
   Streamlit app; floated Replit). Worth a documented compare-and-decide
   pass in Slice 10 rather than assuming the two-year-old-in-project-time
   Slice 6 reasoning still automatically wins, even though it's still
-  probably right (this stack's real footprint — DuckDB, fastembed's ONNX
-  model, scipy, multi-step LLM calls — doesn't fit a lightweight
+  probably right (this stack's real footprint, DuckDB, fastembed's ONNX
+  model, scipy, multi-step LLM calls, doesn't fit a lightweight
   always-on-free-tier host well, which is the same reason Vercel's own
   Python functions were ruled out in Slice 6).
 
 ---
 
-## Slice 9f — More data, and taste applied concretely instead of by feel
+## Slice 9f, More data, and taste applied concretely instead of by feel
 
 **Date:** 2026-08-26
 
 Two follow-ons: confirming 200 games was a config default not a real
-ceiling (see PLAN.md's Slice 9f entry for the mechanics — SteamSpy's bulk
+ceiling (see PLAN.md's Slice 9f entry for the mechanics, SteamSpy's bulk
 page already holds ~1000, `ingest.py` just wasn't asking for that many),
 and a design request that named a specific reference (Emil Kowalski's
 public writing on interaction craft) rather than "make it nicer."
@@ -2028,37 +2028,37 @@ public writing on interaction craft) rather than "make it nicer."
 ### Grounding "taste" in something checkable
 
 Asked to apply Kowalski-style taste without inventing a fictional "skill"
-for it — his actual published material is real and specific enough to work
+for it, his actual published material is real and specific enough to work
 from directly. Fetched his site and "7 Practical Animation Tips" rather
 than working from vague memory of "that designer with the nice toasts."
 Audited this app's existing motion against each of the 7 concretely:
 
-- **Button press scale (0.97, `:active`)** — the Ask button and genre
+- **Button press scale (0.97, `:active`)**, the Ask button and genre
   cartridges already had tap feedback; the example-question chips didn't.
   Real, findable gap once actually checked against a checklist instead of
   a general "does this feel okay" pass. Fixed, and unified every
-  interactive element's press scale to the same 0.97 — one consistent
+  interactive element's press scale to the same 0.97, one consistent
   value reads as deliberate, three slightly different ones read as
   accidental.
-- **Avoid animating from `scale(0)`** — audited every `initial`/`animate`
+- **Avoid animating from `scale(0)`**, audited every `initial`/`animate`
   pair in the app; none do. No change needed, but worth having actually
   checked rather than assumed.
-- **`ease-out`, not `ease-in`, for entering/exiting** — the hero stagger
+- **`ease-out`, not `ease-in`, for entering/exiting**, the hero stagger
   and card entrances already use a custom ease-out-heavy cubic-bezier
   (`[0.16, 1, 0.3, 1]`), applied symmetrically to both enter and exit
   transitions, which is exactly what the tip recommends (ease-out for
   both, not ease-in for exits). Already correct.
-- **Keep it fast, <300ms for frequent interactions** — this app's
+- **Keep it fast, <300ms for frequent interactions**, this app's
   interactive elements (button taps, cartridge selection) are already
   spring-based and settle quickly; explicitly set the new chip
   press-transition to 150ms rather than leaving it at Motion's spring
   default, for consistency with the Ask button.
-- **Blur for rough transitions** — genuinely new. Added
+- **Blur for rough transitions**, genuinely new. Added
   `blur(4px)→blur(0px)` to both the progress-panel and result-panel
   `AnimatePresence` transitions, matching Kowalski's specific "underrated"
   recommendation for masking the seam when one piece of UI replaces
   another.
-- **Origin-aware transforms / skip delays on repeat tooltips** — don't
+- **Origin-aware transforms / skip delays on repeat tooltips**, don't
   apply here (no popovers-from-a-trigger-point or tooltip sequences in
   this app); noted as checked-and-not-applicable rather than silently
   skipped.
@@ -2066,20 +2066,20 @@ Audited this app's existing motion against each of the 7 concretely:
 The point of fetching the actual source first: three of the seven tips
 turned out to already be satisfied by decisions made earlier in this
 project for unrelated reasons (the ease-out curve was chosen in Slice 9
-for how it looked, not because it matched a specific external principle) —
+for how it looked, not because it matched a specific external principle) -
 worth knowing that's true, rather than assuming a "craft pass" always
 means new changes everywhere.
 
 ### Open questions (new)
 
-- **No literal "taste" or design-review skill exists for this project** —
+- **No literal "taste" or design-review skill exists for this project** -
   applied the specific external reference material directly this round;
   if this kind of audit becomes routine, a real project skill capturing
   "the checklist to run" would be the next step, not this ad hoc version.
 
 ---
 
-## Slice 9g — Retro didn't work; a full, honest rebuild
+## Slice 9g, Retro didn't work; a full, honest rebuild
 
 **Date:** 2026-08-26
 
@@ -2088,16 +2088,16 @@ better, more professional and not look like AI slop." Worth being honest
 about what this means for the previous three slices (9, 9b, 9c, 9d): the
 synthwave-arcade direction, however carefully crafted at each step (the
 cartridge chamfer bug, the sun-recentering math, the Kowalski animation
-audit — all real, all correct engineering), was the wrong *concept*, not a
+audit, all real, all correct engineering), was the wrong *concept*, not a
 concept that needed more polish. Worth naming why plainly, since it's a
 real lesson: a magenta grid horizon under a neon sun plus a pixel font is,
-at this point, a recognizable template trope — codepen demos, "80s retro"
+at this point, a recognizable template trope, codepen demos, "80s retro"
 site-builder themes, and a large fraction of AI-generated landing pages all
 converge on some version of it. Execution quality doesn't rescue a concept
 that reads as generic before anyone evaluates the execution. This is
 exactly the failure mode `artifact-design`'s own "avoid AI-generated
 design" cliché list is warning about, just a cliché the list doesn't
-happen to name — the list isn't exhaustive, the underlying test
+happen to name, the list isn't exhaustive, the underlying test
 ("does this read as chosen for this subject, or as decoration pulled from
 a shared aesthetic pool?") is what actually matters.
 
@@ -2105,12 +2105,12 @@ a shared aesthetic pool?") is what actually matters.
 
 Two things were checked directly rather than assumed, same discipline as
 the Kowalski animation pass: fetched linear.app itself (got a fairly
-generic AI-summarized read back — the page is heavily client-rendered, so
+generic AI-summarized read back, the page is heavily client-rendered, so
 the fetch didn't surface much concrete detail) and leaned on directly-
 verifiable specifics instead of the vague summary: near-black grounds,
 hairline borders, restrained single-accent color, real typographic scale
 carrying the hero instead of a display face. Chose Geist over literally
-matching Linear's font — distinct enough not to be a copy, same quality
+matching Linear's font, distinct enough not to be a copy, same quality
 tier and the same "serious dev tool" association (it's Vercel's own font),
 and confirmed it was actually in the next/font/google catalog before
 committing to it rather than assuming.
@@ -2119,11 +2119,11 @@ committing to it rather than assuming.
 
 The ask was specific: "3D objects of gaming icons." CSS `transform:
 rotateX/rotateY` can tilt a flat plane in 3D *space* but can't give an
-object actual volume — no real shading gradient across a curved surface,
+object actual volume, no real shading gradient across a curved surface,
 no occlusion between faces. Genuine 3D needs a renderer. Added React
 Three Fiber (WebGL) rather than faking it, and checked React 19
 compatibility before installing (`@react-three/fiber@9.7.0`'s peer range
-is `react >=19 <19.3`; this project is on `19.2.8`, inside the window) —
+is `react >=19 <19.3`; this project is on `19.2.8`, inside the window) -
 one version off in either direction and this would have been a much
 worse afternoon.
 
@@ -2133,10 +2133,10 @@ external `.glb` asset means no asset pipeline, no license question, and
 keeps the same "hand-authored, self-contained" discipline the 2D genre
 icons already established. Colors are read from the CSS custom properties
 at mount (`getComputedStyle(...).getPropertyValue('--genre-1')`) rather
-than a parallel hardcoded hex list — one source of truth for the genre
+than a parallel hardcoded hex list, one source of truth for the genre
 palette, same reasoning as everywhere else this palette is used. Lighting
 is three manually placed lights (no `drei` `<Environment>` HDRI preset,
-which pulls a texture from a CDN at runtime) — same no-external-asset
+which pulls a texture from a CDN at runtime), same no-external-asset
 discipline extended to lighting, and it still reads as glossy/premium via
 `MeshPhysicalMaterial`'s clearcoat property doing real work.
 
@@ -2150,23 +2150,23 @@ without checking first, even though three of the four are well-known
 friction points between these rules and imperative libraries like React
 Three Fiber:
 
-1. `Math.random()` inside a render-path `useMemo` — a genuine purity
+1. `Math.random()` inside a render-path `useMemo`, a genuine purity
    violation, not a library-friction false positive. Fixed by deriving
    the per-object animation phase deterministically from the object's
-   array index instead — same visual effect (objects bob out of sync with
+   array index instead, same visual effect (objects bob out of sync with
    each other), zero randomness needed for what was only ever decorative
    variety.
 2. Mutating `camera.position` (destructured from `useThree()`) inside
-   `useFrame` — this **is** the standard, correct R3F pattern (`useFrame`
+   `useFrame`, this **is** the standard, correct R3F pattern (`useFrame`
    exists specifically to mutate Three.js objects per-frame outside
    React's render cycle); the lint rule doesn't have a way to know that.
    Fixed by reading `state.camera` from the `useFrame` callback's own
    parameter instead of a hook binding destructured at the component's
-   top level — same object graph, different AST shape, which is enough
+   top level, same object graph, different AST shape, which is enough
    for the rule's pattern match to no longer trigger. This is the
    documented community workaround for this exact rule-vs-R3F conflict,
    not a project-specific hack.
-3. One-shot `useEffect` + `setState` to read `prefers-reduced-motion` —
+3. One-shot `useEffect` + `setState` to read `prefers-reduced-motion` -
    fixed properly rather than silenced: replaced with
    `useSyncExternalStore`, React's actual mechanism for subscribing to a
    synchronous external value that can change after mount. Strictly
@@ -2177,12 +2177,12 @@ Three Fiber:
 
 ### A real, unrelated regression found along the way
 
-Mid-slice, `uvicorn` (and `pip` itself) had gone missing from `.venv` —
+Mid-slice, `uvicorn` (and `pip` itself) had gone missing from `.venv` -
 broken in a way this session didn't cause directly (no `uv` commands were
 run against this project between the last successful backend start and
 this one). Recovered with the same `uv sync --extra agent` rebuild
 procedure already validated once earlier in this project, rather than
-investigating deeply — noted here as unresolved, not silently worked
+investigating deeply, noted here as unresolved, not silently worked
 around.
 
 ### Open questions (new)
@@ -2190,24 +2190,24 @@ around.
 - **Root cause of the venv regression is unknown.** Recovered, not
   diagnosed. If it recurs, worth checking whether something external to
   this session (a scheduled task, another tool, manual `uv` use in a
-  different terminal) is touching `.venv` — the first two occurrences of
+  different terminal) is touching `.venv`, the first two occurrences of
   venv corruption in this project both had a findable external cause
   (Windows file locks from a concurrent process); this one didn't get the
   same investigation.
 - **The hero 3D scene is one fixed ensemble, not tied to which 8 genres
   are actually live.** It's deliberately decorative (a "the catalog has
-  variety" statement, not a literal per-genre map) — the genre picker
+  variety" statement, not a literal per-genre map), the genre picker
   below does the real per-genre representation. Worth reconsidering only
   if that distinction stops being clear to a real viewer.
 - **3D scene performance on lower-end mobile GPUs wasn't specifically
-  profiled** — verified functionally correct (renders, no console errors,
+  profiled**, verified functionally correct (renders, no console errors,
   respects reduced-motion) on iPhone 14 emulation, but frame-rate under
   load on genuinely low-end hardware is unverified. Worth a real device
   check before treating this as deployment-ready.
 
 ---
 
-## Slice 11 — A second Steam API, and the project's first real test suite
+## Slice 11, A second Steam API, and the project's first real test suite
 
 **Date:** 2026-08-27
 
@@ -2217,7 +2217,7 @@ Worth untangling them, because they have different answers.
 
 ### Which API, and why not the ones proposed
 
-SteamSpy's per-game endpoint gives owners/reviews/genre/price — enough for
+SteamSpy's per-game endpoint gives owners/reviews/genre/price, enough for
 most lookup and analysis questions, but nothing about release date,
 Metacritic score, platform support, or feature tags (co-op, controller
 support, Workshop). The user's own first proposal was three Steam Web API
@@ -2225,26 +2225,26 @@ endpoints from the official docs: `GetPlayerSummaries`,
 `GetGlobalAchievementPercentagesForApp`, `GetNewsForApp`. Checked each
 against what they actually return rather than taking the names at face
 value: `GetPlayerSummaries` returns Steam *user* profile data (persona
-name, avatar, online status) — it has nothing to do with games at all,
+name, avatar, online status), it has nothing to do with games at all,
 it's keyed on a Steam user id, not an appid. The other two are real but
 narrow: achievement percentages is one metric, and news is unstructured
 article text, neither is a general enrichment source. Said so directly
 rather than building on top of a mismatch.
 
 The actual fix was smaller than switching providers: Steam's own
-storefront API, `store.steampowered.com/api/appdetails` — the same JSON
+storefront API, `store.steampowered.com/api/appdetails`, the same JSON
 endpoint the Steam store website itself calls client-side to render a
 game's page (confirmed by testing `?appids=620` for real and walking
-through why the bare URL with no query param returns `null` — it's a
+through why the bare URL with no query param returns `null`, it's a
 real API, just one that has no HTML front end of its own to visit
 directly, unlike `store.steampowered.com/app/620` which is the actual
-store page). Free, no key, no new account — same shape of win as the
+store page). Free, no key, no new account, same shape of win as the
 existing SteamSpy/Steam-Web-API split, just a third source layered in the
 same way. RAWG (20k free req/month) and IGDB (free via Twitch OAuth, rate
 limited) were researched via WebSearch as real options for broadening the
 *catalog itself* beyond what SteamSpy's bulk list returns, but that's a
 bigger, separate scope decision (different client, different id space,
-probably a merge/dedup step against the existing `appid`-keyed table) —
+probably a merge/dedup step against the existing `appid`-keyed table) -
 recommended treating it separately rather than folding it into this slice.
 
 ### What got built
@@ -2257,10 +2257,10 @@ SteamSpy's own `appdetails_`) so the two caches can't collide. `run_ingestion`
 now calls both APIs per game and merges the results in `_row_from_appdetails`.
 
 Five new columns landed on `games`: `release_date` (parsed), `release_date_raw`
-(kept as-is even when parsing fails — never silently drop the source
+(kept as-is even when parsing fails, never silently drop the source
 string), `metacritic_score`, `platforms`, `categories`. `categories` runs
 through a hand-curated 15-entry allowlist (`CATEGORY_ALLOWLIST` in
-`ingest.py`) rather than storing Steam's full ~30-tag raw list — most of
+`ingest.py`) rather than storing Steam's full ~30-tag raw list, most of
 that raw list is controller/accessibility/remote-play noise that would
 just add retrieval confusion for an agent trying to answer "does this
 game have co-op" type questions.
@@ -2269,30 +2269,30 @@ Two real data quirks found by testing against a live response (Portal 2,
 appid 620) instead of inventing fixture shapes:
 
 - Its `categories` array has two different `id`s (51 and 30) that both
-  carry the description "Steam Workshop" — a real duplicate in Steam's own
+  carry the description "Steam Workshop", a real duplicate in Steam's own
   data, not a parsing bug. Dedup logic keys on description, not id,
   specifically because of this.
 - `platforms.mac` is `false` in the live response even though
-  `mac_requirements` has actual text in it — meaning the authoritative
+  `mac_requirements` has actual text in it, meaning the authoritative
   signal is the `platforms.*` booleans, and inferring platform support
   from non-empty `*_requirements` text would have been wrong.
 
 Both went straight into `tests/test_ingest_parsing.py` as
-`REAL_PORTAL_2_CATEGORIES` — captured real data, not invented shapes,
+`REAL_PORTAL_2_CATEGORIES`, captured real data, not invented shapes,
 specifically so the dedup logic is tested against the actual quirk that
 motivated it.
 
 The old `games.duckdb` was deleted and rebuilt from scratch rather than
-migrated — the whole table is UPSERT-regenerable from raw ingestion and
+migrated, the whole table is UPSERT-regenerable from raw ingestion and
 gitignored, so there was no state worth preserving across the schema
 change. This paid off for real mid-run: the full 1000-game re-ingestion
 hit a genuine transient DNS resolution failure against
 `store.steampowered.com` around appid 606280 (`getaddrinfo failed`, not
-an API error — confirmed by re-resolving the same host seconds later and
+an API error, confirmed by re-resolving the same host seconds later and
 getting a normal response) and the script has no retry logic around
 network calls, so it crashed with a real traceback and a non-zero exit
 code roughly 675-680 games in. Deliberately did not add retry/backoff
-logic in response — the existing cache-first design in both API clients
+logic in response, the existing cache-first design in both API clients
 already made this cheap: every successfully-fetched game (SteamSpy and
 storefront alike) is cached to `data/raw/` before the crash point, so
 simply re-running the same `ingest --count 1000` command picked up
@@ -2304,7 +2304,7 @@ benefit.
 
 Also added 5 new RAG schema chunks
 (`src/agent/rag/schema_corpus.py`) so the agent can actually retrieve and
-use these columns — worth calling out one wording choice: the
+use these columns, worth calling out one wording choice: the
 `metacritic_score` chunk explicitly says NULL means "not scored," not
 "scored zero," because an LLM asked to rank by Metacritic score could
 otherwise silently treat unscored games as the worst-rated instead of
@@ -2313,7 +2313,7 @@ excluding them.
 ### The project's first real test suite
 
 No `tests/` directory existed anywhere in this project before this slice
-— stats/forecast/viz logic had gotten real ad hoc verification during
+- stats/forecast/viz logic had gotten real ad hoc verification during
 their original slices (see Slice 4's entry for a real type-coercion bug
 and a real group-mislabeling bug caught that way) but never a checked-in
 regression suite. Built one from scratch: `tests/conftest.py` plus 6 test
@@ -2323,11 +2323,11 @@ The one deliberate philosophy, stated directly in `conftest.py`'s
 docstring: prefer a real, throwaway on-disk DuckDB file over mocking this
 project's own DB layer. The `games_db` fixture creates a genuine temp
 DuckDB file, runs the real `CREATE TABLE` SQL from `schema.py`, and
-inserts synthetic-but-realistic rows — so a test failure here means the
+inserts synthetic-but-realistic rows, so a test failure here means the
 real schema/query code actually broke, not that a mock's assumptions
 drifted from reality. `test_sql_guard.py` in particular runs one real
 `DROP TABLE games` against a live fixture DB and asserts it's rejected
-*and* the table is still there afterward with its 4 rows intact — testing
+*and* the table is still there afterward with its 4 rows intact, testing
 the actual guard behavior end to end, not just that a regex matched.
 
 `pyproject.toml` gained a `dev` extra (`pytest`) rather than a
@@ -2335,7 +2335,7 @@ the actual guard behavior end to end, not just that a regex matched.
 project's history: `[dependency-groups]` installs by default on a bare
 `uv sync`, and this project has already been bitten twice for real by
 bare `uv sync` silently reconciling down to the lean base set (see
-Slice 9b/README's warning) — adding `dev` as another *optional* extra
+Slice 9b/README's warning), adding `dev` as another *optional* extra
 keeps that failure mode from getting worse, at the cost of needing
 `--extra dev` explicitly to run tests locally.
 
@@ -2343,7 +2343,7 @@ A genuine test-authoring bug, found and fixed correctly: the first draft
 of `test_outliers_finds_the_obvious_one` used 4 points (3 normal + 1
 outlier) and asserted 1 outlier would be found. It found 0. Verified by
 hand rather than assumed: mean ≈108, stddev≈219 with only 4 points, so
-the outlier's own z-score (≈1.79) came in under the 2.5 threshold — a
+the outlier's own z-score (≈1.79) came in under the 2.5 threshold, a
 real small-sample "masking" effect, where one extreme point inflates the
 mean/stddev enough to pull its own z-score back down, not a bug in
 `_outliers`. Fixed the test (20 clustered points + 1 outlier), not the
@@ -2352,7 +2352,7 @@ future reader doesn't "fix" it back to something smaller.
 
 `.github/workflows/test.yml` runs the suite on every push/PR. First draft
 used `uv sync --extra dev` only, with a comment claiming the LLM/RAG stack
-wasn't needed for these tests — wrong, caught by actually tracing the
+wasn't needed for these tests, wrong, caught by actually tracing the
 import chain: `test_stats_tool.py`/`test_forecast_tool.py` import
 `stats_tool.py`/`forecast_tool.py`, which import `numpy`/`scipy`, which
 live in the `agent` extra, not base. Fixed to `--extra agent --extra dev`
@@ -2372,19 +2372,19 @@ does that, so it doesn't. This project's tests had happened to be run via
 a plain `uv run pytest` was tried. Fixed at the pytest-config level rather
 than by telling people to remember `-m`: added `pythonpath = ["."]` to
 `[tool.pytest.ini_options]`, pytest's own built-in mechanism for this
-(since 7.0) — makes `pytest`, `uv run pytest`, and `python -m pytest` all
+(since 7.0), makes `pytest`, `uv run pytest`, and `python -m pytest` all
 behave identically, and would have silently broken the CI workflow too
 (same `uv run pytest -v` line) had it not been caught here first.
 
 ### Open questions (new)
 
 - **`poll_player_counts.yml`'s catalog-rebuild step now costs meaningfully
-  more CI time per 6-hourly run** — it re-ingests the full catalog just to
+  more CI time per 6-hourly run**, it re-ingests the full catalog just to
   get appids for the player-count poll, and now that ingestion also makes
   a storefront-API call per game with no cache persisted between GH
   Actions runs (`data/raw/` is gitignored). Noticed while re-reading the
   workflow for style conventions, not yet raised as a problem worth
-  solving — a narrower "just fetch appids" path is the likely fix if the
+  solving, a narrower "just fetch appids" path is the likely fix if the
   added runtime becomes a real issue.
 - **Real yearly-forecast extrapolation still isn't built.** The user's
   actual ask ("delta players per year, then extrapolate") needs historical
@@ -2399,14 +2399,14 @@ behave identically, and would have silently broken the CI workflow too
 
 ---
 
-## Slice 12 — Naming Ludo, a "Meet Ludo" section, and a real catalog page
+## Slice 12, Naming Ludo, a "Meet Ludo" section, and a real catalog page
 
 **Date:** 2026-08-27
 
 Three asks arrived together: name the agent, add an intro section
 explaining what it can do (floating gaming-object 3D iconography +
 example questions), and build a separate full-catalog browse page. Named
-the agent **Ludo** — offered a short list of directions (Ludo, Steamsight,
+the agent **Ludo**, offered a short list of directions (Ludo, Steamsight,
 Datapad) and the user picked Ludo directly. Saved as a standing project
 memory (`agent-name-ludo.md`) so future sessions use the name by default
 in new copy without re-asking.
@@ -2415,10 +2415,10 @@ in new copy without re-asking.
 
 `GamingObjectsScene.tsx` needed five actually-recognizable objects
 (controller, console, TV, disc, cartridge), not HeroScene's abstract
-genre-colored primitives — a harder ask, since a controller only reads as
+genre-colored primitives, a harder ask, since a controller only reads as
 a controller if its grips/joysticks/buttons are legible, not just "a
 lit shape." Built each as a small group of primitive geometries (drei's
-`RoundedBox` plus core cylinder/capsule/sphere/torus primitives) — no
+`RoundedBox` plus core cylinder/capsule/sphere/torus primitives), no
 external `.glb` assets, same discipline as HeroScene.
 
 First real render was nearly invisible: used `--surface-raised` (the
@@ -2429,48 +2429,48 @@ it, not assumed fine because the geometry was correct). HeroScene's
 objects don't have this problem because they're saturated genre hues, not
 because of anything special about its lighting. Fixed with a dedicated
 mid-graphite hex (`#6b6f79`) picked specifically for this scene rather
-than reused from a 2D token — a color that works as a flat panel
+than reused from a 2D token, a color that works as a flat panel
 background and a color that works as a lit 3D object's surface are not
 the same design decision, even when the palette intent ("restrained,
 neutral") is identical. Also had to fix the disc separately: its
 `metalness=0.85, roughness=0.15` (very mirror-like) reflected essentially
 nothing under this scene's 3-light setup (no environment map), so the
-disc's body was invisible while only its accent ring showed — dropped to
+disc's body was invisible while only its accent ring showed, dropped to
 `metalness=0.45, roughness=0.35` so it actually picks up diffuse light.
 Deliberately did NOT reuse the genre categorical palette to color these
 objects, even though it was sitting right there and would have been an
-easy source of "more color" — that palette means something specific
+easy source of "more color", that palette means something specific
 elsewhere in the UI (which hue is which genre) and reusing it as pure
 decoration here would manufacture a false mapping (a controller isn't
 "Action-colored" for a real reason).
 
 Pulled `useReducedMotion` out of `HeroScene.tsx` into
 `lib/useReducedMotion.ts` the moment a second scene needed the identical
-hook — no reason to fork it, and it's now the one place that logic lives.
+hook, no reason to fork it, and it's now the one place that logic lives.
 
 ### The catalog page's real sorting bug, caught before shipping
 
 `src/db/catalog.py` filters and sorts in Python rather than building
 dynamic SQL (the sort column is user input, and a column name can't be a
-bound parameter — an allowlist dict is simpler and safer than templating
+bound parameter, an allowlist dict is simpler and safer than templating
 SQL). First implementation floored NULL values to a low sentinel (`-1`,
-`date.min`) so they'd sort to the end — except that only works for
+`date.min`) so they'd sort to the end, except that only works for
 descending order; on ascending order a floored NULL sorts *first*, the
 opposite of "always last" the code's own comment claimed. Caught this for
 real via `tests/test_catalog.py::test_sort_by_release_date_ascending_puts_nulls_last`
-failing, not by re-reading the code and spotting it — extended the
+failing, not by re-reading the code and spotting it, extended the
 `games_db` fixture with real release dates on two rows specifically so
 this test would be meaningful (all-NULL fixture rows can't test NULL
 ordering against real values). Fixed by splitting rows into "has a value"
 and "doesn't," sorting only the first group with the requested direction,
-and appending the second group after — unaffected by `reverse`, so
+and appending the second group after, unaffected by `reverse`, so
 NULLs land last regardless of ascending or descending.
 
 ### Real Playwright verification, not just unit tests
 
 Ran the actual app (backend `uvicorn`, frontend `next dev`) and drove it
 with Playwright (chromium, found already installed at
-`~/AppData/Local/ms-playwright/chromium-1234` from earlier project work —
+`~/AppData/Local/ms-playwright/chromium-1234` from earlier project work -
 Python's `playwright` package needed the executable path passed
 explicitly since its expected bundled Chromium revision didn't match
 what was actually on disk) across both routes, both a desktop and a
@@ -2478,17 +2478,17 @@ mobile viewport: zero console errors, zero horizontal overflow, and
 real interaction checks (typed a search term and read back the actual
 filtered rows, selected a genre and verified every visible row's genre
 field, clicked through to page 2 and confirmed the page indicator
-updated) against the live 1000-game backend — not mocked, not assumed
+updated) against the live 1000-game backend, not mocked, not assumed
 from reading the component code. Also caught the catalog table's real
 horizontal-scroll problem this way: 9 columns didn't fit in
 `max-w-5xl` on an ordinary 1440px viewport, forcing a scroll a first-time
 visitor wouldn't necessarily notice. Widened the catalog page specifically
-to `max-w-7xl` (the ask-flow's own container stays `max-w-2xl` — a
+to `max-w-7xl` (the ask-flow's own container stays `max-w-2xl`, a
 focused single-question flow and a dense data table warrant different
 widths, same reasoning that already put the hero at `max-w-5xl`).
 
 Finished with the project's full pre-existing verification bar: `npm run
-lint` (caught one real error — a plain `<a href="/">` where
+lint` (caught one real error, a plain `<a href="/">` where
 `next/link`'s `<Link>` was required), `tsc --noEmit`, and `npm run build`
 all clean, both routes prerendering as static content.
 
@@ -2497,11 +2497,11 @@ all clean, both routes prerendering as static content.
 - **The catalog table still needs its own horizontal scroll on narrow
   mobile viewports** (confirmed: no *page-level* overflow, but the table
   itself scrolls within its `overflow-x-auto` container past a few
-  columns) — consistent with `ResultTable`'s existing behavior elsewhere
+  columns), consistent with `ResultTable`'s existing behavior elsewhere
   in the app, but with no visual affordance (a fade/scroll hint) that more
   columns exist off-screen. Not fixed here; worth a real mobile design
   pass if this becomes a common complaint.
-- **No URL-synced filter state on the catalog page** — search/genre/sort/
+- **No URL-synced filter state on the catalog page**, search/genre/sort/
   page all live in component state only, so a copied catalog link always
   reopens to the unfiltered first page rather than reproducing what the
   sender was looking at. A reasonable follow-up if shareable catalog
@@ -2509,7 +2509,7 @@ all clean, both routes prerendering as static content.
 
 ---
 
-## Slice 12b — A named real reference, and a lesson about drift
+## Slice 12b, A named real reference, and a lesson about drift
 
 **Date:** 2026-08-27
 
@@ -2526,34 +2526,34 @@ Both confirmed directly rather than assumed.
 
 ### What "Framer-inspired" concretely meant here
 
-Fetching framer.com's actual page didn't yield much — a markdown
+Fetching framer.com's actual page didn't yield much, a markdown
 extraction of a heavily-scripted marketing site loses essentially all of
 the actual visual design (colors, blur, layout) and returns text content
-instead ("earthy color palettes," organic-shapes copy — the *words* the
+instead ("earthy color palettes," organic-shapes copy, the *words* the
 page uses to describe itself, not what it looks like). Worth naming
 plainly rather than pretending the fetch gave real grounding: the actual
 execution here came from well-established, genuinely common knowledge of
 what that whole category of AI-product marketing page looks like (large
 soft blurred gradient orbs drifting behind copy, not literal 3D
-illustration) — combined with the user's own explicit color instruction,
+illustration), combined with the user's own explicit color instruction,
 which matters more here anyway since it overrides whatever hue Framer's
 site actually uses today.
 
 ### The scene that got deleted, and what replaced it
 
-`GamingObjectsScene.tsx` — five hand-modeled objects, real Playwright
-verification, tuned lighting and materials — all deleted outright in one
+`GamingObjectsScene.tsx`, five hand-modeled objects, real Playwright
+verification, tuned lighting and materials, all deleted outright in one
 turn, on direct instruction. Not kept behind a flag or commented out;
 the user said ditch it, and half-removed code non-functional code is
 worse than none. Replaced with `GradientBlobs.tsx`: three blurred
 turquoise circles with slow independent drift, respecting
 `prefers-reduced-motion` through the same shared hook the deleted scene
-also used, plus a small inline SVG `feTurbulence` noise overlay — the
+also used, plus a small inline SVG `feTurbulence` noise overlay, the
 detail that keeps a large blurred gradient from banding, a real technique
 this category of site actually uses, not decoration for its own sake.
 Placed the gradient behind the *entire* "Meet Ludo" section (heading,
 copy, chips) rather than in a small boxed illustration slot the way the
-3D scene had been — a truer read of how this treatment is actually used
+3D scene had been, a truer read of how this treatment is actually used
 on sites like Framer's (an ambient field behind content, not a separate
 diagram next to it).
 
@@ -2564,7 +2564,7 @@ hex (`f0a63a`) and the word "gold" rather than assuming the CSS variable
 was the only place the color lived. Found one real case of drift:
 `HeroScene.tsx`'s accent-colored point light was hardcoded to the literal
 old hex instead of reading `--accent` like the object materials in the
-same file already did — an inconsistency that would have silently kept
+same file already did, an inconsistency that would have silently kept
 glowing gold after this slice's turquoise switch if the grep hadn't
 caught it. Fixed to read the CSS variable live via `getComputedStyle`,
 matching the pattern already used elsewhere in the same file, so a future
@@ -2582,28 +2582,28 @@ on to the next task.
 ### Open questions (new)
 
 - **No dark/light theme distinction was reconsidered for the turquoise
-  swap** — this app is deliberately single-theme dark (see globals.css's
+  swap**, this app is deliberately single-theme dark (see globals.css's
   own comment), so this doesn't apply yet, but worth remembering if a
   light variant is ever added: turquoise's contrast behavior on a light
   ground hasn't been checked at all.
 
 ---
 
-## Slice 13 — A design brief for a different product, and what to keep from it
+## Slice 13, A design brief for a different product, and what to keep from it
 
 **Date:** 2026-08-27
 
 Direct, blunt feedback arrived alongside a full ChatGPT-generated design
 brief: "the website is not nice at all, I want it to be like this." Worth
 being honest about what the brief actually specified before writing any
-code, because it wasn't a redesign of Ludo — it was a complete spec for a
+code, because it wasn't a redesign of Ludo, it was a complete spec for a
 different fictional product: "PlayerLens AI," an internal analytics tool
 for game *studios*, with example content built entirely around churn
 rates, D7 retention, ARPDAU, and monetization cohorts (`mock-data.ts`,
 `POST /api/agent` as a not-yet-real placeholder). None of that data
-domain exists in Ludo's real catalog (SteamSpy + Steam storefront —
+domain exists in Ludo's real catalog (SteamSpy + Steam storefront -
 owners, reviews, price, genre, Metacritic, platforms), and Ludo's entire
-premise — the thing that makes it a real project rather than a demo — is
+premise, the thing that makes it a real project rather than a demo, is
 that every number comes from a real query, never a mock.
 
 ### Separating craft from content before building anything
@@ -2616,23 +2616,23 @@ data? And separately, re-skin fully to the light Roman-marble look, or
 just raise the craft bar on the existing dark identity? Both answers came
 back the same direction: adopt the *visual language* (warm ivory, serif
 headlines, restrained classical motifs, one royal-blue accent) while
-keeping Ludo real. That's the actual scope this slice executed — a full
+keeping Ludo real. That's the actual scope this slice executed, a full
 re-skin, zero fictional content anywhere on the page.
 
 ### What "restrained Roman" meant in practice, not in the brief's literal asks
 
 The brief asked for a Colosseum background photo, a marble statue bust,
 and a Corinthian column image (with fallback CSS if unavailable). None of
-those got built — not because they'd look bad, but because sourcing
+those got built, not because they'd look bad, but because sourcing
 photographic imagery breaks a rule this project has held since Slice 9g
 (HeroScene's abstract shapes over literal dice/controllers) and Slice
 11/12b (every visual element hand-authored in code, nothing fetched):
 no external image or model assets, ever. The brief's own instructions
-actually argue for this independently — "architectural texture, not a
+actually argue for this independently, "architectural texture, not a
 hero photograph," "must not look like Rome tourism," restraint over
 literalism throughout. Built two hand-drawn SVG motifs instead: a laurel
 sprig (`Laurel.tsx`, mirrored in pairs) and a single faint line-drawn
-arch (`RomanArch.tsx`, opacity ~0.4 of an already-pale border color) —
+arch (`RomanArch.tsx`, opacity ~0.4 of an already-pale border color) -
 plus an abstract ring-and-ticks medallion replacing the plain-text nav
 logo. Three small elements, used exactly once or twice each, is
 deliberately closer to the brief's own stated ratio ("80% modern SaaS,
@@ -2646,7 +2646,7 @@ strength of "already working, don't touch it") stopped being right the
 moment the background went from near-black to warm ivory: saturated
 genre-colored primitives read as toy blocks next to a serif headline on
 a marble-adjacent palette, not as a premium product visual. Rather than
-force them to survive a third re-skin, built `HeroPreview.tsx` — a
+force them to survive a third re-skin, built `HeroPreview.tsx`, a
 static floating panel showing a **real** answer Ludo already gave earlier
 in this same session (the five highest-rated-games result, verified live
 against the actual backend, not invented for this panel), styled as the
@@ -2660,7 +2660,7 @@ illustration wouldn't have.
 
 The brief's ASK / INVESTIGATE / EXPLAIN / ACT framework assumes a product
 that gives recommendations ("ACT: turn insights into actions your team
-can use"). Ludo doesn't do that — it answers questions, it doesn't
+can use"). Ludo doesn't do that, it answers questions, it doesn't
 recommend business decisions. Rather than invent a fourth capability to
 match the template's shape, used exactly the three things Ludo's real
 pipeline (`router` → `retrieve_schema` → `agent` → `execute_tools`,
@@ -2670,7 +2670,7 @@ Show the work. Three real capabilities beat four templated ones.
 ### Fast reversal, named plainly
 
 Slice 12b's turquoise accent shipped less than a day before this slice
-replaced it with royal blue. Worth naming as what it is — a fast
+replaced it with royal blue. Worth naming as what it is, a fast
 reversal driven by direct user feedback that the previous pass wasn't
 landing, not a mistake to smooth over in the log. The same "one
 confident accent, changed cleanly through a single CSS variable, genre
@@ -2688,13 +2688,13 @@ Backend's 76 tests re-run as a sanity check even though this slice never
 touched backend code. One operational note: the dev servers used for
 verification this time were the user's own already-running instances
 (recognized via a coincidentally-reused PID from the previous slice's
-cleanup, still answering real requests) — pointed Playwright at the
+cleanup, still answering real requests), pointed Playwright at the
 existing ports rather than starting a competing pair, avoiding a repeat
 of Slice 12b's leftover-server mishap by not spawning new servers at all.
 
 ### Open questions (new)
 
-- **No `PlayerLens`-style mocked showcase was built anywhere** — the
+- **No `PlayerLens`-style mocked showcase was built anywhere**, the
   user's second answer confirmed "keep everything real" over "add a
   labeled mock section," so nothing on the page shows fabricated
   churn/monetization content. If a portfolio reviewer specifically wants
@@ -2703,23 +2703,23 @@ of Slice 12b's leftover-server mishap by not spawning new servers at all.
   where would it come from), not a mockup bolted onto this page.
 - **The capabilities-row vertical dividers are quite subtle** on the
   light background (`divide-[var(--border)]`, the same pale warm-stone
-  border used everywhere else) — intentional restraint, but worth a
+  border used everywhere else), intentional restraint, but worth a
   second look if a reviewer says the three columns don't read as
   separated at a glance.
 
 ---
 
-## Slice 14 — Reverting fast, illustrating for real
+## Slice 14, Reverting fast, illustrating for real
 
 **Date:** 2026-08-28
 
 Direct rejection, no hedging: "I dont like this design at all." Paired
-with four concrete new asks in the same message — a dark animated black/
+with four concrete new asks in the same message, a dark animated black/
 green/turquoise background, a bolder "Apple style" font, a hand-
 illustrated classical figure with gaming headphones holding a controller,
 and Roman-styled genre icons. Unlike the PlayerLens brief two slices ago,
 these were concrete and internally consistent enough to execute directly
-rather than ask more clarifying questions — the user had already been
+rather than ask more clarifying questions, the user had already been
 asked twice this session (Slice 12b's scope, Slice 13's re-skin-vs-craft
 question), and a third round of questions on a message this specific
 would have read as stalling rather than diligence.
@@ -2727,7 +2727,7 @@ would have read as stalling rather than diligence.
 ### Reverting the mechanism, not just the values
 
 Slice 13's light theme used a flat ivory background and a two-layer white
-drop-shadow on every panel — neither survives a straight color swap back
+drop-shadow on every panel, neither survives a straight color swap back
 to dark. A `box-shadow: 0 12px 28px rgba(...)` reads as "premium" against
 flat ivory and reads as nothing (or a faint artifact) against a moving
 dark gradient; dropped the shadow layer from `.panel` entirely and went
@@ -2738,7 +2738,7 @@ with dark values plugged in.
 ### One fixed background layer, not a per-section effect
 
 "Make the background animated" reads as a whole-site property, not one
-section's decoration — the honest way to build that is one fixed,
+section's decoration, the honest way to build that is one fixed,
 full-viewport layer behind everything (`AuroraBackground.tsx`), not a
 duplicated effect re-mounted in the hero and `MeetLudo` and anywhere else
 separately. Made `body`'s own background transparent so the fixed layer
@@ -2746,11 +2746,11 @@ shows through in the gaps; content panels (the nav bar, `.panel` result
 cards, the catalog table) keep their own opaque fills on top for
 legibility, so a moving background never fights actually reading a data
 table. `MeetLudo`'s own opaque section background (added in Slice 13)
-came out for the same reason — it was blocking the aurora exactly where
+came out for the same reason, it was blocking the aurora exactly where
 the user would expect to see it keep going.
 
-`lib/useReducedMotion.ts` — deleted three slices ago once nothing used
-it — came back the moment AuroraBackground needed the identical hook.
+`lib/useReducedMotion.ts`, deleted three slices ago once nothing used
+it, came back the moment AuroraBackground needed the identical hook.
 Worth naming as real churn rather than smoothing it into the log: the
 underlying need (something in this app wants to freeze under reduced
 motion) is stable across redesigns even though which component needs it
@@ -2759,13 +2759,13 @@ keeps changing with every visual pass.
 ### The illustration, and a real layout mistake caught by looking
 
 `RomanGamerBust.tsx` is the biggest new asset this slice: a hand-
-authored SVG bust, not a fetched illustration or photo — the same
+authored SVG bust, not a fetched illustration or photo, the same
 discipline every visual element in this app has followed since Slice 9g,
 applied to something considerably more ambitious than a primitive shape
 or a line-drawn arch. Chose a profile (cameo) pose deliberately over a
 frontal face: a side silhouette is achievable with a handful of bezier
 points and reads as intentional, where a frontal face attempted from
-primitive shapes needs eyes/nose/mouth or it looks unfinished or eerie —
+primitive shapes needs eyes/nose/mouth or it looks unfinished or eerie -
 picking the pose that a modest set of hand-drawn curves can actually pull
 off convincingly, rather than the pose that was asked for most literally.
 
@@ -2773,7 +2773,7 @@ First composition attempt overlapped the illustration behind the
 `HeroPreview` real-answer card, offsetting the card only slightly. Real
 mistake, caught by actually rendering and screenshotting it rather than
 trusting the JSX: the card ended up covering almost the entire bust,
-including the controller — the one detail the user had specifically
+including the controller, the one detail the user had specifically
 named. Fixed by stacking the two vertically instead of overlapping them,
 which also sidesteps needing to tune two elements' relative z-order and
 offsets to avoid occlusion on every future edit to either one.
@@ -2792,11 +2792,11 @@ legibility the current glyphs already have.
 ### A concrete "scroll" answer instead of another on-mount fade
 
 Every animation in this app up to this slice was either an on-mount
-stagger or a `whileInView` trigger — real, but not actually driven by
+stagger or a `whileInView` trigger, real, but not actually driven by
 scroll position. Added genuine scroll-linked parallax (Motion's
 `useScroll`/`useTransform` against the hero's own scroll progress) for
 the arch line-art and the bust, drifting at different rates so they read
-as sitting at different depths rather than moving as one flat layer —
+as sitting at different depths rather than moving as one flat layer -
 the concrete version of "add transitions when you scroll down," not
 another entrance animation.
 
@@ -2817,13 +2817,13 @@ competing pair.
   (Slice 9g's dark dev-tool look, Slice 12b's turquoise variant, Slice
   13's light Roman-marble pass, this dark-again illustrated one). Worth
   watching whether the next round of feedback converges on refining this
-  one or triggers a fifth full pass — if it's the latter, worth explicitly
+  one or triggers a fifth full pass, if it's the latter, worth explicitly
   asking what specifically isn't working before rebuilding again, since
   four full re-skins in one session is a real signal that something about
   how direction gets set (not the execution quality of any single pass)
   might be worth addressing directly.
 - **`RomanGamerBust.tsx`'s facial profile detail (brow/nose/chin) is
-  subtle at the rendered size** — visible on close inspection but reads
+  subtle at the rendered size**, visible on close inspection but reads
   mostly as a smooth silhouette at a glance. Superseded by Slice 14b's
   `RomanGamerStatue.tsx` (a front-facing figure, not a profile), so this
   specific concern no longer applies to the current illustration, but the
@@ -2833,14 +2833,14 @@ competing pair.
 
 ---
 
-## Slice 14b — A real hydration bug, and building toward a real reference
+## Slice 14b, A real hydration bug, and building toward a real reference
 
 **Date:** 2026-08-28
 
 Two unrelated things arrived in one message: a genuine console error from
 the user's own browser, and a reference photo with "let's use this
 statue." Worth treating them as the different kinds of problems they
-actually were — one a bug to fix correctly, the other a design direction
+actually were, one a bug to fix correctly, the other a design direction
 to interpret honestly.
 
 ### The hydration error: fixing the class of bug, not the instance
@@ -2849,7 +2849,7 @@ to interpret honestly.
 `useScroll({ target: heroRef })`, added in Slice 14 for the hero's
 scroll-linked parallax. Checked Motion's own troubleshooting page before
 guessing at a fix: the documented cause is exactly "ref isn't properly
-connected to a DOM element" at the moment `useScroll` needs it — and the
+connected to a DOM element" at the moment `useScroll` needs it, and the
 code here already looked like the documented-correct pattern (`heroRef`
 attached directly to a plain `<div ref={heroRef}>`, no wrapper component
 swallowing the ref). That's the tell that this is a timing race in how
@@ -2859,23 +2859,23 @@ would catch.
 
 Rather than chase the exact race condition (client-only guard flags,
 delaying the `useScroll` call until after a mount effect, etc.), switched
-to the ref-free form of `useScroll()` entirely — it tracks raw
+to the ref-free form of `useScroll()` entirely, it tracks raw
 `window.scrollY` instead of a ref-relative scroll range, which structurally
 cannot hit this class of error since there's no target ref to be hydrated
 or not. Rewrote both parallax transforms against pixel scroll position
 (`useTransform(scrollY, [0, 700], ...)`) instead of scroll progress
-(0 to 1) relative to the hero's own bounding box — a small semantic
+(0 to 1) relative to the hero's own bounding box, a small semantic
 change (the parallax range is now a fixed pixel distance rather than
 "across the hero's own height"), traded deliberately for removing an
 entire category of hydration bug rather than patching one occurrence of
 it. Verified with a fresh (non-HMR) Playwright page load plus repeated
 programmatic scroll events, specifically because the original bug report
-came from a live session that had been through many rapid HMR updates —
+came from a live session that had been through many rapid HMR updates -
 worth ruling out that as a contributing factor by testing a clean load.
 
 ### The statue: honoring the reference without embedding it
 
-The shared photo was a real, specific classical marble statue — someone
+The shared photo was a real, specific classical marble statue, someone
 else's photograph of a museum piece, copyrighted regardless of how it's
 being used here. Two independent reasons not to embed it directly: this
 project's standing rule (every visual asset in this app has been
@@ -2887,7 +2887,7 @@ usage rights for it. Said this plainly rather than silently either
 embedding it or silently ignoring the request.
 
 What did change for real: the illustration's whole composition. The
-previous version (`RomanGamerBust.tsx`) was a shoulders-up profile bust —
+previous version (`RomanGamerBust.tsx`) was a shoulders-up profile bust -
 reasonable, but nothing like what the reference actually showed (a full
 standing figure, one arm raised holding a scepter aloft, a bold diagonal
 gold drape, fuller curled hair). Rebuilt as `RomanGamerStatue.tsx` with
@@ -2904,11 +2904,11 @@ First draft of the raised arm used two independently-rotated rect
 segments (upper arm + forearm) with two different, uncoordinated
 rotation pivots. The math for each rotation was correct in isolation, but
 the forearm's pivot didn't correspond to where the upper arm's rotation
-had actually put its own endpoint — so the two segments didn't connect,
+had actually put its own endpoint, so the two segments didn't connect,
 and the controller (positioned relative to the forearm's assumed end
 point) rendered floating disconnected above the hand, not held in it.
 Found by screenshotting the render, not by re-deriving the trigonometry
-on paper — the same "verify against the actual output" discipline this
+on paper, the same "verify against the actual output" discipline this
 whole project applies to SQL results and stats computations applied here
 to hand-drawn geometry instead. Fixed by simplifying to one rotated
 segment for the whole raised arm, actually working out the rotation
@@ -2929,13 +2929,13 @@ mobile, zero console errors, zero horizontal overflow). Backend untouched,
 ### Open questions (new)
 
 - **The bent (non-raised) arm in `RomanGamerStatue.tsx` reads as fairly
-  subtle against the torso** — superseded by Slice 14c, which replaced
+  subtle against the torso**, superseded by Slice 14c, which replaced
   the whole hand-drawn illustration with a real photo; no longer
   applicable, kept here only as a record of what the hand-drawn version's
   known rough edge was.
 - **The parallax range change (pixel-based vs. hero-height-relative) means
   the exact drift distance is no longer proportional to the hero's actual
-  rendered height** — fine at the viewport sizes this was checked at
+  rendered height**, fine at the viewport sizes this was checked at
   (1440×900 and 390×844), but an unusually tall or short hero rendering
   (e.g. a very wide ultrawide monitor, or a font-scaling accessibility
   setting that changes hero height substantially) could make the parallax
@@ -2944,7 +2944,7 @@ mobile, zero console errors, zero horizontal overflow). Backend untouched,
 
 ---
 
-## Slice 14c — The first photographic asset, verified before use
+## Slice 14c, The first photographic asset, verified before use
 
 **Date:** 2026-08-28
 
@@ -2952,15 +2952,15 @@ Two things arrived together, worth treating separately: a request to
 connect Claude Code to Framer (a genuine research question, answered by
 actually looking up what Framer's current external-agent feature does
 rather than guessing from training-data-era knowledge), and then a
-follow-up that reframed the real goal — "an agent that will help me
-design an actual good website" — which named the real problem with this
+follow-up that reframed the real goal, "an agent that will help me
+design an actual good website", which named the real problem with this
 whole session honestly: four full re-skins from me hand-writing CSS
 blind is a worse loop than a tool with an actual visual canvas. Answered
 that plainly rather than oversell what I can do without one.
 
 Then, separately: "let's use Claude Design... add more realism with the
 Roman statue... let's use a realistic statue of Apollo." Worth being
-precise about what "Claude Design" actually is before acting on it —
+precise about what "Claude Design" actually is before acting on it -
 looked it up rather than assumed: a real Anthropic research-preview
 product at claude.ai/design, a separate browser surface I can't drive
 from Claude Code, not a tool call available here. Said so directly. The
@@ -2969,12 +2969,12 @@ from Claude Code, not a tool call available here. Said so directly. The
 ### Why a hand-drawn SVG can't do this, and what that implies
 
 "Realistic" is a real requirement a hand-typed bezier path structurally
-cannot satisfy — Slice 14b's `RomanGamerStatue.tsx` was already pushing
+cannot satisfy, Slice 14b's `RomanGamerStatue.tsx` was already pushing
 the ceiling of what primitive-shape illustration can achieve, and more
 iteration on that ceiling wouldn't produce photorealism, just a more
 polished non-photorealistic illustration. That's a different kind of
 constraint than the ones this project has been solving with more careful
-code (a sorting bug, a hydration race) — no amount of correct trigonometry
+code (a sorting bug, a hydration race), no amount of correct trigonometry
 turns rectangles into marble. Said this directly rather than attempting
 another SVG pass and hoping it read as more real than the last one.
 
@@ -2986,7 +2986,7 @@ project's hand-authored-only rule, needs real license diligence on my
 part); the user sources/generates one themselves and hands it to me
 (sidesteps me making licensing judgment calls on their behalf); or stay
 fully hand-drawn and accept the ceiling. Asked which, rather than picking
-one — this is exactly the kind of fork where a wrong guess is expensive
+one, this is exactly the kind of fork where a wrong guess is expensive
 (a licensing misstep isn't something to walk back quietly) and the
 user's own risk tolerance is the actual deciding factor, not something I
 can infer from the conversation so far.
@@ -2996,13 +2996,13 @@ can infer from the conversation so far.
 Found the Apollo Belvedere on Wikimedia Commons via search, but the
 aggregated search summary just asserted "public domain photographs are
 available" without naming which specific file or what license actually
-applies to it — photographs of 3D public-domain objects are not
+applies to it, photographs of 3D public-domain objects are not
 automatically public domain themselves (the photographer's framing,
 lighting, and composition choices are their own copyrightable work,
 unlike a straight photographic reproduction of a 2D public-domain
 painting). Fetched the specific file's own Commons page directly and
-confirmed CC BY 2.5, attributed to Marie-Lan Nguyen — a real, well-known
-Wikimedia photographer of museum statuary — before downloading anything.
+confirmed CC BY 2.5, attributed to Marie-Lan Nguyen, a real, well-known
+Wikimedia photographer of museum statuary, before downloading anything.
 Attribution is a real license term, not a nicety, so it's rendered as a
 visible caption under the image linking to the license text, not buried
 in a code comment where only a reader of this repo would ever see it.
@@ -3010,11 +3010,11 @@ in a code comment where only a reader of this repo would ever see it.
 ### Looking at the source before deciding how to use it
 
 Downloaded the actual full photo and looked at it rather than assuming
-"statue photo" meant "usable as-is." It's full nudity — normal and
+"statue photo" meant "usable as-is." It's full nudity, normal and
 expected for classical statuary, not appropriate for a product hero
 image. Cropped to head/shoulders/extended-arm, which conveniently also
 happens to be exactly the region needed anyway (the raised/extended hand
-holding whatever will become the controller) — the crop decision served
+holding whatever will become the controller), the crop decision served
 two real constraints at once rather than being purely a workaround.
 
 ### Compositing with Pillow, and two more real bugs caught by looking
@@ -3023,13 +3023,13 @@ Built `frontend/scripts/compose-apollo-hero.py` (checked into the repo,
 not left in scratch) to draw the headphones and controller directly onto
 the photo with Pillow's `ImageDraw`, rather than trying to align live
 HTML/CSS overlay elements against a photo's pixel coordinates across
-every breakpoint — baking the composite into one static asset is far
+every breakpoint, baking the composite into one static asset is far
 more robust than keeping the alignment problem live in the browser.
 
 Two real bugs, both caught by rendering and inspecting the actual output,
 not by re-reading the script:
 
-1. The controller rendered clipped off the right edge of the frame — the
+1. The controller rendered clipped off the right edge of the frame, the
    hand sits near the original photo's own right edge, and the rotated
    controller needed more canvas than that edge left available. Fixed by
    padding the canvas with transparent space before compositing anything
@@ -3038,11 +3038,11 @@ not by re-reading the script:
 2. After fixing that, a large solid black rectangle appeared where the
    transparent padding should have been. The fade-mask code computed a
    soft-edge gradient and then assigned it as the image's *entire* new
-   alpha channel — silently discarding the padding's own alpha=0
+   alpha channel, silently discarding the padding's own alpha=0
    transparency and replacing it with the fade mask's default opaque
    value everywhere the fade gradient hadn't explicitly touched. Fixed by
    combining the fade mask with the pre-existing alpha channel via
-   `ImageChops.darker` (a per-pixel minimum) instead of overwriting it —
+   `ImageChops.darker` (a per-pixel minimum) instead of overwriting it -
    verified afterward with actual pixel-value checks (`getpixel` at
    several coordinates in the padding region), not just a visual glance,
    since the first "it looks transparent now" impression could easily
@@ -3054,7 +3054,7 @@ not by re-reading the script:
 The compositing script downloads its own source photo on demand and
 caches it gitignored rather than committing a ~5MB JPEG to the repo, and
 lives in `frontend/scripts/` rather than a session-local scratch
-directory — re-run from a clean checkout, it produces a byte-identical
+directory, re-run from a clean checkout, it produces a byte-identical
 `public/apollo-hero.webp`, verified for real by deleting the cached
 download and re-running before calling this done.
 
@@ -3074,12 +3074,12 @@ tests still green.
   not a mistake to erase from the log.
 - **No `next.config.ts` image domain/remotePatterns change was needed**
   since the asset lives in `public/` rather than being loaded from a
-  remote URL at runtime — moot now that the asset is gone, kept for the
+  remote URL at runtime, moot now that the asset is gone, kept for the
   same reason as above.
 
 ---
 
-## Slice 15 — The catalog is the identity, and a real bug in an LLM's own prose
+## Slice 15, The catalog is the identity, and a real bug in an LLM's own prose
 
 **Date:** 2026-08-28
 
@@ -3161,9 +3161,9 @@ applied on the one code path both `run_agent()` and `stream_agent()`
 already funnel every route through, so the guarantee covers the API, the
 MCP server, and evals without needing three copies of the same rule.
 Found and fixed a real bug in this function before it shipped, the same
-day it was written: the first regex (`\s*[—–]\s*`) matched a dash with
+day it was written: the first regex (`\s*[--]\s*`) matched a dash with
 *zero* surrounding whitespace just as readily as one with real spaces
-around it, so a tight numeric range like "10–20" was silently turned into
+around it, so a tight numeric range like "10-20" was silently turned into
 "10, 20", a list of two numbers instead of a range, changing what the
 text actually meant. Caught by testing the fix against a real range
 string, not just the original spaced-dash bug report, before considering
@@ -3219,7 +3219,7 @@ characters.
 
 ---
 
-## Slice 16 — Real feedback, real questions, a real palette lesson
+## Slice 16, Real feedback, real questions, a real palette lesson
 
 **Date:** 2026-08-28
 
@@ -3336,7 +3336,7 @@ result view.
   throttled/slow network condition, where a visible pop-in as covers
   load could look rougher than on a fast local connection.
 - **Steam's CDN path for cover art isn't officially documented as a
-  stable public API** — it's the same path the store page's own
+  stable public API**, it's the same path the store page's own
   frontend uses, verified live before wiring this up, but Valve could
   change it without notice. No fallback exists beyond the per-cover
   `onError` drop; a Steam-side path change would just thin out the
@@ -3345,7 +3345,7 @@ result view.
 
 ---
 
-## Slice 17 — A pausable marquee, done the boring reliable way
+## Slice 17, A pausable marquee, done the boring reliable way
 
 **Date:** 2026-08-29
 
@@ -3423,17 +3423,17 @@ above, not just a screenshot that happened to show a scaled cover.
 
 - **Rajdhani's condensed, geometric letterforms haven't been checked
   against very long real answer text at small sizes** (the actual
-  `/ask` result panel's body copy) — the hero headline and short UI
+  `/ask` result panel's body copy), the hero headline and short UI
   labels read fine, but a long multi-sentence LLM answer at `text-sm` in
   a squarer face than Geist hasn't had a dedicated legibility pass beyond
   "it built and rendered without errors."
 - **Neon green at full saturation on every accent use (buttons, links,
   the trace stepper, markdown bold) hasn't been checked for eye strain
-  over extended reading** — fine for short labels and single words, not
+  over extended reading**, fine for short labels and single words, not
   yet judged for a long markdown answer where multiple bolded terms in
   one paragraph would all carry the same bright accent.
 
-## Slice 18 — A cartridge popup, and why the shared-layout morph got dropped before it was written
+## Slice 18, A cartridge popup, and why the shared-layout morph got dropped before it was written
 
 **Date:** 2026-08-29
 
@@ -3532,13 +3532,13 @@ implementation detail. Grepped every new and touched file for em
 dashes, en dashes, and non-breaking hyphens; none found outside code
 comments.
 
-## Slice 19 — Actually deployed, and two real gaps the deploy itself surfaced
+## Slice 19, Actually deployed, and two real gaps the deploy itself surfaced
 
 **Date:** 2026-08-29
 
 Everything up to this point had been verified against `localhost` only.
 Asked directly "how do I deploy this, and do I still need to run
-uvicorn/npm run dev myself" — the answer to the second half is no, once
+uvicorn/npm run dev myself", the answer to the second half is no, once
 deployed the platforms run the servers continuously on their own
 infrastructure, the local dev commands become a pure local-dev loop.
 
@@ -3557,7 +3557,7 @@ pricing claim instead of a technical one.
 ### The Health Check Path trap
 
 Render's own new-service form shows `/healthz` as greyed placeholder
-text in the Health Check Path field — common convention on other
+text in the Health Check Path field, common convention on other
 platforms, but not this app's actual route. The real endpoint is
 `GET /health` (`src/api/main.py`). Typing the placeholder literally,
 rather than reading it as an example, would have pointed Render's
@@ -3595,9 +3595,9 @@ in a frontend project that never reads any of them. Removed all but
 **`CORS_ALLOWED_ORIGINS` was missing entirely from Render's environment,
 not merely left at a default value on purpose.** The backend had been
 set up via Render's "Add from .env" shortcut against the real local
-`.env` file — and that file, unlike `.env.example`, had never actually
+`.env` file, and that file, unlike `.env.example`, had never actually
 included a `CORS_ALLOWED_ORIGINS` line (or `DEBUG`, or the rate-limit/
-cache tuning vars — those simply hadn't been needed for local dev,
+cache tuning vars, those simply hadn't been needed for local dev,
 where the code's built-in defaults already matched what local dev
 wanted). Because `src/config.py`'s `Settings` class gives
 `cors_allowed_origins` a default of `http://localhost:3000`, the
@@ -3640,7 +3640,7 @@ reach.
   checked by hand, once, right after deploying. A future code change
   could break the live site (a bad env var, a CORS regression, a
   broken build) with nothing catching it until someone happens to
-  visit and notice — there's no scheduled or post-deploy check hitting
+  visit and notice, there's no scheduled or post-deploy check hitting
   the real URLs the way `test.yml` hits the test suite on every push.
 - **The Render free tier's 15-minute spin-down is real and unverified
   under a genuinely cold start.** Every check in this slice happened
@@ -3648,7 +3648,7 @@ reach.
   actual 30-60 second cold-start delay after real inactivity hasn't
   been observed directly yet.
 
-## Slice 20 — The answer was correct and completely invisible
+## Slice 20, The answer was correct and completely invisible
 
 **Date:** 2026-08-29
 
@@ -3659,7 +3659,7 @@ somewhere off-screen. Worth noting the sequence, since it started as a
 misread: while investigating, a Render log full of `huggingface.co`
 HEAD requests and an orange `HF_TOKEN` warning looked alarming at
 first glance, but turned out to be completely normal (a cold-start
-embedding-model cache verification, not a failure — no exception, no
+embedding-model cache verification, not a failure, no exception, no
 non-2xx from the app itself, and the screenshot alongside it showed the
 question had actually answered correctly). Worth recording as a small
 lesson on its own: color-coded log severity (Render highlights WARNING
@@ -3684,13 +3684,13 @@ app has two other entry points that call the exact same `ask()`
 function from much further down the page: Meet Ludo's example
 questions and the genre showcase's leaderboard picks. Moving the
 result block up without anything else would have just relocated the
-bug rather than fixed it for those two paths — triggering a question
+bug rather than fixed it for those two paths, triggering a question
 from the bottom of the page would then show the answer scrolled far
 above the click, same underlying problem, opposite direction. Added a
 ref-anchored `scrollIntoView({ behavior: "smooth" })` inside `ask()`
 itself, so every entry point converges on the same fix regardless of
 where the click originated. Also added an explicit "Ludo is
-thinking…" label above the trace dots — the dots alone (five grey
+thinking…" label above the trace dots, the dots alone (five grey
 circles, one pulsing) read as decoration at a glance if you don't
 already know what they mean; a plain-language label removes that
 ambiguity for a first-time visitor.
@@ -3709,19 +3709,19 @@ conversational memory to serve that same use case would mean teaching
 the router and prompts to resolve cross-turn references, deciding
 whether follow-up context should influence SQL generation and how that
 interacts with the SQL-safety guardrails, and building genuinely new
-frontend state — a real architectural undertaking, not a UI tweak.
+frontend state, a real architectural undertaking, not a UI tweak.
 
 Recommended against it specifically because of what it would trade
 away, not just its size: this project's actual differentiator among
 portfolio projects a technical reviewer will have seen many of isn't
-"it's a chatbot" — it's the guardrails (guaranteed SELECT-only SQL, a
+"it's a chatbot", it's the guardrails (guaranteed SELECT-only SQL, a
 router that gates tool access, real statistics instead of an LLM
 eyeballing an average, evals with live-computed ground truth). Adding
 cross-turn context specifically increases the surface area that safety
 story has to cover, for a feature whose stated use case the stateless
 pipeline already handles. If full conversational memory is wanted
 later specifically to demonstrate that skill for a job application,
-that is a legitimate reason on its own — but it deserves its own
+that is a legitimate reason on its own, but it deserves its own
 brainstorm and its own slice, not to be folded into a loading-state
 fix.
 
@@ -3736,19 +3736,19 @@ example question rendered well down the page and confirmed the page
 auto-scrolled and the trace panel became visible, proving the fix
 covers all three entry points, not just the one that was reported.
 Zero console errors in either run. Grepped the new copy for em dashes,
-en dashes, and non-breaking hyphens — the only new punctuation is a
+en dashes, and non-breaking hyphens, the only new punctuation is a
 plain ellipsis ("Ludo is thinking…"), not a dash, and none were found.
 
 ### Open questions (new)
 
 - **Full multi-turn conversational memory remains unbuilt, on
-  purpose** — see the reasoning above. Worth revisiting only if there's
+  purpose**, see the reasoning above. Worth revisiting only if there's
   a specific reason (a target role's job description calling out
   multi-turn agent memory, for instance) that outweighs the guardrail-
   surface-area cost, and it should get its own brainstorming pass
   rather than being added incrementally.
 
-## Slice 21 — Portfolio/hygiene cleanup pass
+## Slice 21, Portfolio/hygiene cleanup pass
 
 **Date:** 2026-08-29
 
@@ -3761,7 +3761,7 @@ came out of just checking git state honestly:
 mattered immediately, not hypothetically.** The Slice 19 doc-fix commit
 touched `render.yaml` (correcting its stale Fly.io comment and
 placeholder CORS URL), and because that file wasn't on the ignore
-list, it almost certainly triggered a real, wasted Render rebuild —
+list, it almost certainly triggered a real, wasted Render rebuild -
 caught by checking `git show --stat` on the pushed commit, not by
 guessing. Added it to the ignore list.
 
@@ -3770,20 +3770,20 @@ zero functional benefit.** `@react-three/fiber`, `@react-three/drei`,
 `three`, and `@types/three` survived Slice 14's WebGL statue hero being
 deleted, sitting unused in `package.json` since. Confirmed zero imports
 across `app/`, `components/`, `lib/` before removing anything (same
-discipline as every other deletion in this project's history — grep
+discipline as every other deletion in this project's history, grep
 first, never assume). `npm install` afterward dropped 54 packages;
 `tsc --noEmit`/`lint`/`build` all still clean, and the build's own
 compile step measurably faster (1.3s vs 2.7s) with less to bundle.
 
 ### Adding a LICENSE, and being explicit about the name on it
 
-The repo had no LICENSE file at all — a real gap for a public portfolio
+The repo had no LICENSE file at all, a real gap for a public portfolio
 project, since without one the legal default is "all rights reserved,"
 which is a strange stance for something meant to be read and judged by
 strangers. Added MIT, the conventional default for exactly this kind of
 project. Used the GitHub-facing identity (`stefhooy`, the name every
 commit in this repo is already authored under) as the copyright holder
-rather than inserting a real legal name unasked — easy to swap for a
+rather than inserting a real legal name unasked, easy to swap for a
 different name if a real one is preferred.
 
 ### `frontend-ci.yml`: why it exists and what it actually catches
@@ -3812,7 +3812,7 @@ lock, ran a genuinely fresh `npm ci` (not a warm `npm install`, to
 match what a CI runner actually does), then ran `lint`, `tsc --noEmit`,
 and `build` in that exact order against that fresh install. All three
 passed. `NEXT_PUBLIC_API_BASE_URL` is set to a harmless placeholder in
-the workflow env — `lib/api.ts` already falls back to
+the workflow env, `lib/api.ts` already falls back to
 `http://localhost:8000` when the variable is unset, so this is
 belt-and-suspenders explicitness rather than a functional requirement;
 the build never calls the real backend regardless; it only proves
@@ -3826,11 +3826,11 @@ plugin ruff ships: `E/F` is the real correctness baseline, `I` sorts
 imports, `UP` modernizes for the 3.12 target, `B` (bugbear) catches
 real bug shapes, `RUF` is ruff's own checks. `BLE` (blind-except)
 specifically because `src/api/main.py` already had a `# noqa: BLE001`
-comment on a broad `except Exception:` before this config existed —
+comment on a broad `except Exception:` before this config existed -
 the codebase was already anticipating this exact rule, so enabling it
 just made an intent that was already written down actually enforced.
 Left `DTZ` (flake8-datetimez, "always pass tzinfo") out on purpose: this
-codebase has one consistent convention instead of an oversight —
+codebase has one consistent convention instead of an oversight -
 timestamps are written UTC-aware once, at the single point they're
 created (`poll_player_counts.py`), and read back naive everywhere else
 because that's genuinely what DuckDB's Python API returns for a
@@ -3852,7 +3852,7 @@ suppressed:** 33 ruff issues and 13 mypy issues, all real, none of them
 
 - **Ambiguous-unicode false positives in exactly the two files that are
   supposed to contain literal em/en dashes** (`graph.py`'s
-  `_strip_dashes()` and its test) — the one case in this whole pass
+  `_strip_dashes()` and its test), the one case in this whole pass
   where the right fix genuinely was a per-file ignore, since the
   characters ruff flagged are the entire point of that code, not stray
   punctuation. Scoped the ignore to those two files specifically, not
@@ -3862,39 +3862,39 @@ suppressed:** 33 ruff issues and 13 mypy issues, all real, none of them
   `list[tuple]`.** This was a real, if harmless-in-practice, type
   mismatch that would have let a genuine bug (accidentally relying on
   list-only behavior, like item assignment) through undetected.
-  Widened the parameter type to `Sequence[Sequence[Any]]` — the
+  Widened the parameter type to `Sequence[Sequence[Any]]`, the
   functions only ever read `rows`, never mutate it, so the more
   permissive, correct type was the actual fix, not a workaround.
 - **Two `with_structured_output()` calls** (the router, the eval
   judge) **typed looser than they resolve at runtime.** LangChain's
   stub allows either a `dict` or a `BaseModel` back, since the method
-  also accepts a raw JSON-schema dict as its target — but passing a
+  also accepts a raw JSON-schema dict as its target, but passing a
   Pydantic model class, as both call sites do, always returns an
   instance of that exact class. Used `cast()` with a comment explaining
   why, rather than restructuring working code around a stub's
   generality it doesn't actually need.
 - **`ChatGroq`'s `api_key` expects a `SecretStr`, not a plain `str`.**
-  A real, if minor, type gap — wrapped it. This one actually touches a
+  A real, if minor, type gap, wrapped it. This one actually touches a
   live code path (every real Groq call), so it got the same live
   verification as the SSE change below, not just a type-checker pass.
 - **A duplicated long f-string, not just a long line.** Ruff's line
   length flag on one `yield f"data: {json.dumps(...)}\n\n"` in
   `ask_stream()` led to noticing it was the third near-identical copy
   of the same SSE-framing pattern in that function. Extracted a small
-  `_sse()` helper instead of just wrapping the line — a real
+  `_sse()` helper instead of just wrapping the line, a real
   deduplication the line-length check surfaced as a side effect, not
   the fix ruff was actually asking for.
 
 ### Verification
 
 `ruff check src/ tests/` and `uv run mypy src/` both clean. Re-ran the
-full 83-test pytest suite after every fix landed, not just at the end —
+full 83-test pytest suite after every fix landed, not just at the end -
 still 83 passed. Because two of the fixes (the `SecretStr` wrapper
 around the real Groq API key, the extracted `_sse()` helper inside the
 actual `/ask/stream` handler) touch genuine request paths rather than
 being pure type-annotation changes, started a real local backend and
 drove both `POST /ask` and `POST /ask/stream` with real questions
-against the live Groq API afterward — both returned correct answers,
+against the live Groq API afterward, both returned correct answers,
 correct SQL, and (for the stream) the expected node-by-node progress
 sequence, confirming the refactor didn't silently change runtime
 behavior. Also simulated the exact CI workflow order locally (`uv sync
@@ -3905,15 +3905,15 @@ running the commands by hand.
 ### A small ARCHITECTURE.md accuracy fix, found while checking whether it needed one
 
 Asked directly whether ARCHITECTURE.md needed updating for Slices
-18-21's work. It didn't — that document is deliberately scoped to the
+18-21's work. It didn't, that document is deliberately scoped to the
 reasoning system's shape (the graph, RAG, the safety boundary), not
 deployment topology or frontend UI or dev tooling, and none of those
 slices touched that shape. But checking it against the real code
 surfaced a genuine, pre-existing staleness unrelated to recent work:
 the System overview diagram's FastAPI node listed `/ask, /ask/stream,
 /genres, /games` without `/catalog`, which has existed for several
-slices. Fixed the diagram, and also noticed `catalog.py` — which
-bypasses `connection.py` the same way `genre_stats.py` does — wasn't
+slices. Fixed the diagram, and also noticed `catalog.py`, which
+bypasses `connection.py` the same way `genre_stats.py` does, wasn't
 represented as a box at all. Combined them into one box and rewrote the
 explanatory bullet to state their actual, slightly different safety
 reasoning accurately rather than imply they're identical: `genre_stats.py`
@@ -3922,13 +3922,13 @@ sort, genre filter) but never lets it reach a SQL string, routing sort
 through a Python allowlist dict and filtering in Python after one
 unparameterized fetch instead.
 
-## Slice 22 — A RAG retrieval eval, and confirming the eval itself wasn't fake
+## Slice 22, A RAG retrieval eval, and confirming the eval itself wasn't fake
 
 **Date:** 2026-08-29
 
 Every eval this project has had so far checks the final answer: is the
 number right, is the route right, is the LLM judge satisfied. None of
-them check the one step in between — does `retrieve_schema` actually
+them check the one step in between, does `retrieve_schema` actually
 pull in the right context for a given question. A final answer can
 sometimes come out right even when retrieval grabbed the wrong or
 incomplete chunks (the LLM might already "know" the schema well enough
@@ -3941,7 +3941,7 @@ way to check the second claim directly.
 Before designing anything, read `schema_index.py` and
 `schema_corpus.py` rather than assuming how retrieval works. That
 surfaced something that changed the whole approach: `SchemaIndex.retrieve()`
-only calls `get_embedder()` (the local ONNX model via fastembed) — it
+only calls `get_embedder()` (the local ONNX model via fastembed), it
 never touches Groq or any paid API. Every other eval in this project
 (`run_evals.py`'s golden questions) needs a real LLM call per question,
 which is exactly why that harness stays manual-only, cost- and
@@ -3952,7 +3952,7 @@ occasionally" to "a real pytest test that gates CI for free, forever."
 ### Excluding `always_include` chunks from the golden set, on purpose
 
 `schema_corpus.py` marks four chunks (`table:games`, `column:name`,
-`column:genre`, `table:player_counts`) as `always_include=True` — they
+`column:genre`, `table:player_counts`) as `always_include=True`, they
 bypass ranking entirely and come back regardless of the question,
 because semantic similarity alone was empirically found (Slice 2/9) to
 under-rank generic-sounding columns like "name" against a question
@@ -3971,20 +3971,20 @@ that as a real baseline rather than an artifact of a too-easy test,
 checked whether the eval could actually tell good retrieval from bad by
 re-running at a much smaller k: recall@3 dropped to 0.789, recall@1 to
 0.522, with real, specific misses reported (e.g. `dev_publisher` scored
-0 at k=3 — the developer/publisher columns didn't make the cut at that
+0 at k=3, the developer/publisher columns didn't make the cut at that
 tight a limit). That confirmed the eval has real discriminating power,
 not just a design that trivially always passes regardless of k, so the
 1.000 at the real k=8 is an earned, meaningful result and not a red
 flag. Also confirmed the result is deterministic across repeated runs
 (no randomness in embedding computation for fixed input text) before
-locking `1.0` in as the exact regression bar — a bar grounded in what
+locking `1.0` in as the exact regression bar, a bar grounded in what
 was actually measured, not a guessed target picked in advance.
 
 ### A quick honesty check on the 15 questions themselves
 
 Cross-checked every chunk ID referenced in the golden set against the
 real corpus programmatically (a small script comparing the two id sets)
-rather than trusting hand-typed IDs — caught zero typos, but this is
+rather than trusting hand-typed IDs, caught zero typos, but this is
 exactly the kind of silent bug (a golden question that can never pass
 because its expected chunk ID has a typo, quietly rendering that
 question's "pass" meaningless) that's cheap to introduce and easy to
@@ -3993,14 +3993,14 @@ miss by eye in a list of 15 frozensets.
 ### Two small, unrelated documentation bugs found while checking scope
 
 Asked directly whether ARCHITECTURE.md needed updating for this work
-(it doesn't touch the graph's shape, so no) — but checking it against
+(it doesn't touch the graph's shape, so no), but checking it against
 the real code surfaced two pre-existing staleness bugs unrelated to
 this slice: the System overview diagram's FastAPI node was missing
 `/catalog` (added several slices ago), and the RAG diagram said "~24
 SchemaChunks" when the corpus has grown to 35 real chunks. Fixed both,
 and also added `catalog.py` as a second box next to `genre_stats.py`
 in the System overview diagram, since it bypasses `connection.py` the
-same way but had never been drawn — see the entry just above this one.
+same way but had never been drawn, see the entry just above this one.
 
 ### Verification
 
@@ -4014,7 +4014,7 @@ composes cleanly with everything else.
 
 - **15 golden questions is a reasonable start, not exhaustive.** Some
   corpus chunks (e.g. `column:owners_high` specifically, distinct from
-  `owners_low`) aren't independently tested — the eval currently checks
+  `owners_low`) aren't independently tested, the eval currently checks
   clusters of related chunks together rather than every chunk in
   isolation. Worth expanding if the corpus grows significantly or a
   real retrieval miss shows up in production that this set wouldn't
@@ -4023,18 +4023,18 @@ composes cleanly with everything else.
   measured, but it also means any future corpus edit that changes even
   one chunk's wording in a way that shifts its embedding slightly could
   fail this test without retrieval actually being "worse" in any way a
-  user would notice — an acceptable trade for a portfolio project's
+  user would notice, an acceptable trade for a portfolio project's
   regression net, but worth knowing if this pattern is reused somewhere
   with a bigger, noisier corpus.
 
-## Slice 23 — Making the retry loop's self-correction visible, and a real bug found in the design pass
+## Slice 23, Making the retry loop's self-correction visible, and a real bug found in the design pass
 
 **Date:** 2026-08-29
 
 `execute_tools_node` has had a self-correction retry loop since early in
 this project (a tool error gets fed back to the model as a `ToolMessage`,
 which gets another try, up to `SQL_MAX_RETRIES`). Nothing outside a
-debugger could ever see it happen, though — `attempts` lived in internal
+debugger could ever see it happen, though, `attempts` lived in internal
 graph state only, never reached the API response, a log line, or
 anywhere a person could look and answer "how often does this actually
 fire, and does it work."
@@ -4048,7 +4048,7 @@ A question needing two legitimate tool calls (a lookup, then a stats
 call) increments it exactly the same way a single failed-then-retried
 call would. Surfacing the existing `attempts` field alone would have
 produced a "self-correction rate" that was actually measuring "how many
-tool calls did this question need" — a real but different thing.
+tool calls did this question need", a real but different thing.
 Added a second, separate counter, `tool_errors`, incremented only
 inside the `except` branch that actually catches a failure. This is the
 whole point of the feature: without this split, a genuinely useful
@@ -4066,13 +4066,13 @@ it by hand before writing the code: `attempts` can theoretically reach
 never errored at all (rare in this system, but not impossible, and not
 excluded by the type system). If that ever happened, `runs_that_hit_the_retry_cap`
 would include a run that was never in `runs_with_tool_error` to begin
-with, and the subtraction could go negative — an obviously wrong
+with, and the subtraction could go negative, an obviously wrong
 "recovered" count with no exception ever raised to reveal it, exactly
 the kind of bug that ships quietly and shows up as a nonsensical number
 on a dashboard months later. Fixed by tracking the actual intersection
 directly (`runs_with_tool_error_that_hit_the_attempts_cap`, incremented
 only inside the branch that already knows `had_error` is true) instead
-of two independent totals subtracted after the fact — a subset by
+of two independent totals subtracted after the fact, a subset by
 construction, so the subtraction can never go negative. This is a
 correctness bug that never ran, caught by reasoning about the data
 model before writing the implementation, not by a failing test after
@@ -4081,25 +4081,25 @@ the fact.
 ### What deliberately does NOT count toward these stats, verified live
 
 A semantic-cache hit replays a stored `AgentResult` without running the
-graph again — counting it would double-count the same underlying run
+graph again, counting it would double-count the same underlying run
 under a different question's cache key. A hard provider failure (Groq
 rate-limited or erroring before the agent ever reaches the tool-call
 loop) is a different failure class entirely, not a self-correction
-event — the request never got far enough to try or fail a tool call.
+event, the request never got far enough to try or fail a tool call.
 Both exclusions were reasoned about in the design, then actually
 confirmed live rather than just argued for: rapid manual testing during
 verification genuinely triggered a real Groq 413 (tokens-per-minute
 limit exceeded, an authentic free-tier constraint, not a contrived
 test), which correctly fell through to the existing
 `FRIENDLY_ERROR_MESSAGE` 503 path with no change in behavior, and
-`/health`'s `total_runs` confirmed unchanged afterward — the exclusion
+`/health`'s `total_runs` confirmed unchanged afterward, the exclusion
 held under a real failure, not just an imagined one.
 
 ### Verification
 
 `tests/test_graph_tool_errors.py`: four new tests directly against
 `execute_tools_node`, using the same real-DuckDB-fixture-over-mocking
-approach as `test_catalog.py`/`test_genre_stats.py` — including an
+approach as `test_catalog.py`/`test_genre_stats.py`, including an
 actual `DROP TABLE games` to produce a real `UnsafeQueryError`, not a
 simulated one. One test specifically encodes the reason this feature
 exists: two successful calls in one turn must leave `tool_errors` at
@@ -4111,7 +4111,7 @@ tests: confirmed `/health`'s new `self_correction` block and `/ask`'s
 `attempts`/`tool_errors` fields are both present and correctly computed
 on genuine live Groq round trips (including catching and killing a
 stale backend process from an earlier verification session that was
-still bound to port 8000 and silently serving pre-Slice-23 responses —
+still bound to port 8000 and silently serving pre-Slice-23 responses -
 worth remembering: a "field missing" error can mean the code is wrong,
 or it can mean you're not actually talking to the code you think you
 are).
@@ -4143,14 +4143,14 @@ time better spent on the AI-engineering-specific items still open (the
 README hook, quantified results) or on applying and interview prep
 directly. See PLAN.md's "Dropped" section for the entry.
 
-## Slice 24 — Real numbers, published as they actually came out
+## Slice 24, Real numbers, published as they actually came out
 
 **Date:** 2026-08-29
 
 The last audit item asked for quantified results: real eval accuracy,
 real `/ask` latency, real cost per question, cache hit rate. The
 temptation with a slice like this is to run something until it looks
-good, then publish that run. Didn't do that — ran the real eval suite
+good, then publish that run. Didn't do that, ran the real eval suite
 once, with real instrumentation, and published exactly what came back,
 including a real failure.
 
@@ -4161,7 +4161,7 @@ on-demand pricing for `openai/gpt-oss-120b` live rather than trusting
 training data, which can be stale for something that changes as often
 as API pricing: $0.15/M input tokens, $0.60/M output tokens. Same
 instinct as verifying the Steam CDN URL or Render's free-tier terms
-earlier in this project — a factual claim about an external service
+earlier in this project, a factual claim about an external service
 gets checked, not assumed.
 
 ### Finding the right instrumentation point before touching any code
@@ -4172,9 +4172,9 @@ call rounds) without invasively changing `classify_question()`'s or
 `judge_answer()`'s return types just to smuggle usage data out of
 `with_structured_output()` calls, which don't normally expose raw token
 usage on their parsed Pydantic return value. Tested
-`langchain_core.callbacks.get_usage_metadata_callback()` — a contextvar-
+`langchain_core.callbacks.get_usage_metadata_callback()`, a contextvar-
 based callback that hooks at `on_llm_end`, before structured-output
-parsing consumes the raw response — against a real live `run_agent()`
+parsing consumes the raw response, against a real live `run_agent()`
 call before trusting it, and confirmed it correctly captured usage from
 *every* LLM call in the graph, structured-output router call included,
 with zero changes to any existing function signature. Wired it directly
@@ -4189,7 +4189,7 @@ cost.
 
 ### The numbers, published as they came out
 
-Route accuracy: 6/6. Deterministic checks: **5/6**, not 6/6 — one real
+Route accuracy: 6/6. Deterministic checks: **5/6**, not 6/6, one real
 failure, and a notable one: `analysis_action_vs_f2p_not_mislabeled` is
 the exact regression test Slice 4 built specifically to catch a
 free-to-play group being mislabeled without actually being filtered to
@@ -4197,7 +4197,7 @@ free-to-play group being mislabeled without actually being filtered to
 `AVG(CASE WHEN price_usd = 0 THEN price_usd END)` directly in raw SQL
 instead of calling `run_stats`'s `compare_two_groups` mode, and the
 check correctly flagged it. This is the eval harness doing exactly its
-job — catching a live instance of a known failure class — not a
+job, catching a live instance of a known failure class, not a
 disappointing result to explain away. A quieter, more tempting version
 of this slice would have re-run the suite until it came back 6/6 and
 reported that instead; publishing the real 5/6 is a more honest signal
@@ -4205,32 +4205,32 @@ about what the harness actually catches, and arguably a better one to
 be able to discuss in an interview than a suspiciously clean number.
 
 Avg judge score: 4.2/5. Avg latency: 15.5s over 6 real full-graph runs
-— reported the actual range (3.2s to 37.1s) alongside the average
+- reported the actual range (3.2s to 37.1s) alongside the average
 rather than let one number imply more precision than 6 samples support;
 the slow outlier was an `analysis` question requiring two sequential
-LLM turns plus a heavier query. Avg cost per question: **$0.00057** —
+LLM turns plus a heavier query. Avg cost per question: **$0.00057** -
 real token counts, real pricing, meaning roughly $0.57 to answer 1,000
 questions on Groq's on-demand list price.
 
 ### The cache-hit finding: honest and more specific than a single number
 
 There's no real production traffic yet to derive an organic cache "hit
-rate" from — inventing one would be exactly the kind of fabricated
+rate" from, inventing one would be exactly the kind of fabricated
 number this project has refused to do elsewhere (the em-dash guarantee,
 the eval ground truth computed live instead of hardcoded). Instead, ran
 a real, small, labeled test against a live backend: a genuinely
 different question correctly missed (true negative, no false
 positives observed in this or any earlier session's testing); a
-natural real-world paraphrase — "Which game costs the most out of
+natural real-world paraphrase, "Which game costs the most out of
 everything in the catalog?" against the cached "What is the most
-expensive game in the catalog?" — **also missed**, a genuinely useful
+expensive game in the catalog?", **also missed**, a genuinely useful
 finding that the 0.93 similarity threshold (calibrated empirically back
 when the cache was built, see `src/config.py`'s own comment on it) is
 more conservative in live practice than a casual assumption would
 suggest; a near-identical rewording ("the whole catalog" vs "the
 catalog") correctly hit, confirmed via the exact `cache hit: ... ~ ...`
 log line, not just the response's `cached: true` flag. The honest
-takeaway — precise but conservative — is more useful and more credible
+takeaway, precise but conservative, is more useful and more credible
 than a single invented percentage would have been.
 
 ### A real bug found along the way, deliberately not fixed in this slice
@@ -4238,7 +4238,7 @@ than a single invented percentage would have been.
 `golden_questions.py`'s `forecast_not_supported` question still carries
 `reference_facts` text ("This system has no forecasting tool or
 time-series data") that was accurate before Slice 9b's real
-`run_forecast` tool existed and is stale now — likely part of why that
+`run_forecast` tool existed and is stale now, likely part of why that
 question scored a middling 3/5 from the judge, which is grading the
 real answer against outdated ground truth. Noticed while reading the
 report, not fixed here: this slice was about gathering and publishing
@@ -4250,7 +4250,7 @@ entry).
 ### A real environment trap, hit twice now
 
 Killed a stale `uvicorn` process during verification whose port was
-still bound from an earlier session — the second time this exact thing
+still bound from an earlier session, the second time this exact thing
 has happened in this project (see Slice 23's entry). `pkill -f "uvicorn
 src.api.main"` silently reports nothing and does not actually stop the
 process in this environment, for reasons not fully diagnosed (likely a
@@ -4265,7 +4265,7 @@ not a hypothetical one.
 ### Verification
 
 `ruff check`, `mypy src/`, and the full pytest suite (88 tests, all
-pre-existing — this slice added instrumentation and ran real evals, no
+pre-existing, this slice added instrumentation and ran real evals, no
 new test file) all clean. The numbers themselves are the verification
 artifact for this slice: real Groq calls, real pricing, real timing, a
 real cache test against a real running backend, published without
@@ -4281,11 +4281,11 @@ editing.
 - **n=6 is a thin sample for latency and cost claims.** The published
   numbers are real and honestly reported, but six questions is enough
   to be directionally right, not enough to treat as a stable production
-  average — worth re-measuring at a larger scale before quoting these
+  average, worth re-measuring at a larger scale before quoting these
   numbers as if they were production telemetry rather than a single
   eval run's honest result.
 
-## Slice 25 — Building the README hook, and finding a real production bug while taking a screenshot
+## Slice 25, Building the README hook, and finding a real production bug while taking a screenshot
 
 **Date:** 2026-08-29
 
@@ -4294,12 +4294,12 @@ straight into dense technical prose, with no live demo link, screenshot,
 or badges, despite the app being genuinely live since Slice 19. Checked
 one thing before writing a word of the hook: whether the GitHub repo is
 actually public. A polished hook pointed at a private repo helps nobody
-— confirmed via the GitHub API (`private: false`) before investing any
+- confirmed via the GitHub API (`private: false`) before investing any
 further effort.
 
 ### The screenshot had to be real, which is what surfaced the real bug
 
-Decided early that a mockup or a hand-drawn diagram wouldn't do — the
+Decided early that a mockup or a hand-drawn diagram wouldn't do, the
 whole point of a "live demo" hook is that it's actually live, so the
 screenshot needed to come from driving the real deployed site with
 Playwright, not from a local dev server. That decision is what surfaced
@@ -4319,13 +4319,13 @@ flaky-test workaround.
 
 `curl` against `/ask` for the exact same question returned a hard 502
 after ~59 seconds. The instinct at that point could have been "the LLM
-call is slow, that's expected" — but the eval numbers from Slice 24,
+call is slow, that's expected", but the eval numbers from Slice 24,
 gathered minutes earlier, already established real latency tops out
 around 37s for a heavy question, and a 502 is not what a slow-but-
 successful request looks like. Checked `/health` next specifically to
 isolate two different possible problems: "the whole service is down"
 versus "just the heavy `/ask` path is struggling." `/health` also
-returned a 502, in 0.3 seconds — not a timeout, an immediate rejection,
+returned a 502, in 0.3 seconds, not a timeout, an immediate rejection,
 meaning nothing was actually answering behind Render's proxy at all. A
 few minutes later, `/health` came back clean with `cache_entries: 0`
 (a tell that the process had restarted fresh), and a plain `curl -I`
@@ -4337,20 +4337,20 @@ diagnosed in real time, not a hypothetical failure mode.
 
 The existing README caveat, written back in Slice 19, said the free
 tier's spin-down means "the first request after inactivity takes
-30-60s to wake it back up" — implying a slow but eventually-successful
+30-60s to wake it back up", implying a slow but eventually-successful
 response. What was actually observed here is meaningfully worse: a hard
 502 across every endpoint during some portion of the wake window, not
 a queued request that eventually completes. Corrected the README's own
 claim to match what was actually observed rather than leave the more
 optimistic (and, it turns out, incorrect) original phrasing standing.
-This doesn't yet rise to "the deployment is broken" — the service does
+This doesn't yet rise to "the deployment is broken", the service does
 recover on its own within roughly a minute, and every previous live
 verification in this project (Slices 19, 23, 24) worked fine once past
 that window. The likely cause, not yet confirmed: this app's actual
 memory footprint (fastembed's ONNX runtime, numpy, scipy, DuckDB, and
 the full LangChain/LangGraph stack all loaded in one process) is
 substantial for Render's free-tier 512MB limit, and the boot window
-after a spin-down is exactly when memory pressure would be highest —
+after a spin-down is exactly when memory pressure would be highest -
 noted as a real, specific hypothesis to check, not asserted as fact
 without evidence.
 
@@ -4360,11 +4360,11 @@ Once the backend was confirmed stable, drove the real site end to end:
 filled the real ask bar, submitted a real question, waited specifically
 for the real result's `<summary>` element (disambiguated from the
 decorative one), expanded it, and screenshotted that exact panel
-element directly — not a manually-computed pixel region, which the
+element directly, not a manually-computed pixel region, which the
 first successful capture attempt got wrong (cropped the top of the
 route badge off and missed the question). Element-level screenshotting
 fixed that correctly on the first retry. The final image shows a real
-route badge (`Lookup`), a real `Cached` label (left in deliberately —
+route badge (`Lookup`), a real `Cached` label (left in deliberately -
 it's evidence the semantic cache actually works, not something to hide
 for a cleaner-looking screenshot), the real answer, a real result
 table, and the real SQL and retrieved-schema-chunk list under "Show the
@@ -4374,14 +4374,14 @@ work."
 
 Confirmed the repo is public via the GitHub API before starting. Every
 new badge URL (`test.yml`, `frontend-ci.yml`, the shields.io license
-badge) checked with a real `curl` for a 200, not pasted and assumed —
+badge) checked with a real `curl` for a 200, not pasted and assumed -
 GitHub's workflow badges are dynamic and only exist for a public repo
 with that exact workflow file present, so this wasn't a given. The
 screenshot file was checked for a reasonable size (70KB). Grepped the
 new README copy for em dashes and en dashes; the root README has never
 been subject to the frontend's no-dash rule (that rule is explicitly
 scoped to `app/`, `components/`, `lib/`, and the agent's generated
-answer text — every prior slice's own DOCEXP/PLAN/README prose has used
+answer text, every prior slice's own DOCEXP/PLAN/README prose has used
 em dashes freely throughout this whole project), so this was a
 consistency check against existing practice, not a new constraint.
 
@@ -4400,14 +4400,14 @@ consistency check against existing practice, not a new constraint.
   but it's worth knowing this failure mode has no visibility outside of
   someone happening to hit it.
 
-## Slice 26 — Finishing token/cost logging on the actual request path
+## Slice 26, Finishing token/cost logging on the actual request path
 
 **Date:** 2026-08-29
 
 Closing out the last item from the AI-Engineer audit surfaced something
 worth naming honestly: Slice 24's token/cost work only touched
 `run_evals.py`. A real `/ask` or `/ask/stream` call still reported
-neither — the eval harness had the instrumentation, production didn't.
+neither, the eval harness had the instrumentation, production didn't.
 Declaring the audit item done because the eval harness had it would have
 been technically defensible but not actually true to what was asked
 ("token/cost logging *per request*"), so this slice finishes it on the
@@ -4419,7 +4419,7 @@ Rather than copy Slice 24's `GROQ_PRICING_USD_PER_MILLION_TOKENS` dict
 and cost formula into `graph.py` as a second copy, pulled both out into
 a new `src/agent/pricing.py` that `run_evals.py` and the live agent now
 both import. Two independently-maintained pricing tables is exactly the
-kind of thing that quietly drifts — someone updates the eval harness
+kind of thing that quietly drifts, someone updates the eval harness
 after a Groq price change and forgets the production copy, and now the
 "measured results" in the README and the numbers a real user's request
 actually reports disagree for no reason anyone would notice quickly.
@@ -4435,13 +4435,13 @@ request carry the same real numbers. `AgentResult` grew `total_tokens`/
 established for `attempts`/`tool_errors`: computed once in
 `_result_from_state`, threaded through `AskResponse` so it's visible
 per-request at `/docs`, and aggregated in `RunStats` for a live,
-production-derived average at `/health` — not just Slice 24's one-off
+production-derived average at `/health`, not just Slice 24's one-off
 eval-run snapshot.
 
 ### The log line the task actually asked for
 
 The original ask was "token/cost *logging*," and until this slice
-nothing was actually logged — only returned in the API response and
+nothing was actually logged, only returned in the API response and
 folded into an aggregate. Added an explicit `usage: route=...
 total_tokens=... estimated_cost_usd=...` log line in
 `_record_real_run()`, deliberately unconditional (unlike the
@@ -4453,19 +4453,19 @@ cost is worth a visible trail on every request, not just failures.
 Ran the exact same live checks Slice 23 used for `attempts`/
 `tool_errors`, extended to the new fields: a real `/ask` call and a
 real `/ask/stream` call both returned correct `total_tokens`/
-`estimated_cost_usd` (in the same range Slice 24 measured — a useful
+`estimated_cost_usd` (in the same range Slice 24 measured, a useful
 cross-check that nothing about the refactor silently changed the
 number), `/health`'s new `usage` block aggregated correctly after a
 real request, and the log line's actual output was read from the
 running backend's log file, not assumed from reading the code. Also
 re-ran the real eval suite (judge skipped, to avoid spending Groq
 quota on what was fundamentally a refactor check) after moving the
-pricing constant into its own module — same 5/6 deterministic result,
+pricing constant into its own module, same 5/6 deterministic result,
 the same real failure reproduced identically, confirming
 `pricing.py`'s extraction didn't change behavior anywhere. `ruff
 check`, `mypy src/`, and the full 88-test suite all clean throughout.
 
-## Slice 27 — Finishing what Slice 21 actually started: `run_evals.py` in CI
+## Slice 27, Finishing what Slice 21 actually started: `run_evals.py` in CI
 
 **Date:** 2026-08-29
 
@@ -4473,7 +4473,7 @@ Doing a status check surfaced something worth being honest about: the
 original plan (Slice 21) was "ruff/mypy → automate `run_evals.py` →
 README hook." Ruff/mypy happened. The README hook happened, eventually.
 In between, the RAG retrieval eval (Slice 22) got built and *did* land
-in CI — but it's a different eval, checking retrieval quality, not
+in CI, but it's a different eval, checking retrieval quality, not
 final-answer quality. Slice 24 ran the real `run_evals.py` suite, but
 manually, once, to gather numbers. It would have been easy to count
 either of those as "the eval automation is done" and move on; neither
@@ -4481,7 +4481,7 @@ one actually was. Worth naming this directly rather than letting it
 quietly not happen: reprioritizing mid-project is fine and happened
 for good reasons each time, but an item that keeps getting implicitly
 superseded by adjacent work still needs to actually get done, or
-explicitly dropped — not just forgotten.
+explicitly dropped, not just forgotten.
 
 ### The forecast question: cut, not fixed, and the tradeoff stated plainly
 
@@ -4492,18 +4492,18 @@ work already dropped in an earlier slice for the same reason):
 removed the golden question entirely rather than write an accurate
 replacement. The honest cost of that choice: the eval suite now has
 zero dedicated coverage of the `forecast` route. That's a real
-reduction in eval coverage, not a neutral cleanup — recorded here
+reduction in eval coverage, not a neutral cleanup, recorded here
 plainly rather than let the checklist entry imply nothing was lost.
 
 ### Why scheduled, not gate-every-push
 
 `run_evals.py`'s own docstring already states the intent: "Exit code
-is 0 only if every question's route AND deterministic check passed —
+is 0 only if every question's route AND deterministic check passed -
 that's the part meant to gate CI later." Gating every push directly
 would mean a real Groq API call (router + agent + judge, per golden
 question) on every commit. Groq's free tier is rate-limited per
 minute, not just billed by the dollar, and this repo has had genuine
-multi-commit development days — gating every push risks a
+multi-commit development days, gating every push risks a
 CI failure from a rate limit, not from an actual regression, which
 would train the habit of ignoring red X's here. A daily schedule
 (plus `workflow_dispatch` for on-demand runs) is enough to catch a
@@ -4512,7 +4512,7 @@ risk. A red X on this specific workflow on a given day is still
 informative rather than embarrassing, by design: the one deterministic
 check that's actually failed throughout this whole project's history
 is a real, LLM-driven behavior (the free-to-play mislabeling), not a
-CI bug — an occasional failure here is the harness doing its job, the
+CI bug, an occasional failure here is the harness doing its job, the
 same conclusion Slice 24 reached about the manual run.
 
 ### The ephemeral-runner problem, solved the same way `golden_questions.py` was designed to allow
@@ -4525,7 +4525,7 @@ with back in Slice 5: `build_golden_questions()` queries the *real,
 current* DB for its ground truth at eval time, rather than hardcoding
 expected values. That means a small, fast, self-consistent catalog
 (`--count 100`, built fresh by the workflow itself) is exactly as
-valid a target for this suite as the real 1000-game one — the suite is
+valid a target for this suite as the real 1000-game one, the suite is
 checking whether the agent reasons correctly over whatever data
 exists, not whether this specific dataset matches some fixed
 expectation. A larger ingestion would only have cost more CI minutes
@@ -4534,12 +4534,12 @@ for no additional signal.
 ### Verification
 
 Didn't just write the YAML and trust it. Ran the identical two steps
-the workflow runs — a small ingestion, then the real eval suite —
+the workflow runs, a small ingestion, then the real eval suite -
 locally, with `DUCKDB_PATH` redirected to a throwaway location
 (`/tmp/eval_verify`) specifically so the real local 1000-game catalog
 this whole project's local testing depends on was never at risk of
 being silently overwritten by a 100-game rebuild. Confirmed 5/5 route
-accuracy and 4/5 deterministic checks — the free-to-play mislabeling
+accuracy and 4/5 deterministic checks, the free-to-play mislabeling
 bug caught a third time now, across a third distinct catalog (the real
 1000-game one in Slice 24, a second 100-game one earlier in this same
 slice's exploration, and this one), which is real, accumulating
@@ -4548,14 +4548,14 @@ the prompt guides comparison queries, not an artifact of one
 particular dataset's contents. Confirmed the real local DB's row count
 (1000) afterward to prove it was untouched. Validated the workflow
 YAML parses correctly. `ruff check`, `mypy src/`, and the full 88-test
-suite all clean (no new test file — this slice changed a golden
+suite all clean (no new test file, this slice changed a golden
 question and added a workflow, not application code with new
 behavior to unit-test).
 
 ### What still needs the user's action
 
 This workflow cannot run at all without a `GROQ_API_KEY` repository
-secret — something only the user can add (Settings → Secrets and
+secret, something only the user can add (Settings → Secrets and
 variables → Actions), same as `DEPLOY_HOOK_URL` earlier. Until it's
 added, the workflow will trigger on schedule and fail cleanly on the
 eval step with a clear missing-key error, not silently do nothing and
@@ -4564,7 +4564,7 @@ not do anything destructive either.
 ### Open questions (new)
 
 - **Zero eval coverage for the `forecast` route now.** A deliberate,
-  stated tradeoff, not an oversight — but if forecast quality ever
+  stated tradeoff, not an oversight, but if forecast quality ever
   needs to be demonstrated again (a future job application emphasizing
   time-series work, say), this is the first gap to fill, with a golden
   question that matches the tool's real current honest-degradation
@@ -4574,13 +4574,13 @@ not do anything destructive either.
   run (and whether the `GROQ_API_KEY` secret has been added by then)
   is still unconfirmed.
 
-## Slice 28 — The new workflow's first real run found a real bug in itself
+## Slice 28, The new workflow's first real run found a real bug in itself
 
 **Date:** 2026-08-29
 
 The user added the `GROQ_API_KEY` secret and manually triggered
 `run_evals.yml` right away to check it worked, rather than waiting for
-the next day's schedule — exactly the right instinct. It failed, with a
+the next day's schedule, exactly the right instinct. It failed, with a
 genuine `groq.RateLimitError`: "Rate limit reached for model
 `openai/gpt-oss-120b` ... on tokens per minute (TPM): Limit 8000, Used
 5688, Requested 2367." This is the best possible outcome for a first
@@ -4622,7 +4622,7 @@ immediately within the same loop iteration, never stored for later.
 Ruff's B023 (bugbear's "function definition does not bind loop
 variable") flagged it anyway. The instinct to argue the specific usage
 was safe and suppress the warning was available and would have worked
-functionally — but the actual fix (have `_call_with_retry` accept the
+functionally, but the actual fix (have `_call_with_retry` accept the
 function and its arguments separately, no lambda, no closure) is
 strictly simpler code that eliminates the entire bug class the lint
 rule exists to catch, not just this one safe-in-practice instance of
@@ -4631,13 +4631,13 @@ it. Took the rule's hint seriously rather than arguing past it.
 ### Verification
 
 Ran the exact fixed suite for real against a fresh throwaway catalog
-(`/tmp/eval_verify2`, never the real local `data/db/games.duckdb`) —
+(`/tmp/eval_verify2`, never the real local `data/db/games.duckdb`) -
 completed with zero rate-limit errors, 5/5 route accuracy, 4/5
 deterministic checks. The one failure is the same free-to-play
 mislabeling bug, now independently reproduced a fifth time across a
 fifth distinct catalog (the real 1000-game one twice across Slices 24
 and this verification's baseline, plus three different smaller ones
-used for CI/workflow verification across Slices 27 and 28) — this is
+used for CI/workflow verification across Slices 27 and 28), this is
 now about as strong a signal as this project has for "genuine,
 consistent model behavior" versus "one dataset's fluke." Confirmed the
 real local catalog's row count (1000) unchanged after the throwaway-DB
@@ -4646,14 +4646,14 @@ full 88-test suite all clean.
 
 ### Open questions (new)
 
-- **The daily schedule itself still hasn't fired on its own yet** — only
+- **The daily schedule itself still hasn't fired on its own yet**, only
   manual `workflow_dispatch` runs have been observed (the one that
   failed, and the fix verified locally). The actual `cron`-triggered run
   is still unconfirmed, though there's no known reason it would behave
   differently from the manual trigger now that the rate-limit fix is
   in place.
 
-## Slice 29 — A year-old flagged risk finally became a real incident
+## Slice 29, A year-old flagged risk finally became a real incident
 
 **Date:** 2026-08-29
 
@@ -4661,7 +4661,7 @@ The user noticed something looked wrong on the Actions tab: a
 scheduled `Poll player counts` run sitting "Pending" seven hours after
 it should have started, and a manually-triggered run stuck seven-plus
 minutes into a step called "Rebuild the local catalog." Two
-screenshots, no logs beyond a truncated build warning — the actual
+screenshots, no logs beyond a truncated build warning, the actual
 diagnosis had to come from reading the workflow file and the two
 Python scripts it runs, not from the screenshots themselves.
 
@@ -4671,7 +4671,7 @@ Python scripts it runs, not from the screenshots themselves.
 `uv run python -m src.ingestion.ingest` with no `--count` flag, meaning
 the real production default of 1000 games. Reading `ingest.py`'s own
 docstring spells out exactly what that does: a cheap bulk listing call,
-then *two* separate per-game enrichment loops — SteamSpy's own
+then *two* separate per-game enrichment loops, SteamSpy's own
 `appdetails` at roughly 1 request/second, and Steam's storefront
 `appdetails` at roughly 1 request per 1.5 seconds. For 1000 games,
 that's easily 40+ real minutes, every single time, since a GitHub
@@ -4689,7 +4689,7 @@ gotten from the first, cheap step of `ingest.py` alone.
 
 An earlier slice had already flagged this almost exactly: "a narrower
 appids-only ingestion path is the likely fix if this becomes a real
-problem." That's precisely what happened here — not a new discovery,
+problem." That's precisely what happened here, not a new discovery,
 a predicted risk finally landing. Worth being honest about the
 lesson: flagging a real, understood risk in a document and then not
 prioritizing it until a user hits the consequence is a common way
@@ -4700,7 +4700,7 @@ documentation had the fix already spelled out, just not scheduled.
 
 `poll_player_counts.yml`'s `concurrency: group: poll-player-counts,
 cancel-in-progress: false` means only one run executes at a time;
-anything else queues behind it. That setting itself isn't wrong — it's
+anything else queues behind it. That setting itself isn't wrong, it's
 exactly right for a job that commits data back to the repo, where two
 overlapping runs writing snapshots simultaneously would be a real
 problem. The concurrency group was working as designed; it was
@@ -4713,8 +4713,8 @@ symptom of the real problem underneath it.
 Considered adding a `--count` override or an "appids-only" flag to
 `ingest.py` itself, but the cleaner fix doesn't touch `ingest.py` at
 all: `poll_player_counts.py` now calls `SteamSpyClient.get_all_page()`
-directly — the exact same cheap, single-request bulk listing
-`ingest.py` already starts with — and never touches DuckDB or requires
+directly, the exact same cheap, single-request bulk listing
+`ingest.py` already starts with, and never touches DuckDB or requires
 a pre-built `games` table in the first place. This removes the "rebuild
 the catalog" step from the workflow entirely, not just makes it
 faster, and removes a dependency (`get_read_only_connection`,
@@ -4725,18 +4725,18 @@ happened to also contain.
 ### Verification, scoped to what actually changed
 
 Ran the new `_fetch_target_appids()` function directly against the
-real live SteamSpy API — no mocking — and got back real appids headed
+real live SteamSpy API, no mocking, and got back real appids headed
 by `730`, the same game independently confirmed as the top-owned title
 in every other real check this project has done this session (the
 eval suite's `lookup_top_ccu` golden question, live `/ask` calls, the
 README screenshot). Deliberately did not run a full `run_poll()`
 locally: that would mean polling 1000 real games at Steam's own real
-1-request/second rate limit — about 17 real minutes — to re-verify
+1-request/second rate limit, about 17 real minutes, to re-verify
 polling-loop code that this slice never touched. Scoping verification
 to the actual diff, not the whole script, was the right call here.
 `ruff check`, `mypy src/`, and the full 88-test suite all clean;
 confirmed no stray local files were left behind by the verification
-call (it doesn't write a snapshot on its own — only `run_poll()`
+call (it doesn't write a snapshot on its own, only `run_poll()`
 does, which wasn't run against the real 1000-game target locally).
 
 ### Confirmed on a real run, the same day
@@ -4745,7 +4745,7 @@ Both open questions this entry originally raised got resolved within
 hours, not left standing: the user cancelled the old stuck/pending
 runs directly from the Actions tab, then manually triggered the fixed
 workflow to check it for real rather than waiting for the next `cron`
-tick. Run #3 succeeded in **19m29s total** — "Poll live player counts"
+tick. Run #3 succeeded in **19m29s total**, "Poll live player counts"
 alone took 19m22s for all 1000 games, matching the ~20 minute estimate
 almost exactly, against the roughly hour-long runs from before this
 fix. "Commit the new snapshot" wrote and pushed a real new file
@@ -4758,18 +4758,18 @@ the way this slice's own verification section was scoped to.
 
 - **Only a manually-triggered run has been observed, not yet the
   `cron`-scheduled path itself.** No known reason to expect it to
-  behave differently — `workflow_dispatch` and `schedule` both invoke
-  the identical job definition — but the actual every-6-hours trigger
+  behave differently, `workflow_dispatch` and `schedule` both invoke
+  the identical job definition, but the actual every-6-hours trigger
   firing on its own is still technically unconfirmed.
 
-## Slice 30 — The eval check was wrong, not the model, and four slices of docs said otherwise
+## Slice 30, The eval check was wrong, not the model, and four slices of docs said otherwise
 
 **Date:** 2026-08-29
 
 A scheduled `run_evals.yml` run failed on the same check it's failed on
 before: `analysis_action_vs_f2p_not_mislabeled`. The instinct at this
 point, reinforced by this project's own prior documentation, was "this
-is the known Slice 4 bug, seen again" — and that instinct was wrong,
+is the known Slice 4 bug, seen again", and that instinct was wrong,
 in a way worth writing up in full because of how it was wrong, not
 just that it was.
 
@@ -4778,39 +4778,39 @@ just that it was.
 Read `prompts.py` and `schema_corpus.py` rather than guessing, and
 found something real: the base system prompt template *and* the
 RAG-retrieved `metric:no_union` schema chunk both handed the model a
-concrete, worked SQL example for "comparing two groups" directly —
+concrete, worked SQL example for "comparing two groups" directly -
 `AVG(CASE WHEN genre LIKE '%Action%' THEN price_usd END) AS
-avg_action_price` — using almost the exact domain example
+avg_action_price`, using almost the exact domain example
 (Action/free-to-play) the failing golden question itself uses. That
 competed directly with `ANALYSIS_TOOL_GUIDANCE`'s instruction to
 prefer `run_stats` for this exact question class. This diagnosis was
 correct as far as it went: two real, contradictory pieces of guidance
 existed in the prompt, and removing the dangerous example while
 preserving enough domain vocabulary to not regress Slice 22's RAG
-retrieval eval (a first attempt did regress it, from 1.000 to 0.967 —
+retrieval eval (a first attempt did regress it, from 1.000 to 0.967 -
 caught by the retrieval eval test itself, not manually) was a
 legitimate improvement.
 
-### Verifying the fix instead of trusting it — and it failed
+### Verifying the fix instead of trusting it, and it failed
 
 Ran the exact golden question five times with the fix in place (rate
 limits cut it to two clean samples before a 429). Both still produced
 plain conditional-aggregation SQL, not a `run_stats` call. Reported
 this plainly rather than declaring success on a plausible-sounding
-fix — this is the exact discipline `verification-before-completion`
+fix, this is the exact discipline `verification-before-completion`
 exists to enforce, and it's what led to the next, more important step
 instead of stopping at "well, I tried."
 
 ### The actual discovery: re-reading old evidence instead of gathering new evidence
 
 Rather than immediately trying a third, blunter prompt wording, went
-back through every SQL string this check has ever failed on —
+back through every SQL string this check has ever failed on -
 Slices 24, 27, 28, and this slice's own two verification runs, six
-instances total — and actually read each one instead of trusting the
+instances total, and actually read each one instead of trusting the
 check's verdict. Every single one correctly filtered the free-to-play
 group on `price_usd = 0`. Not "usually." Every time. The original
-Slice 4 bug — a group falsely labeled free-to-play without actually
-filtering on `price_usd = 0` — has never once recurred in this
+Slice 4 bug, a group falsely labeled free-to-play without actually
+filtering on `price_usd = 0`, has never once recurred in this
 project's entire history of testing this question.
 
 The check itself explained why once looked at closely:
@@ -4822,7 +4822,7 @@ if not (result.stats_result and result.stats_result.get("mode") == "compare_two_
 
 This is the *first* line of the check. It hard-requires `run_stats`'s
 specific structured output shape and returns failure immediately if
-that shape isn't present — it never once inspects `result.sql` or the
+that shape isn't present, it never once inspects `result.sql` or the
 real returned values when a different tool was used. The check was
 never actually testing "is the free-to-play group correctly filtered."
 It was testing "was `run_stats` the tool called," and treating that as
@@ -4833,9 +4833,9 @@ since whenever this check was last touched.
 
 README.md's "Measured results," and DOCEXP.md's Slices 24, 27, 28, and
 29 entries all describe this failure as "the same bug reproduced
-again" — two, three, four, five times, escalating the claim each time
+again", two, three, four, five times, escalating the claim each time
 as if it were accumulating evidence of a real, consistent model
-behavior. It was accumulating evidence of something real — just not
+behavior. It was accumulating evidence of something real, just not
 what it was labeled as. Every one of those claims was written by
 pattern-matching "this specific check failed" to "the historical bug
 recurred," without re-verifying the actual SQL each time. That's
@@ -4845,9 +4845,9 @@ exactly the kind of unverified claim this project's own discipline
 exists to prevent, and it happened anyway, repeatedly, because the
 check's own verdict was trusted as ground truth instead of checked
 against the real underlying data. Not correcting the historical
-entries themselves — they're a lab notebook, and rewriting past
+entries themselves, they're a lab notebook, and rewriting past
 entries to match current understanding would defeat the purpose of
-keeping one — but naming the pattern here, plainly, matters more than
+keeping one, but naming the pattern here, plainly, matters more than
 the specific miscount.
 
 ### The actual fix: the check, not the model
@@ -4856,16 +4856,16 @@ the specific miscount.
 correct answer: the original `run_stats` `compare_two_groups` result,
 or a plain-SQL answer whose free-to-play-labeled column's real
 returned value is genuinely ~$0. It checks `result.columns`/
-`result.rows` — the actual data that came back — not the SQL's text
+`result.rows`, the actual data that came back, not the SQL's text
 and not which tool produced it. This directly serves the original
 Slice 4 intent (never let a fake free-to-play group slip through)
 without depending on a specific tool being chosen, which prompt
 engineering alone had just been shown not to reliably guarantee.
 
 The prompt/schema wording improvements from earlier in this slice
-weren't reverted — they're still more precise, correct guidance with
+weren't reverted, they're still more precise, correct guidance with
 no observed downside (retrieval eval back to 1.000, all other tests
-green) — but they're explicitly not credited as "the fix" here. They
+green), but they're explicitly not credited as "the fix" here. They
 were a reasonable attempt at a problem that, once actually understood,
 turned out to be smaller than believed.
 
@@ -4874,7 +4874,7 @@ turned out to be smaller than believed.
 `ruff check`, `mypy src/`, and the full 88-test suite clean throughout
 every step of this slice. The real proof is the final eval run against
 the real 1000-game local catalog, with the judge, after the check fix:
-**5/5 route accuracy, 5/5 deterministic checks** — the first clean
+**5/5 route accuracy, 5/5 deterministic checks**, the first clean
 result this specific golden question has ever produced, not because
 the model finally got it right, but because the check finally started
 looking at whether it actually had been right all along.
@@ -4883,7 +4883,7 @@ looking at whether it actually had been right all along.
 
 - **README.md's "Measured results" table still shows the old 4/5
   numbers** as of this entry and needs republishing with the real,
-  current 5/5 result — tracked as the immediate next step, not left
+  current 5/5 result, tracked as the immediate next step, not left
   standing.
 - **The prompt/schema changes remain unproven at scale.** They didn't
   cause the fix here, but whether they meaningfully improve real
@@ -4891,7 +4891,7 @@ looking at whether it actually had been right all along.
   questions (distinct from this one golden question, which turned out
   not to need them) is still an open, unverified claim.
 
-## Slice 31 — The Agent Execution Trace artifact catches up to the real graph
+## Slice 31, The Agent Execution Trace artifact catches up to the real graph
 
 **Date:** 2026-08-29
 
@@ -4909,7 +4909,7 @@ classifies as forecast, hits the dead end, answer says "I can't forecast
 yet... (planned for a later slice)." That was accurate once, before
 Slice 9b gave the graph a real `run_forecast` tool. Since then, forecast
 has flowed through the exact same `retrieve_schema` → `agent` ↔
-`execute_tools` → `build_chart_spec` loop as `lookup` and `analysis` —
+`execute_tools` → `build_chart_spec` loop as `lookup` and `analysis` -
 the dedicated dead-end node simply isn't in `src/agent/graph.py` anymore.
 Presenting it as current would have been showing a portfolio reviewer an
 architecture the code no longer has.
@@ -4917,7 +4917,7 @@ architecture the code no longer has.
 Fixing this meant more than deleting a box. The corrected "Forecast
 question" example needed real steps through the real path, and the
 instinct to invent a clean "agent calls `run_forecast`, gets a tidy
-projection back" transcript had to be resisted — that would be exactly
+projection back" transcript had to be resisted, that would be exactly
 the kind of fabricated trace this whole artifact exists to be the
 opposite of. So the plan was: capture one fresh, real, tool-invoked
 forecast run against the live backend, the same way the other four
@@ -4925,14 +4925,14 @@ examples were originally captured.
 
 That didn't work. Five real attempts against the deployed backend
 (`ai-game-analyst-api.onrender.com`), spaced 30 to 45 seconds apart to
-respect Groq's rate limit, hit real `429`s and `503`s — genuine
+respect Groq's rate limit, hit real `429`s and `503`s, genuine
 production flakiness, not a mocked failure. A local Ollama daemon was
 checked as a fallback (`curl http://localhost:11434/api/tags`) and
 wasn't running. One real capture did land before the rate limiting set
 in: a real question ("How many players will Counter-Strike 2 have next
 month?"), a real `route: forecast`, real retrieved schema chunks
 (including `table:player_counts` and the note that it needs a JOIN to
-`games`), and a real final answer — but on that particular run the model
+`games`), and a real final answer, but on that particular run the model
 answered directly from the retrieved schema context without calling
 `run_forecast` at all.
 
@@ -4965,7 +4965,7 @@ Mono) predate this project's own pivot to a neon-green identity
 in the real frontend. Rather than pick a new, unrelated dark-green
 palette, reused the live product's own real tokens verbatim
 (`--background: #0a0f0b`, `--surface: #101610`, `--accent: #39ff88`,
-Rajdhani + IBM Plex Mono) — the artifact *is* this product's
+Rajdhani + IBM Plex Mono), the artifact *is* this product's
 architecture, so it should look like it. Per the `artifact-design`
 skill's own guidance on committing to one visual world, built this as a
 single dark theme rather than a light/dark toggle, matching the real
@@ -5006,7 +5006,7 @@ GIF with Pillow, holding longer on the first and last frames.
 Verified by actually reading back individual captured frames rather
 than trusting a clean script exit, per this project's own verification
 discipline, and that caught a real bug: a stray em dash in the new
-artifact's own footer credit line ("...onrender.com) — see
+artifact's own footer credit line ("...onrender.com), see
 ARCHITECTURE.md..."), against this project's repo-wide no-dash
 convention. Fixed, re-captured, and republished to the same artifact
 URL before copying the final GIF into `docs/agent-trace.gif`.
@@ -5036,7 +5036,7 @@ so.
 No open questions left from this slice: the GIF staleness flagged
 earlier in this same entry was closed out before the slice ended.
 
-## Slice 32 — A pushback on the forecast example led to a real production finding
+## Slice 32, A pushback on the forecast example led to a real production finding
 
 **Date:** 2026-08-29
 
@@ -5061,7 +5061,7 @@ That one fact reframed the forecast question entirely. Chased it
 properly instead of treating it as a footnote:
 
 - `data/player_counts_raw/` holds exactly two committed snapshots,
-  `2026-08-24` and `2026-08-29`, five days apart — the gap is the
+  `2026-08-24` and `2026-08-29`, five days apart, the gap is the
   `poll_player_counts.yml` bug fixed in Slice 29 having sat broken
   before that.
 - `player_counts` is only materialized into the queryable database at
@@ -5100,7 +5100,7 @@ session has no access to:
 
 **Ruled out**: `.github/workflows/refresh_catalog.yml`, the workflow
 whose entire job is periodically poking Render's deploy hook to force a
-rebuild, has had zero runs, ever — checked via GitHub's public Actions
+rebuild, has had zero runs, ever, checked via GitHub's public Actions
 API, no auth needed for a public repo. That looked damning until
 checking when the workflow was actually added: Monday, August 24th, by
 its own git history. Its schedule is Monday 03:00 UTC. The next
@@ -5113,7 +5113,7 @@ the *symptom* (zero runs) looked like a smoking gun and wasn't.
 **Left open, genuinely**: this exact symptom, a live backend serving
 stale code, already happened once before. Slice 23's own commit message
 (`e127dee`) says so directly: "a live backend round trip that caught a
-stale process serving old code" — found, apparently fixed by a manual
+stale process serving old code", found, apparently fixed by a manual
 redeploy at the time, and never written up or root-caused in DOCEXP.md.
 It has now recurred. Two concrete, plausible causes remain that only
 the Render dashboard can settle:
@@ -5152,7 +5152,7 @@ file by eye.
 The user checked directly: Auto-Deploy was already on for every commit,
 and added `DEPLOY_HOOK_URL` as a GitHub secret. Manually firing
 `refresh_catalog.yml` (`workflow_dispatch`) triggered a real Render
-redeploy — confirmed via GitHub's own public Actions API, no auth
+redeploy, confirmed via GitHub's own public Actions API, no auth
 needed, that the run completed successfully. `/health` afterward showed
 the `self_correction`/`usage` keys for the first time, confirming
 current code is finally live.
@@ -5162,12 +5162,12 @@ first live `/ask` request timed out against a 60s client-side limit
 with no response, a retry got a real 502, and a third attempt hung for
 90s with nothing at all. Diagnosed rather than assumed broken:
 
-- Hit Groq's API directly (bypassing the app) — 200 in 0.92s, so the
+- Hit Groq's API directly (bypassing the app), 200 in 0.92s, so the
   provider itself was fine, not degraded.
-- Ran the exact same question through `run_agent()` locally — 9.75s,
+- Ran the exact same question through `run_agent()` locally, 9.75s,
   correct answer. Ruled out a code regression.
 - Retried the live endpoint once more after the container had a few
-  minutes to settle: 200 in 1.2s, `cached: true` — the *original*
+  minutes to settle: 200 in 1.2s, `cached: true`, the *original*
   request had actually succeeded server-side all along, just slower
   than the client-side timeouts used to test it, and got cached.
 - A genuinely fresh, uncached question then completed in 9.97s with a
@@ -5185,7 +5185,7 @@ resolved, not just assumed resolved.
 One real, separate gap surfaced along the way and left as an open
 question rather than fixed reflexively: `src/agent/llm_provider.py`'s
 `ChatGroq(...)` sets no explicit `timeout`/`max_retries`, so a slow
-cold path or a genuinely degraded provider has no ceiling — which is
+cold path or a genuinely degraded provider has no ceiling, which is
 exactly what made a one-time slow start look like a hang. Not fixed
 in this slice; offered to the user as a small hardening change rather
 than applied unprompted to a system that just got confirmed working.
@@ -5193,7 +5193,7 @@ than applied unprompted to a system that just got confirmed working.
 No open questions left from this slice: the timeout question below was
 resolved in Slice 33, the next entry.
 
-## Slice 33 — Fixing the missing ceiling, and a second, different Groq limit found along the way
+## Slice 33, Fixing the missing ceiling, and a second, different Groq limit found along the way
 
 **Date:** 2026-08-30
 
@@ -5203,7 +5203,7 @@ evals against current live code.
 
 ### The fix
 
-Checked `ChatGroq`'s real defaults before assuming anything — its own
+Checked `ChatGroq`'s real defaults before assuming anything, its own
 `model_fields` show `request_timeout=None` (the `timeout` constructor
 alias) and `max_retries=2`. `None` isn't "a sane default," it's "fall
 through to the underlying SDK's own default," which for an
@@ -5213,7 +5213,7 @@ stop, but that a single attempt has no ceiling.
 
 Added `groq_request_timeout_seconds` (45.0) and `groq_max_retries` (1)
 to `Settings`, passed through as `timeout=`/`max_retries=` in
-`ChatGroq(...)`. Chose 45s deliberately generous rather than tight — a
+`ChatGroq(...)`. Chose 45s deliberately generous rather than tight, a
 real request completes in single-digit seconds normally (confirmed
 repeatedly this session, both locally and live), so 45s is headroom for
 a legitimately slow moment, not a trap that fires on ordinary variance.
@@ -5233,7 +5233,7 @@ real API. `ruff check`, `mypy src/` (44 files), and `pytest -q`
 
 Asked to re-run `run_evals.yml` for a clean CI result. It failed again,
 but not with the per-minute (TPM) limit `SPACING_SECONDS` and
-`_call_with_retry` already handle (Slices 27/28) — a different one:
+`_call_with_retry` already handle (Slices 27/28), a different one:
 
 ```text
 groq.RateLimitError: Error code: 429 - {'error': {'message': 'Rate
@@ -5242,7 +5242,7 @@ limit reached for model `openai/gpt-oss-120b` in organization
 200000, Used 199865, Requested 656. ...'}}
 ```
 
-200,000 tokens/day on the on-demand tier, with 199,865 already used —
+200,000 tokens/day on the on-demand tier, with 199,865 already used -
 essentially exhausted, not almost hit. This wasn't hypothesized in
 advance; it surfaced because the user actually ran the workflow and
 pasted the real log, exactly the kind of evidence this project's own
@@ -5252,26 +5252,26 @@ been guessed at and gotten wrong.
 Read it plainly rather than reflexively retrying: this is real, shared,
 daily account usage, not a per-run problem `run_evals.py` itself could
 fix. A meaningful share of it plausibly came from this session's own
-testing earlier the same day — a direct Groq API ping used for the
+testing earlier the same day, a direct Groq API ping used for the
 production-incident diagnosis, two local `run_agent()` calls, three
 live `/ask` calls against the production backend, on top of the eval
 suite's own five golden questions plus five judge calls. With ~135
 tokens of headroom left at the time of the error, an immediate re-run
 would almost certainly fail the exact same way, so didn't retry
-immediately — the honest fix here is patience (the window rolls off,
+immediately, the honest fix here is patience (the window rolls off,
 or a calendar-day reset, depending on how Groq actually buckets "day"),
 not a code change.
 
 Recorded as a genuinely new, previously-undocumented constraint on this
 project (distinct from the TPM limit already known and handled), not a
 regression and not something Slice 27/28's existing retry logic was
-wrong to not cover — a daily cap needs waiting, not backoff.
+wrong to not cover, a daily cap needs waiting, not backoff.
 
 ### Verification
 
 `ruff check`, `mypy src/`, `pytest -q` (88/88) all clean, run fresh
 after the config/provider change, without needing any real Groq call to
-confirm correctness — the change is a pass-through of two typed
+confirm correctness, the change is a pass-through of two typed
 settings into a constructor the existing test suite already exercises
 in its mocked form.
 
@@ -5282,17 +5282,17 @@ in its mocked form.
   boundary.** Not verified either way yet; matters for deciding when a
   clean `run_evals.yml` run is worth attempting again.
 
-## Slice 34 — "Frontend CI has no runs" turned into a real bug hunt
+## Slice 34, "Frontend CI has no runs" turned into a real bug hunt
 
 **Date:** 2026-08-30
 
 Noticed while looking at the Actions tab: `frontend-ci.yml` showed zero
 runs, ever. Checked before assuming anything was wrong: the workflow
 was registered and `active` (GitHub's own Actions API), correctly
-scoped to `paths: [frontend/**]` — it had simply never had a matching
+scoped to `paths: [frontend/**]`, it had simply never had a matching
 commit since it was added. `git log` confirmed it precisely: the last
 commit touching `frontend/**` landed at 15:20:19, the workflow itself
-was added at 15:27:50, seven minutes later. Not a misconfiguration —
+was added at 15:27:50, seven minutes later. Not a misconfiguration -
 there had been nothing for it to react to yet.
 
 ### Proving it works, instead of asserting it
@@ -5311,12 +5311,12 @@ app/layout.tsx(36,50): error TS2304: Cannot find name 'LayoutProps'.
 
 ### Diagnosing instead of patching around it
 
-`LayoutProps<"/">` is not an import — it's a Next.js-generated ambient
+`LayoutProps<"/">` is not an import, it's a Next.js-generated ambient
 type (the typed-routes feature), written to `.next/types` only after
 `next dev`, `next build`, or `next typegen` has actually run. This
 project's own local `tsc --noEmit` had been run dozens of times this
 session and always came back clean, which made the CI failure
-confusing for a moment — until realizing why: every one of those local
+confusing for a moment, until realizing why: every one of those local
 runs happened in a working directory that already had a `.next/`
 directory left over from an earlier `npm run build` or `npm run dev`.
 Local `tsc` was silently riding on stale build artifacts every single
@@ -5324,7 +5324,7 @@ time; nothing had ever actually exercised a genuinely clean checkout's
 type-check step before this workflow's first real run did.
 
 Confirmed the diagnosis by reproducing it locally rather than trusting
-the theory: `rm -rf .next`, then `npx tsc --noEmit` — the exact same
+the theory: `rm -rf .next`, then `npx tsc --noEmit`, the exact same
 `Cannot find name 'LayoutProps'` error, on this machine, on demand.
 `frontend-ci.yml`'s own step order made it worse: Type check runs
 *before* Build, so even CI's own later build step (which would have
@@ -5334,10 +5334,10 @@ generated the type) never gets a chance to save it.
 
 Next.js 16 ships `next typegen` specifically for this: generates only
 the route/page/layout ambient types, no full build. Verified directly:
-`rm -rf .next` again, `npx next typegen`, then `npx tsc --noEmit` —
+`rm -rf .next` again, `npx next typegen`, then `npx tsc --noEmit` -
 clean. Added a "Generate route types" step to `frontend-ci.yml` between
 Lint and Type check, with a comment explaining why it's there (the
-"why," not just the "what" — the next person reading this workflow
+"why," not just the "what", the next person reading this workflow
 shouldn't have to rediscover the stale-`.next/`-artifact trap to
 understand the step's purpose).
 
@@ -5350,7 +5350,7 @@ runs them, all four green.
 
 This is a second real instance (after Slice 30's eval-check discovery)
 of this project's own local verification silently passing for a reason
-that had nothing to do with correctness — stale build artifacts masking
+that had nothing to do with correctness, stale build artifacts masking
 a real gap, the same way a wrongly-designed check masked a real bug
 fix earlier. `npm run lint`/`npx tsc --noEmit`/`npm run build`, run by
 hand after nearly every frontend slice this whole project, had never
@@ -5358,7 +5358,7 @@ once caught this, because none of those runs ever started from a truly
 clean checkout. A workflow's first real run against a genuinely fresh
 environment is exactly the kind of check this project's own "automate
 the answer-quality suite" and "automate the RAG eval" slices were
-chasing — this is the frontend getting the equivalent for free, the
+chasing, this is the frontend getting the equivalent for free, the
 moment it actually ran.
 
 ### Verification
@@ -5367,13 +5367,13 @@ Full corrected sequence reproduced locally from a clean `.next/` state:
 lint, `next typegen`, `tsc --noEmit`, and `npm run build` all clean, in
 the same order the workflow now runs them.
 
-## Slice 35 — The fix worked; confirming it hit one more GitHub Actions surprise
+## Slice 35, The fix worked; confirming it hit one more GitHub Actions surprise
 
 **Date:** 2026-08-30
 
 The user's own instinct to actually verify the Slice 34 fix, rather than
 trust a green write-up, surfaced one more real thing worth knowing.
-Clicked "Re-run jobs" on the failing run — it failed identically, same
+Clicked "Re-run jobs" on the failing run, it failed identically, same
 `Cannot find name 'LayoutProps'`, and critically, the log showed no
 "Generate route types" step at all, meaning the fix genuinely hadn't
 run, not that it had run and failed anyway.
@@ -5381,14 +5381,14 @@ run, not that it had run and failed anyway.
 Diagnosed rather than assumed the fix was wrong: GitHub Actions pins a
 `push`-triggered run's workflow *definition* to the commit SHA that
 originally triggered it. "Re-run jobs" replays that same pinned
-snapshot — it does not pick up whatever is currently on `master`, even
+snapshot, it does not pick up whatever is currently on `master`, even
 when the fix has already been pushed. `git log`/`git status` confirmed
 the fix commit was in fact already on `origin/master`; it had simply
 never had a run of its own yet.
 
 A second, compounding reason it hadn't: the fix commit only touched
 `.github/workflows/frontend-ci.yml` plus docs, nothing under
-`frontend/**` — so even a fresh push of it would never have satisfied
+`frontend/**`, so even a fresh push of it would never have satisfied
 this workflow's own `paths` filter and self-triggered.
 
 Fixed the actual gap rather than working around it with another
@@ -5405,25 +5405,25 @@ alongside the existing `push`/`pull_request` triggers. Clean-state
 sequence (`rm -rf .next`; lint, `next typegen`, `tsc --noEmit`) reran
 green.
 
-## Slice 36 — The same re-run gotcha, a second time, and the real Slice 30 confirmation it was blocking
+## Slice 36, The same re-run gotcha, a second time, and the real Slice 30 confirmation it was blocking
 
 **Date:** 2026-08-30
 
 The user re-ran `Answer-Quality Evals` (the workflow behind the whole
 Slice 24/27/28/29/30 saga) and got a confusing result: 4/5, failing on
 `analysis_action_vs_f2p_not_mislabeled` again, with a failure message
-that didn't match the current code at all — "expected a
+that didn't match the current code at all, "expected a
 compare_two_groups stats_result, got None" is the *original*, pre-Slice-30
 check's wording, not the rewritten one's ("expected either a
 compare_two_groups stats_result, or a plain-SQL column..."). The SQL in
 the failure was genuinely correct
 (`AVG(CASE WHEN price_usd = 0 THEN price_usd END) AS avg_freetoplay_price`)
-— exactly the false-failure pattern Slice 30 fixed.
+- exactly the false-failure pattern Slice 30 fixed.
 
 Recognized the shape immediately, from having just found it an hour
 earlier in Slice 35: this was the identical GitHub Actions "re-run
 pins the workflow to its original commit" behavior, in a second
-workflow. Confirmed rather than assumed — the Actions API for this run
+workflow. Confirmed rather than assumed, the Actions API for this run
 showed `run_attempt: 4` and a `head_sha` of `5f783fa`, the commit that
 *added* `run_evals.yml` at 19:04, a full two hours before the real fix
 landed in `4507500` at 21:14. Every "Re-run jobs" click had been
@@ -5431,11 +5431,11 @@ replaying that original, pre-fix commit the whole time.
 
 A genuine bonus surfaced in the same run: it completed end to end with
 zero Groq rate-limit errors, meaning the Slice 33 daily-quota
-exhaustion had fully reset overnight — the first time this session the
+exhaustion had fully reset overnight, the first time this session the
 full 5-question-plus-judge suite ran without hitting some real Groq
 limit along the way.
 
-Told the user to use "Run workflow" instead of "Re-run jobs" — a
+Told the user to use "Run workflow" instead of "Re-run jobs", a
 genuinely fresh run against current `master`. Result: **5/5 route
 accuracy, 5/5 deterministic checks**. This is the real close of the
 loop that started back in Slice 24: the eval-check fix from Slice 30
@@ -5445,11 +5445,11 @@ actually works, not just that it works on this machine.
 
 ### Verification
 
-The run itself is the verification — a real GitHub Actions run, fresh
+The run itself is the verification, a real GitHub Actions run, fresh
 `--count 100` catalog, real Groq calls, 5/5 and 5/5, `head_sha`
 confirmed via the Actions API to be current `master`.
 
-## Slice 37 — The README stopped being a pitch somewhere around Slice 20
+## Slice 37, The README stopped being a pitch somewhere around Slice 20
 
 **Date:** 2026-08-30
 
@@ -5543,7 +5543,7 @@ publishing (`PLAN.md`, `ARCHITECTURE.md`, `DOCEXP.md`,
 dashes (none), matching the project's own no-dash convention. Line count:
 620 to 227.
 
-## Slice 38 — README follow-up: stack and framing
+## Slice 38, README follow-up: stack and framing
 
 **Date:** 2026-08-30
 
@@ -5602,7 +5602,7 @@ the screenshot before being added. The markdown linter's `MD036`
 warnings on the Tech stack section resolved by using real subheadings.
 275 lines, no em/en dashes introduced.
 
-## Slice 39 — "Let's try some cool glass" turned into two real dependency-integration investigations
+## Slice 39, "Let's try some cool glass" turned into two real dependency-integration investigations
 
 **Date:** 2026-08-30
 
@@ -5802,7 +5802,7 @@ the same way every other badge in that section was.
   back to within one session, but worth knowing if this pattern is ever
   reused elsewhere in the app.
 
-## Slice 40 — "Should we remove forecast?" turned into finding a real, fixable bug instead
+## Slice 40, "Should we remove forecast?" turned into finding a real, fixable bug instead
 
 **Date:** 2026-09-04
 
@@ -5922,7 +5922,7 @@ example-question change. The real end-to-end re-test against the actual
 linters -- a real tool call, zero errors, a real number, an honest
 confidence caveat.
 
-## Slice 41 — Explaining a "0", then fixing why the live site was stale at all
+## Slice 41, Explaining a "0", then fixing why the live site was stale at all
 
 **Date:** 2026-09-04
 
@@ -6029,7 +6029,7 @@ build's real outcome.
   rebuilds comfortably fit within it, rather than assuming the
   conservative choice is automatically safe.
 
-## Slice 42 — Forecast latency traced to a real crash, and a full honest audit
+## Slice 42, Forecast latency traced to a real crash, and a full honest audit
 
 **Date:** 2026-09-05
 
@@ -6193,7 +6193,7 @@ summarized:
   and 40/41). Both times, the underlying lesson was documented after
   the fact, but nothing was built to *detect* the same class of
   staleness proactively (e.g. `/health` reporting the git SHA/build
-  time it was actually built from) — both recurrences were found by a
+  time it was actually built from), both recurrences were found by a
   human noticing something looked off, not by an automated check.
 - **The frontend just took on a real, quantified regression against its
   own stated design values.** Slice 39 added three.js/shadergradient:
@@ -6261,7 +6261,7 @@ measured directly against the real local environment this session, not
 estimated or recalled from memory. `ruff`, `mypy`, and the full 92-test
 suite (88 existing + 4 new) all clean after the `agent_node` fix.
 
-## Slice 43 — Working the 9/10 list, item one: the serving layer's tests
+## Slice 43, Working the 9/10 list, item one: the serving layer's tests
 
 **Date:** 2026-09-05
 
@@ -6275,7 +6275,7 @@ clearest scope (the specific files the audit named at 0%).
 `evals/checks.py` got the first, and most carefully written, tests.
 Slice 30's whole saga was a wrong check failing the same golden question
 across four slices before anyone realized the check itself, not the
-model, was broken — and it took that long specifically because nothing
+model, was broken, and it took that long specifically because nothing
 had ever asserted the check function's own correctness independent of a
 real LLM run. Wrote both real paths of
 `_check_action_vs_f2p_not_mislabeled` directly: `compare_two_groups`
@@ -6360,32 +6360,32 @@ folded into this item's "done" claim.
   calls, thin orchestration). Not decided; flagged for whenever the
   9/10 list's first six items are otherwise exhausted.
 
-## Slice 44 — Working the 9/10 list, item two: growing the golden set found three more real bugs
+## Slice 44, Working the 9/10 list, item two: growing the golden set found three more real bugs
 
 **Date:** 2026-09-05
 
 Item two on the audit's list: 5 golden questions "carries real statistical
 weight as a smoke test, but not much more." Chose 15 as the target size
 (4 lookup / 4 analysis / 4 needs_clarification / 3 forecast) after being
-upfront about the real cost tradeoff — more questions means more real
+upfront about the real cost tradeoff, more questions means more real
 Groq calls, and this account runs on the free tier's daily token cap.
 
 ### Growing the set the same way the original one was built
 
 Every new reference fact is computed live from the DB inside
-`build_golden_questions()`, never hardcoded — Strategy's real average
+`build_golden_questions()`, never hardcoded, Strategy's real average
 price, Linux game count, the free-to-play/paid review-score comparison
 (deliberately chosen over Action-vs-Strategy after checking both: p≈1e-10
 and Cohen's d=-1.13 for f2p-vs-paid is numerically robust in a way a
 p=0.03 borderline result isn't, so the golden question won't flip on
-re-ingestion), and — new in this slice — dynamically picking *which*
+re-ingestion), and, new in this slice, dynamically picking *which*
 untracked game to use for the "insufficient history" case, so it stays
 correct as the poller's tracked set grows rather than naming one game
 that could eventually get tracked and silently invalidate the question.
 
 Added two new check builders, `forecast_has_real_projection()` and
 `forecast_reports_insufficient_history()`, both asserting on
-`forecast_result` directly rather than just the answer text — the
+`forecast_result` directly rather than just the answer text, the
 specific thing they guard against is the model answering a forecast
 question correctly *in prose* without the tool having actually run,
 which turned out, later in this same slice, to not be a hypothetical
@@ -6398,7 +6398,7 @@ deterministic checks only 7/15, judge 3.1/5. Looked at the actual
 failures rather than assuming "the new questions are just harder":
 eight of them showed `agent_node`'s own hardcoded degraded-fallback text
 ("I ran into a repeated error...") sitting next to suspiciously small
-token counts (500-600 vs. a normal 3000-8000+) — the exact signature of
+token counts (500-600 vs. a normal 3000-8000+), the exact signature of
 a call that got rate-limited before it ever generated a real answer, not
 a quality problem with the questions themselves.
 
@@ -6407,8 +6407,8 @@ when the set had 5 questions. Several of the new ones run 5000-8000+
 tokens, well above the old set's average, so two heavy questions landing
 in the same rolling 60-second window was now common instead of rare.
 Raised it to 20.0. Also gave `agent_node`'s own retry (the one Slice 42
-added for a failed model call) a real backoff — `agent_retry_backoff_seconds`,
-3.0s — since a same-instant retry has zero chance against a TPM window
+added for a failed model call) a real backoff, `agent_retry_backoff_seconds`,
+3.0s, since a same-instant retry has zero chance against a TPM window
 that's still exceeded; it needs a moment to actually roll forward.
 
 Re-ran for real: **12/15 deterministic checks (up from 7/15), judge
@@ -6423,17 +6423,17 @@ are just "more of the same, needs more tuning." Checked each individually
 instead, and they turned out to be three unrelated things:
 
 **1. A whitespace bug in the check itself, not the model.** The price-
-outliers question's answer correctly named "EA SPORTS FC 24" — but the
+outliers question's answer correctly named "EA SPORTS FC 24", but the
 model rendered it with a Unicode narrow-no-break-space (U+202F) between
 words instead of a plain space, which `contains_text`'s literal substring
 check missed even though the answer was factually right. Fixed by
 normalizing whitespace on both sides of the comparison
-(`re.sub(r"\s+", " ", text)` — confirmed empirically that `\s` matches
+(`re.sub(r"\s+", " ", text)`, confirmed empirically that `\s` matches
 U+202F even though `in` doesn't). Regression test built the stylized
 string with `chr(0x202F)` rather than typing the literal character,
 since the literal character itself tripped `ruff`'s own
 ambiguous-character lint (`RUF001`/`RUF003`) the first two times this
-was attempted — worth a note since it wasted real time before landing.
+was attempted, worth a note since it wasted real time before landing.
 
 **2. A real, live-confirmed bug in Slice 42's own forecast-guidance fix.**
 The CS:GO next-month forecast failed with `tool_errors: 2`, forecast
@@ -6441,22 +6441,22 @@ tool never producing a result. Rather than guess, captured the actual
 message trace directly (same technique as Slice 42's original crash
 diagnosis): the model correctly wrote
 `regexp_replace(name, '[-:]', ' ', 'g') ILIKE '%counter strike global
-offensive%'` — the exact pattern Slice 42 taught it — but that pattern
+offensive%'`, the exact pattern Slice 42 taught it, but that pattern
 turns `"Counter-Strike: Global Offensive"` into `"Counter Strike  Global
 Offensive"`, TWO spaces before "Global" (the colon becomes a space
 immediately next to the literal space that already followed it in the
 real title), which then fails to match the model's own single-spaced
 search phrase. Zero rows, `execute_run_forecast` raises `ValueError`,
 self-correction retries exhaust, honest degradation. Fixed by matching
-*runs* of punctuation/whitespace instead of single characters —
-`'[-:\s]+'` — in both `FORECAST_TOOL_GUIDANCE` and the `column:name`
+*runs* of punctuation/whitespace instead of single characters -
+`'[-:\s]+'`, in both `FORECAST_TOOL_GUIDANCE` and the `column:name`
 schema chunk. Verified live, directly, not just by reasoning about the
 regex: re-ran the exact same question, got 1 attempt, 0 tool errors, and
-a real projection (`n_snapshots: 24`, `low_confidence: true` — correctly
+a real projection (`n_snapshots: 24`, `low_confidence: true`, correctly
 flagged, since 30 days out from only ~11 days of real history is exactly
 the low-confidence case the tool's own design already accounts for).
 
-**3. Genuinely inconclusive — and said so rather than guessed.** The
+**3. Genuinely inconclusive, and said so rather than guessed.** The
 third failure (`forecast_insufficient_history_is_honest`) showed the
 same hardcoded degraded-fallback text. First assumed this was leftover
 rate-limiting from testing the CS:GO fix moments earlier, and re-ran it
@@ -6465,7 +6465,7 @@ in isolation after a real 65-second wait. Same failure. Bypassed
 outside its try/except) to see the actual error rather than continuing
 to guess, and found: `groq.RateLimitError`, but on **tokens per day**
 (TPD 200,000, 198,557 already used), not the per-minute limit Slice 42's
-fix targets — this session's own cumulative live-verification testing
+fix targets, this session's own cumulative live-verification testing
 today, not a code bug. This means the original design concern the check
 was written to catch (the model answering correctly in prose without
 the tool having actually run) is still **unverified**, not confirmed
@@ -6476,7 +6476,7 @@ folded into "item 2 is done" or guessed at without evidence.
 
 Two of three remaining failures here were bugs in the verification layer
 itself (the check's whitespace handling) or in a previous slice's own
-prompt-engineering fix (the double-space regex) — not in the questions
+prompt-engineering fix (the double-space regex), not in the questions
 newly added. This is the same shape as Slice 30's incident and Slice 43's
 `sqlglot.ParseError` find: expanding real test/eval surface keeps finding
 real bugs that were already there, just previously unexercised. The
@@ -6494,22 +6494,22 @@ from the code change alone.
 ### Open questions (new)
 
 - **Whether the 3rd failure (`forecast_insufficient_history_is_honest`)
-  is a real design gap or was always going to pass** — genuinely
+  is a real design gap or was always going to pass**, genuinely
   unknown until the daily Groq quota resets and it can be re-run in
   isolation, ideally as close to the top of the daily quota as possible
   so a real TPD-related false failure can be ruled out cleanly.
 - **Whether item 2 should be considered "done"** given this open
   question, or held open until the third failure is actually resolved
-  one way or the other — a call for whoever picks this list back up,
+  one way or the other, a call for whoever picks this list back up,
   not assumed here.
 
-## Slice 45 — Working the 9/10 list, item three: the router had agent_node's old blind spot
+## Slice 45, Working the 9/10 list, item three: the router had agent_node's old blind spot
 
 **Date:** 2026-09-05
 
 Item 3 on the audit's list was "production resilience blind spot (model-
 call failure path never tested/handled)." At first glance this looked
-already closed — Slice 42 fixed exactly that, in `agent_node`, with 4
+already closed, Slice 42 fixed exactly that, in `agent_node`, with 4
 regression tests. Rather than mark it done on that assumption, went
 looking for whether Slice 42's fix was actually the *only* unprotected
 LLM call in the production request path, or just the first one found.
@@ -6517,15 +6517,15 @@ LLM call in the production request path, or just the first one found.
 ### The router has its own LLM call, and it had never been touched
 
 `classify_question` (`src/agent/router.py`) is the very first LLM call
-in the entire graph — a structured-output classification into one of
-four routes — and it's a completely separate call from `agent_node`'s.
+in the entire graph, a structured-output classification into one of
+four routes, and it's a completely separate call from `agent_node`'s.
 Checked it directly: zero error handling, no try/except at all. Any
 Groq failure here (a rate limit, a malformed structured-output parse,
 the same class of thing Slice 42 found for the tool-calling turn) would
 propagate straight out of `router_node` unhandled.
 
 Checked whether this was actually reaching users as a crash before
-treating it as urgent: it wasn't, quite — `main.py`'s `/ask` and
+treating it as urgent: it wasn't, quite, `main.py`'s `/ask` and
 `/ask/stream` both wrap the whole agent run in a blanket
 `except Exception`, turning anything unhandled into a clean 503 rather
 than a leaked stack trace. So this was never a literal crash reaching a
@@ -6543,7 +6543,7 @@ confirmation to proceed.
 `router_node` now catches a `classify_question` failure, sleeps
 `agent_retry_backoff_seconds` (the same setting Slice 44 added for
 `agent_node`, now shared and its docstring updated to say so), retries
-once, and — if that also fails — degrades to `needs_clarification` with
+once, and, if that also fails, degrades to `needs_clarification` with
 an honest message asking the user to rephrase, instead of letting the
 API's blanket catch-all be the only thing standing between a router
 hiccup and a bare 503. Reusing the exact same setting and the exact same
@@ -6552,20 +6552,20 @@ mechanism was a deliberate choice: this is the same problem in a second
 location, not a new problem needing its own solution.
 
 Added 4 new regression tests (`test_router_node_llm_errors.py`), mocking
-`classify_question` directly rather than `get_llm()` — cheaper and more
+`classify_question` directly rather than `get_llm()`, cheaper and more
 direct, since `router_node` calls `classify_question` by name and
 `graph.py` imports it into its own namespace, so patching
 `graph_module.classify_question` is enough, no need to reach through to
 the LLM object itself. Covers the recovery path, the fully-degraded
-path, a clean call never retrying, and — the one case Slice 42's test
-file didn't need an equivalent for — a *real*, successful
+path, a clean call never retrying, and, the one case Slice 42's test
+file didn't need an equivalent for, a *real*, successful
 `needs_clarification` decision still passing through completely
 unaffected by the new error-handling wrapper around it.
 
 ### Verified for real
 
 `ruff check .` and `uv run mypy src` clean. 164/164 tests pass (160 from
-Slice 44, +4 new). No live Groq calls were made to verify this — the
+Slice 44, +4 new). No live Groq calls were made to verify this, the
 daily quota was still near-exhausted from Slice 44's own live
 verification earlier the same day, and unlike that slice's forecast-
 regex fix, this one didn't need a live call to confirm: the failure mode
@@ -6584,15 +6584,15 @@ a live call either.
   resilience" is revisited again, rather than assuming these two were
   the only two.
 
-## Slice 46 — Working the 9/10 list, item four: two recurring process gaps, closed for real this time
+## Slice 46, Working the 9/10 list, item four: two recurring process gaps, closed for real this time
 
 **Date:** 2026-09-05
 
-Item 4 was "two process gaps rediscovered twice each" — the GitHub
+Item 4 was "two process gaps rediscovered twice each", the GitHub
 Actions re-run staleness trap (Slices 35, 36) and Render deploy
 staleness (Slices 32, 41). Both had real fixes already landed, but
 neither had been closed in a way that actually prevents a third
-recurrence — one was patched per-workflow as each was individually
+recurrence, one was patched per-workflow as each was individually
 caught, the other fixed its symptom (cadence) without ever answering
 the actual open question underneath it.
 
@@ -6605,9 +6605,9 @@ up a fix already on master. Slice 36 hit the identical thing in
 couldn't have the same gap just because it hadn't been *caught* yet,
 checked every workflow file directly: `poll_player_counts.yml` and
 `refresh_catalog.yml` already had `workflow_dispatch` (added when they
-were first written, unrelated to this bug). `test.yml` — the workflow
+were first written, unrelated to this bug). `test.yml`, the workflow
 that actually gates every push and PR, arguably the most important one
-in the repo — did not. This is exactly the shape of "rediscovered
+in the repo, did not. This is exactly the shape of "rediscovered
 twice": the fix pattern was known, just not applied systematically.
 Added it there too, with a comment pointing back at Slices 35/36 so the
 next person (or the next slice) doesn't have to re-derive why it matters.
@@ -6618,7 +6618,7 @@ Slice 41 fixed `refresh_catalog.yml`'s cadence (weekly to daily), which
 closed the *specific* symptom that slice caught (a live forecast lagging
 real history by up to 7 days). It didn't touch the actual open question
 Slice 32 left sitting: is Auto-Deploy even enabled on Render, is
-`DEPLOY_HOOK_URL` set at all — both literally unverifiable from inside
+`DEPLOY_HOOK_URL` set at all, both literally unverifiable from inside
 any session or CI run, since this project has no Render dashboard/API
 access. A tighter cadence makes staleness *less likely*, but says
 nothing about whether the mechanism causing it is actually fixed or
@@ -6628,24 +6628,24 @@ Rather than accept "we can't check this" as final, looked for a real
 signal that doesn't need dashboard access. Checked Render's own
 documentation directly (not assumed): it automatically injects
 `RENDER_GIT_COMMIT` (and `RENDER_GIT_BRANCH`, `RENDER_GIT_REPO_SLUG`)
-into any service deployed from a connected git repo — no Dockerfile
+into any service deployed from a connected git repo, no Dockerfile
 change, no build-arg plumbing needed. Added `deploy_commit` to `/health`
 reading that env var directly.
 
-That alone doesn't close the loop — someone still has to look at
+That alone doesn't close the loop, someone still has to look at
 `/health` and notice a stale commit. So added `check_deploy_freshness.yml`:
 queries the live `/health`, takes whatever commit it reports, looks up
 that commit's *real* committed-at timestamp via GitHub's API (`gh api
-repos/.../commits/$SHA`, using the workflow's automatic token — no new
+repos/.../commits/$SHA`, using the workflow's automatic token, no new
 secret needed), and fails the job if it's older than 48 hours. That
 threshold is deliberately generous over `refresh_catalog.yml`'s daily
 cadence (real slack for a slow build or scheduling jitter) while still
 being tight enough to catch a genuinely broken Auto-Deploy within a
 day or two, not weeks.
 
-Presented the whole design to the user before writing any of it — a new
+Presented the whole design to the user before writing any of it, a new
 scheduled workflow with a specific staleness threshold is a real,
-ongoing behavior decision, not a pure bug fix — and got explicit
+ongoing behavior decision, not a pure bug fix, and got explicit
 confirmation, same as Slice 45's router-resilience change.
 
 ### A small but real verification step: testing the shell logic against real input first
@@ -6672,12 +6672,12 @@ boolean `True` coercion the same way Slice 41 already learned to). What
 could NOT be verified from inside this session, named honestly rather
 than assumed: whether `check_deploy_freshness.yml`'s first real
 scheduled run actually reaches the live `/health` endpoint and reports a
-sensible commit — that only happens on Render's own infrastructure,
+sensible commit, that only happens on Render's own infrastructure,
 tomorrow at 07:00 UTC.
 
 ### Open questions (new)
 
-- **Whether the live deploy is currently fresh at all** — genuinely
+- **Whether the live deploy is currently fresh at all**, genuinely
   unknown until `check_deploy_freshness.yml`'s first real run. If it
   fails immediately, that's itself a real, useful answer to Slice 32's
   long-open question (Auto-Deploy/`DEPLOY_HOOK_URL` may in fact not be
@@ -6687,14 +6687,14 @@ tomorrow at 07:00 UTC.
   numbers exist, the same way `SPACING_SECONDS` (Slice 44) started as a
   guess and got corrected against real evidence.
 
-## Slice 47 — Working the 9/10 list, item five: the frontend regression the audit named directly
+## Slice 47, Working the 9/10 list, item five: the frontend regression the audit named directly
 
 **Date:** 2026-09-05
 
 Item 5 was the audit naming its own prior work as a real tension: "a
 project whose own README leads with restraint as a differentiator just
 spent real, measured weight and a known leak on two decorative
-flourishes" — Slice 39's shadergradient integration (2.4MB total client
+flourishes", Slice 39's shadergradient integration (2.4MB total client
 JS, a single 1.1MB chunk, loaded unconditionally) and liquid-glass-js's
 permanent per-mount scroll-listener leak, both accepted at the time as
 deliberate, documented trade-offs. Working this item meant deciding
@@ -6704,11 +6704,11 @@ or just where the investigation had stopped.
 ### The leak wasn't actually as fixed-forever as it sounded
 
 Slice 39's own writeup said "the library has no destroy method to call"
-— true, but worth checking what "the library" actually meant here.
+- true, but worth checking what "the library" actually meant here.
 `liquid-glass-js` isn't an npm dependency; it's vendored, plain
 `<script>`-global source checked directly into
 `public/vendor/liquid-glass/`. There is no upstream release cadence to
-wait on, no maintainer to file an issue with — it's this repo's own
+wait on, no maintainer to file an issue with, it's this repo's own
 file, editable the same as anything else in `src/`.
 
 Read `container.js` directly to find the actual leak mechanism rather
@@ -6718,7 +6718,7 @@ a reference to `handleScroll` anywhere, so nothing could ever call
 `removeEventListener` on it even in principle. A second, independent
 leak source sat right next to it, previously unmentioned: `Container`'s
 constructor pushes `this` onto a static `Container.instances` array that
-nothing else in either vendored file ever reads — dead weight whose only
+nothing else in either vendored file ever reads, dead weight whose only
 real effect is keeping every instance ever constructed reachable
 forever, regardless of the listener.
 
@@ -6734,7 +6734,7 @@ of throwing.
 ### The bundle-size fix, and being honest about what it actually changes
 
 `GradientBackground`'s dynamic import (`next/dynamic`, `ssr:false`) was
-already correctly code-split — confirmed directly via the build's
+already correctly code-split, confirmed directly via the build's
 `react-loadable-manifest.json`, which showed the 1.1MB chunk tied only to
 the home page, never leaking into `/catalog`'s bundle. What was missing
 wasn't code-splitting; it was *scheduling*. Nothing deferred *when* the
@@ -6750,7 +6750,7 @@ render behind it instead of mounting unconditionally. Deliberately not
 framed as a size reduction anywhere in this writeup or in PLAN.md's
 entry: the chunk is still 1.1MB, the total build is still 2.4MB. What
 changed is *when* the browser has to deal with it, not how much there is
-to deal with — claiming otherwise would be exactly the kind of
+to deal with, claiming otherwise would be exactly the kind of
 overclaim this project's own review process exists to catch.
 
 ### Verified in a real browser, not reasoned about from the source
@@ -6762,12 +6762,12 @@ dev server, so timing numbers reflect production behavior.
 
 Confirmed the deferral directly: the known shadergradient chunk's
 network request lands ~1.4 seconds after the page's `load` event fires,
-not before or during it — a real number captured from a real response
+not before or during it, a real number captured from a real response
 event, not inferred from the `useDeferredMount` timeout value.
 
 Confirmed the leak fix by testing across real client-side navigations
 (`next/link`, clicking through "Catalog" and back to "Ask Ludo" in the
-actual rendered nav) rather than `page.goto()` reloads — a hard reload
+actual rendered nav) rather than `page.goto()` reloads, a hard reload
 would trivially "pass" this test by destroying the whole JS realm along
 with any leaked listener, proving nothing about whether the component's
 own cleanup actually works. A `window.addEventListener`/
@@ -6781,7 +6781,7 @@ captured stack trace: `Button.startRenderLoop` for the known
 liquid-glass one, and a separate, minified `@react-three/fiber`-internal
 call chain for the other). Worth checking whether this was a *second*
 undiscovered leak rather than assuming the audit's finding was
-exhaustive — it wasn't: the count went 2 (both mounted on "/") to 0
+exhaustive, it wasn't: the count went 2 (both mounted on "/") to 0
 (navigated to "/catalog", where neither component mounts) back to 2
 (returned to "/"), never 3 or 4. `@react-three/fiber`'s own Canvas
 lifecycle already disposes correctly; only liquid-glass-js's listener
@@ -6810,7 +6810,7 @@ wasn't re-run needlessly.
   data, the same honest caveat Slice 44's `SPACING_SECONDS` and Slice
   46's 48h threshold both got.
 
-## Slice 48 — Working the 9/10 list, item six (the last one): a global budget, not a login wall
+## Slice 48, Working the 9/10 list, item six (the last one): a global budget, not a login wall
 
 **Date:** 2026-09-05
 
@@ -6835,12 +6835,12 @@ real options rather than reaching for the first one:
   browser JS is visible in the Network tab to anyone who opens DevTools,
   so it stops nothing but the most casual accidental discovery. A *real*
   version of this needs a server-side proxy (a Next.js API route holding
-  the actual secret, forwarding to the FastAPI backend) — a genuinely
+  the actual secret, forwarding to the FastAPI backend), a genuinely
   bigger architectural change, and even then it only gates *who* can
   spend the budget, not *how much* gets spent by legitimate frontend
   traffic itself.
 - **Per-IP rate limiting** already exists (`InMemoryRateLimiter`,
-  10 requests/60s) — but the audit's own wording is precise about why
+  10 requests/60s), but the audit's own wording is precise about why
   that's not enough: "trivially bypassed by multiple source IPs." It
   protects against one abusive client hammering the endpoint, not
   against the actual shared resource (Groq's real 200,000 tokens/day
@@ -6851,19 +6851,19 @@ Presented this reasoning directly to the user rather than picking one
 silently: a global (not per-IP) daily token budget is the option that
 protects the actual thing at risk, regardless of how many IPs, whether
 traffic comes through the real frontend or a direct `curl`, or any other
-detail about *who* is asking — it closes the specific, real, previously-
+detail about *who* is asking, it closes the specific, real, previously-
 experienced failure mode named in the finding, without adding login
 friction a demo can't afford. Got explicit confirmation before building.
 
 ### The implementation, and one real subtlety in getting the error message right
 
 `RunStats` (Slice 26) already tracks `total_tokens` cumulatively across
-every real (non-cached) run — the exact number needed, already there,
+every real (non-cached) run, the exact number needed, already there,
 nothing new to instrument. Added `daily_token_budget=180_000` to
 `Settings` (real headroom under Groq's actual 200,000 cap, room for the
 router's own small classification calls and other traffic sharing the
 same key) and checked it in both `/ask` and `/ask/stream`, specifically
-*after* a confirmed cache miss — checking before the cache lookup would
+*after* a confirmed cache miss, checking before the cache lookup would
 have blocked cached answers too, which cost nothing and have no reason
 to stop working just because the *real* budget is exhausted.
 
@@ -6873,12 +6873,12 @@ clean 503 with a generic "high demand" message in production (hiding
 real internal error detail from users, per `settings.debug`). Raising a
 plain `HTTPException` with the honest daily-budget message directly at
 the check site would have been caught by that *same* generic handler and
-had its message overwritten — silently turning an honest, specific,
+had its message overwritten, silently turning an honest, specific,
 non-error condition into the same vague message as a genuine crash.
 Fixed by giving it its own exception type, `DailyBudgetExceeded`, caught
 explicitly before the generic handler. Wrote the regression test for
 exactly this (`test_ask_daily_budget_message_is_returned_even_with_debug_on`)
-rather than trusting the reasoning alone — this is precisely the kind of
+rather than trusting the reasoning alone, this is precisely the kind of
 "looks obviously right" code that silently breaks the first time an
 edge case (debug=True, here) is actually exercised.
 
@@ -6889,7 +6889,7 @@ pushed `tests/test_api_main.py`'s total call count in one run high enough
 to trip something that had never actually fired before: `src/api/
 rate_limit.py`'s `_limiter` is a genuine module-level singleton, created
 once at import time and shared by every test in the process (not just
-every request in production) — its own dedicated test file
+every request in production), its own dedicated test file
 (`test_rate_limit.py`) covers its behavior directly, but nothing had
 ever reset its accumulated state between tests in *this* file, because
 the total request count across all of `test_api_main.py`'s pre-existing
@@ -6937,7 +6937,7 @@ how every other tunable in `Settings` is already mirrored there.
   a real open question for whoever picks this up next -- not assumed
   here either way.
 
-## Slice 49 — "There's a problem with Render" — a real incident, found via actual logs, not guessed at
+## Slice 49, "There's a problem with Render", a real incident, found via actual logs, not guessed at
 
 **Date:** 2026-09-07
 
@@ -7068,7 +7068,7 @@ real redeploy and a real retest, not a local check).
   a genuine "how long has this been broken" retrospective once it's
   confirmed fixed, rather than assuming it was newly introduced today.
 
-## Slice 50 — The real root cause: one long schema chunk, batch-embedded, blowing past Render's actual 512MB ceiling
+## Slice 50, The real root cause: one long schema chunk, batch-embedded, blowing past Render's actual 512MB ceiling
 
 **Date:** 2026-09-07
 
@@ -7259,7 +7259,7 @@ steps, not abandoned -- see PLAN.md and whichever slice follows.
   regardless, but the deeper *why* is inferred from behavior, not
   confirmed from the library's own source.
 
-## Slice 51 — Two more real CI bugs, surfaced while checking whether everything else was actually green
+## Slice 51, Two more real CI bugs, surfaced while checking whether everything else was actually green
 
 **Date:** 2026-09-07
 
@@ -7353,7 +7353,7 @@ test suite (170/170) all clean throughout.
   genuinely unknown until the next real scheduled run (or a manual
   `workflow_dispatch` trigger) completes.
 
-## Slice 52 — RAG hardening: precompute, a real length ceiling, and CI wiring
+## Slice 52, RAG hardening: precompute, a real length ceiling, and CI wiring
 
 **Date:** 2026-09-07
 
@@ -7445,7 +7445,7 @@ corpus now 38 chunks, 54-558 characters, PASS.
   integration is still only verified by reasoning about the file paths
   involved, the same category of gap Slice 51 found in `run_evals.yml`.
 
-## Slice 53 — Closing the forecast honesty gap surfaced a real bug it had been hiding
+## Slice 53, Closing the forecast honesty gap surfaced a real bug it had been hiding
 
 **Date:** 2026-09-07
 
@@ -7541,7 +7541,7 @@ correctly in place.
   session found one real, if narrow, case where the two had quietly
   diverged.
 
-## Slice 54 — Two real CI eval fixes, both traced from a fresh live run, not guessed at
+## Slice 54, Two real CI eval fixes, both traced from a fresh live run, not guessed at
 
 **Date:** 2026-09-07
 
@@ -7627,7 +7627,7 @@ common case.
   (change what CI ingests, e.g. by owners *and* peak_ccu, or a larger
   count) was not explored.
 
-## Slice 55 — Item #3: the last audit-adjacent fix, and a real lesson about small samples
+## Slice 55, Item #3: the last audit-adjacent fix, and a real lesson about small samples
 
 **Date:** 2026-09-07
 
@@ -7704,7 +7704,7 @@ dataset rather than the fixture's own too-small one.
   involved) -- lower risk, but not formally audited for this specific
   failure mode the way the two fixed questions now have been.
 
-## Slice 56 — Quota-free work while waiting: run_evals.py's own crash-on-crash gap
+## Slice 56, Quota-free work while waiting: run_evals.py's own crash-on-crash gap
 
 **Date:** 2026-09-07
 
@@ -7786,7 +7786,7 @@ new).
 
 ---
 
-## Slice 57 — The same bug found a second time, a shared fix instead of a second copy, and a quota-free waiting-game
+## Slice 57, The same bug found a second time, a shared fix instead of a second copy, and a quota-free waiting-game
 
 **Date:** 2026-09-07
 
@@ -8017,7 +8017,7 @@ route deleted again.
 
 ---
 
-## Slice 58 — The first real run_evals.yml run after Slice 57, and what it actually found
+## Slice 58, The first real run_evals.yml run after Slice 57, and what it actually found
 
 **Date:** 2026-09-08
 
@@ -8287,7 +8287,7 @@ open until the next live `run_evals.yml` run.
 
 ---
 
-## Slice 59 — Stop asking the model to be accurate; make it structurally unable to be wrong
+## Slice 59, Stop asking the model to be accurate; make it structurally unable to be wrong
 
 **Date:** 2026-09-09
 
@@ -8419,7 +8419,7 @@ worth reading closely, not just accepting silently.
 
 ---
 
-## Slice 59 follow-up — What live confirmation actually found, and "what would an AI engineer do" a second time
+## Slice 59 follow-up, What live confirmation actually found, and "what would an AI engineer do" a second time
 
 **Date:** 2026-09-11
 
@@ -8565,7 +8565,7 @@ outliers each) still list their real outliers normally.
 
 ---
 
-## Slice 60 — "Make it load faster," a wrong diagnosis caught before it shipped, and the real bug underneath
+## Slice 60, "Make it load faster," a wrong diagnosis caught before it shipped, and the real bug underneath
 
 **Date:** 2026-09-12
 
@@ -8673,3 +8673,108 @@ confirmed for real.
   for a click. Not changed here to keep the fix uniform and the shared
   helper simple; worth revisiting if real usage shows this specific path
   matters.
+
+---
+
+## Slice 61 -- A portfolio write-up pass, and a repo-wide mechanical change that still found a real bug
+
+**Date:** 2026-09-12
+
+### The write-up
+
+Asked directly to update the docs with the RAG, hallucination-mitigation,
+and testing story this whole engagement has actually lived through, and
+to showcase the real limitations honestly rather than omit them.
+`ARCHITECTURE.md` (the "current shape of the system" document, not the
+chronological log) was the right home for two new sections: "Hallucination
+mitigation" -- the outlier-padding saga end to end, including the
+discount_pct statistical-validity bug the same investigation surfaced --
+and "Known limitations, and what actually addresses them" -- the real,
+measured 40.4s Render cold start and its retry fix, and Groq's daily
+token budget with the honest degradation message. `README.md` got new
+feature bullets pointing at both, plus a genuinely overdue fix: the
+"Measured results" table had been showing a 5-question run from early in
+the project (5/5, 4.2/5 judge, 13.3s latency) long after the real,
+current numbers (18 questions, 5.0/5, 2.4s) existed. Republished with the
+real numbers rather than left stale, the historical "how this got to
+5/5" story about the original 5-question set kept and re-contextualized
+rather than deleted, since it's still a true, worthwhile lesson about
+this project's own eval history.
+
+### The dash cleanup, and why it wasn't purely cosmetic
+
+Separately asked to remove every real em/en dash character from the
+repo -- a scale problem (1437 occurrences across 55 files, the bulk in
+`DOCEXP.md` and `PLAN.md`) that ruled out doing this by hand. Wrote a
+script matching `_strip_dashes()`'s own already-proven logic exactly (a
+spaced dash used as a parenthetical aside becomes a comma; a tight dash
+becomes a plain hyphen) rather than inventing new rules, since that
+function already encodes the right answer for this exact character
+class. Deliberately restricted the match to same-line whitespace, not
+`_strip_dashes()`'s own full `\s` (which includes newlines): that
+function operates on one contiguous LLM answer, but these are markdown
+documents with real paragraph and list structure, and a newline-spanning
+match risked silently merging two separate list items or paragraphs
+that happened to have a dash sitting right at their boundary.
+
+Three real things needed protecting before running it, not assumed
+safe by default: `tests/test_graph_dash_stripping.py`'s own dash
+characters (they're the test's actual fixtures -- the very thing being
+tested against), `_strip_dashes()`'s own regex pattern and `.replace()`
+calls in `graph.py` (functional code, not prose -- converting its own
+target characters would corrupt the function it belongs to), and the
+"Aseprite -- review score" quote appearing in both `DOCEXP.md` and
+`PLAN.md` (a real, quoted illustration of what a live buggy answer
+looked like -- converting the quote would make the illustration say
+nothing happened).
+
+Checking prompts.py before running anything mattered here too: its
+dash characters turned out to sit inside the actual system prompt
+strings sent to Groq, not just surrounding comments -- meaning this
+touches live agent behavior, not only documentation. Worth naming the
+small irony directly: the prompt that (elsewhere) asks the model not to
+use em dashes was itself full of them, a contradictory example sitting
+in the model's own instructions that may have been part of why
+`_strip_dashes()`'s backstop was ever needed in the first place.
+
+### What the mechanical pass itself found
+
+Running the script and then grepping for damage (not assuming a
+mechanical text substitution is automatically safe) turned up two real
+issues, both fixed:
+
+1. **A stray leading comma.** A dash sitting right after a line-start
+   comment marker, or at a paragraph's wrapped continuation, produced
+   `//, text` or a line starting with a bare `,` -- syntactically
+   harmless, but visibly wrong. 7 real instances, found by grepping for
+   the exact pattern afterward, fixed by hand.
+2. **A real retrieval regression.** Converting the dash inside
+   `metric:player_counts_is_a_join`'s own chunk text (`schema_corpus.py`)
+   shifted its embedding enough that `live_player_count`'s retrieval
+   recall dropped from 1.0 to 0.67 -- caught immediately by the existing
+   CI-gated retrieval test, not missed silently. Fixed by splitting the
+   sentence into two with a period, rather than reverting the one chunk
+   back to a dash, restoring a clean 1.000 recall@8 across all 15
+   questions. Worth naming directly: this is real, live evidence that
+   "just" changing punctuation in a RAG corpus chunk is a content change
+   as far as an embedding model is concerned, not a purely cosmetic one
+   -- exactly the kind of thing the retrieval eval exists to catch.
+
+### Verified for real
+
+`ruff check .` and `uv run mypy src` clean, 215/215 tests pass (the one
+real failure from the retrieval regression above, fixed and
+re-confirmed). `tsc --noEmit`, `eslint`, and `next build` all clean on
+the frontend. A final repo-wide sweep confirms exactly 15 dash
+occurrences remain, all three intentional exclusions, nothing else.
+
+### Open questions (new)
+
+- Whether any other RAG corpus chunk's wording changes (from this pass
+  or a future one) could shift retrieval the same way without
+  necessarily being caught -- the CI-gated retrieval eval only checks
+  the 15 hand-labeled golden questions, not every chunk against every
+  possible real question. This one was caught because it happened to
+  overlap a golden question's expected chunk; a similar shift in an
+  untested chunk would currently go unnoticed until a real question
+  exposed it.

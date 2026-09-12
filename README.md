@@ -21,7 +21,7 @@ faith.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 60** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 61** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the full engineering log).
 
@@ -88,23 +88,41 @@ out the backend but don't have their own badge icons.
   stuffing the whole schema into the prompt, and a hand-labeled recall@k
   eval gates that in CI, currently **1.000 recall at production's real
   top-k**.
-- **A real eval harness, running in CI, not just on my machine.** A golden
-  question set with ground truth computed live from the database,
-  deterministic checks, and an LLM-as-judge pass, with a real exit code,
-  runs daily and on demand in GitHub Actions. When one of those checks was
-  itself found to be wrong (testing which tool ran instead of whether the
-  answer was correct), that bug hunt is written up in full rather than
-  quietly fixed, see the Measured results section below.
+- **A real eval harness that has actually found real bugs, not just a
+  green checkmark.** A golden question set (18 questions, grown live as
+  real gaps were found) with ground truth computed from the database at
+  eval time, deterministic checks, and an LLM-as-judge pass, with a real
+  exit code, runs daily and on demand in GitHub Actions. It's caught a
+  wrong regression check testing which tool ran instead of whether the
+  answer was correct, a router misclassifying an analysis question, and
+  a repeated hallucination pattern (below), every one written up in
+  full rather than quietly fixed, see [DOCEXP.md](DOCEXP.md).
+- **A real, repeated hallucination, fixed structurally instead of
+  prompted away.** An LLM asked to restate a statistics tool's own
+  outlier result kept padding its answer with an unverified extra name -
+  confirmed twice, even after the prompt asking it not to got
+  progressively more specific. The fix wasn't a third prompt attempt: for
+  that result, the model no longer generates the fact in its final
+  answer at all, it's rendered deterministically from the tool's real
+  output, and the model only narrates around it. Full case study,
+  including the statistically-invalid-outlier-test bug this same
+  investigation surfaced next, in
+  [ARCHITECTURE.md](ARCHITECTURE.md#hallucination-mitigation).
 - **Real cost and token accounting, not an after-the-fact estimate.**
   Every `/ask` response reports its own `total_tokens` and
   `estimated_cost_usd` (Groq's actual live on-demand pricing), logged per
   request and aggregated at `/health` as `usage`.
-- **Honest about limits, by design.** The forecast tool reports
-  "insufficient history" instead of fabricating a number when a game's
-  live player-count history is too young to project from, and
-  self-upgrades to a real linear-trend projection the moment enough
-  history exists, no code changes needed. The semantic cache's precision
-  was checked live against real paraphrases rather than assumed.
+- **Honest about limits, by design, and about what actually has one.**
+  The forecast tool reports "insufficient history" instead of
+  fabricating a number when a game's live player-count history is too
+  young to project from. Groq's shared daily token budget gets an honest
+  "check back tomorrow" message instead of a generic error when it's
+  genuinely exhausted (it has been, more than once, during real testing).
+  Render's free-tier cold start is a real, measured **40.4 seconds** -
+  disclosed as a number, not hidden, with a retry-with-backoff fix so a
+  cold start recovers on its own instead of needing a manual refresh; once
+  warm, real data loads in **under 1.5 seconds**. Full details in
+  [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations-and-what-actually-addresses-them).
 - **The same guarded tools, exposed two real ways.** A web app for humans,
   and an MCP server (`src/mcp_server/`) exposing the identical
   `run_sql`/`run_stats` implementations to Claude Desktop, Claude Code, or
@@ -121,23 +139,31 @@ entries for full methodology and caveats.
 
 | Metric | Result |
 |---|---|
-| Route accuracy | 5/5 |
-| Deterministic checks | 5/5 |
-| Avg LLM-judge score | 4.2/5 |
-| Avg `/ask` latency | 13.3s (n=5, real full-graph runs) |
-| Avg cost per question | $0.00066 (Groq on-demand list price) |
+| Route accuracy | 18/18 |
+| Deterministic checks | 18/18 |
+| Avg LLM-judge score | 5.0/5 |
+| Avg `/ask` latency | 2.4s (n=18, real full-graph runs) |
+| Avg cost per question | $0.00083 (Groq on-demand list price) |
 | RAG retrieval recall@8 | 1.000 (15 hand-labeled questions) |
 
-Worth being honest about how this got to 5/5: earlier versions of this
-table showed a real, repeated 4/5 and described it as the same model bug
-recurring. That framing was wrong. Investigating it properly found the
-failing check itself was testing which tool the model used, not whether
-its answer was correct, so a genuinely right answer via plain SQL instead
-of the expected tool got marked as a failure every time. Fixed the check
-to verify the real returned value regardless of which tool produced it,
-then confirmed the fix for real in CI (fresh runner, freshly built
-catalog), not just locally. Full writeup in DOCEXP.md's Slice 30 and 36
-entries, including the earlier, wrong framing, left visible rather than
+The question set has grown live, from 5 to 18, specifically as real gaps
+were found rather than to pad a count, see
+[ARCHITECTURE.md](ARCHITECTURE.md#hallucination-mitigation) for the most
+recent addition this table reflects: a real, repeated hallucination the
+harness caught, fixed structurally, then re-confirmed live at a perfect
+5.0/5.
+
+Worth being honest about how an earlier version of this table got to
+5/5 (on the original 5-question set): it showed a real, repeated 4/5 and
+described it as the same model bug recurring. That framing was wrong.
+Investigating it properly found the failing check itself was testing
+which tool the model used, not whether its answer was correct, so a
+genuinely right answer via plain SQL instead of the expected tool got
+marked as a failure every time. Fixed the check to verify the real
+returned value regardless of which tool produced it, then confirmed the
+fix for real in CI (fresh runner, freshly built catalog), not just
+locally. Full writeup in DOCEXP.md's Slice 30 and 36 entries, including
+the earlier, wrong framing, left visible rather than
 edited away.
 
 ## Quickstart

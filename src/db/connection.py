@@ -5,7 +5,7 @@ Two connection kinds, deliberately kept apart:
   - get_read_only_connection(): read-only, used ONLY by the agent's SQL tool.
 
 The read-only-ness is enforced twice, on purpose:
-  1. DuckDB itself is opened with read_only=True — the engine physically
+  1. DuckDB itself is opened with read_only=True, the engine physically
      refuses any write, independent of anything our Python code does.
   2. validate_select_only() below parses the SQL with a real parser
      (sqlglot) before it ever reaches DuckDB, and rejects anything that
@@ -13,7 +13,7 @@ The read-only-ness is enforced twice, on purpose:
 
 Guard #2 exists even though guard #1 already blocks writes, because
 read-only mode doesn't stop everything: a query can still ATTACH another
-database file, COPY results out to disk, or chain multiple statements —
+database file, COPY results out to disk, or chain multiple statements -
 none of which "write to the games table" but all of which we don't want an
 LLM-generated query ever doing. This is the one safety boundary in the
 whole system, so it does not rely on prompting the model to behave; it
@@ -96,7 +96,7 @@ def validate_select_only(sql: str, max_rows: int) -> str:
     """Parse `sql`, enforce SELECT-only + table allowlist + row cap, and
     return the (possibly rewritten) SQL string that is actually safe to run.
 
-    Raises UnsafeQueryError with a human-readable reason on any violation —
+    Raises UnsafeQueryError with a human-readable reason on any violation -
     the agent's self-correction loop feeds that message back to the LLM the
     same way it would feed back a DuckDB execution error.
     """

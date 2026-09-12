@@ -2,11 +2,11 @@
 committed snapshot under data/player_counts_raw/.
 
 Split from poll_player_counts.py on purpose. GitHub Actions runners are
-ephemeral — nothing written to a local DuckDB file during a scheduled run
+ephemeral, nothing written to a local DuckDB file during a scheduled run
 would survive to the next one. So the poller's only job is capturing a
 snapshot and committing it to git (durable, tiny, diffable); building the
 actual queryable table from the *full accumulated history* of snapshots is
-a separate, idempotent, rerun-anytime step — the same
+a separate, idempotent, rerun-anytime step, the same
 collect-raw-then-build split already used for the SteamSpy catalog
 (steamspy_client.py caches to disk, ingest.py builds the table from it).
 Run this locally after `git pull`, or as a Docker build step so a freshly

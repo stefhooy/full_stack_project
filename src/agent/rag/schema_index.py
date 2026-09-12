@@ -4,7 +4,7 @@ that turns retrieved chunks back into prompt text.
 Deliberately brute-force (embed everything once, rank by dot product on
 every query) rather than a real vector store (Chroma/FAISS/pgvector): the
 corpus is ~20 short chunks. A linear scan over 20 384-dim vectors is
-microseconds — a real ANN index would add a dependency and operational
+microseconds, a real ANN index would add a dependency and operational
 surface (persistence, index files) to solve a problem this scale doesn't
 have. Revisit if the corpus grows into the hundreds of chunks (e.g. many
 tables' worth of columns + metrics), where brute-force scanning would still
@@ -96,7 +96,7 @@ class SchemaIndex:
 
     def retrieve(self, query: str, top_k: int) -> list[SchemaChunk]:
         """Always include chunks marked always_include (cheap, and some
-        context — e.g. that the table exists, that a `name` column exists —
+        context, e.g. that the table exists, that a `name` column exists -
         is structurally relevant regardless of semantic similarity to the
         query), plus the top_k most similar remaining chunks by cosine
         similarity to the query."""

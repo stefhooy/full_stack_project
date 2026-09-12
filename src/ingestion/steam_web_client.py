@@ -1,15 +1,15 @@
 """Thin client for the Steam Web API's live player-count endpoint
 (https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/).
 
-No API key required — verified directly against the live endpoint before
+No API key required, verified directly against the live endpoint before
 building around that assumption. Unlike SteamSpy, this endpoint has no
 documented rate limit, but polling ~1/second anyway is the same "be a good
 citizen" default used for SteamSpy's appdetails endpoint in
-steamspy_client.py — there's no reason to hammer a free public API just
+steamspy_client.py, there's no reason to hammer a free public API just
 because it doesn't enforce a limit itself.
 
 No response caching here, unlike SteamSpy's client: every call to this
-endpoint returns a live, different number by design — caching it would
+endpoint returns a live, different number by design, caching it would
 defeat the entire point of polling.
 """
 
@@ -20,7 +20,7 @@ import time
 import requests
 
 # Side-effect-only import: src/config.py calls truststore.inject_into_ssl()
-# at module load time — see the comment there for why it's needed.
+# at module load time, see the comment there for why it's needed.
 import src.config  # noqa: F401
 
 STEAM_WEB_API_URL = (
@@ -41,10 +41,10 @@ class SteamWebClient:
         against the real endpoint, both treated the same way here: a 200
         response with result != 1 (e.g. a syntactically invalid app id),
         and a 404 (observed for at least one real, currently-delisted app
-        id already in the SteamSpy-sourced catalog — Steam's store and
+        id already in the SteamSpy-sourced catalog, Steam's store and
         SteamSpy's index don't always agree on what still exists). Either
         way, one bad app id should skip that game, not abort the whole
-        poll run — connection-level failures (timeouts, DNS, 5xx) still
+        poll run, connection-level failures (timeouts, DNS, 5xx) still
         propagate, since those indicate a real outage worth failing loudly
         on rather than silently producing a mostly-empty snapshot."""
         elapsed = time.monotonic() - self._last_call

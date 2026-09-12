@@ -1,5 +1,5 @@
 """Tests for src/db/genre_stats.py against a real, throwaway DuckDB file
-(the `games_db` fixture in conftest.py) — not a mock of the DB layer.
+(the `games_db` fixture in conftest.py), not a mock of the DB layer.
 `get_genre_counts`/`get_games_by_genre` read `settings.duckdb_abs_path`
 internally rather than taking a path argument, so these tests monkeypatch
 `settings.duckdb_path` to point at the fixture DB for the duration of the

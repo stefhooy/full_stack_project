@@ -2,12 +2,12 @@
 one config value (`EMBEDDING_PROVIDER`), everything else just calls
 get_embedder() and gets back something with .embed_texts() / .embed_query().
 
-Default is "local" — an ONNX model running in-process via fastembed. No API
+Default is "local", an ONNX model running in-process via fastembed. No API
 key, no network call at query time (one-time model download on first use,
 cached to disk after), and it works the same whether MODEL_PROVIDER is
 Groq, Ollama, or (later) Gemini. Chosen specifically because Groq has no
 embeddings endpoint at all, so "whatever LLM provider is configured" was
-never going to be a valid default here — this needed its own decision.
+never going to be a valid default here, this needed its own decision.
 
 Note: fastembed's typical model output is already L2-normalized, but every
 implementation here normalizes explicitly so that `vectors @ query_vector`
@@ -69,7 +69,7 @@ _embedder: Embedder | None = None
 
 
 def get_embedder() -> Embedder:
-    """Cached singleton — building a LocalEmbedder loads the ONNX model into
+    """Cached singleton, building a LocalEmbedder loads the ONNX model into
     memory, and Ollama's client is cheap but no reason to rebuild per call."""
     global _embedder
     if _embedder is not None:

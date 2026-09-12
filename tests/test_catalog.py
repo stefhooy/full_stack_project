@@ -1,5 +1,5 @@
 """Tests for src/db/catalog.py (backs the frontend's /catalog browse page)
-against the real, throwaway DuckDB file (the `games_db` fixture) — same
+against the real, throwaway DuckDB file (the `games_db` fixture), same
 "real fixture, not a mock" approach as test_genre_stats.py.
 
 Fixture rows (see conftest.py): Alpha Quest (Action/Adventure, metacritic

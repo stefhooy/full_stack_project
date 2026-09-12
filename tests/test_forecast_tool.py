@@ -1,4 +1,4 @@
-"""Tests for src/tools/forecast_tool.py's `_forecast` — capturing the same
+"""Tests for src/tools/forecast_tool.py's `_forecast`, capturing the same
 scenarios that were verified by hand (a synthetic 6-point rising series,
 both a near and a deliberately-absurd horizon) when this tool was first
 built, per DOCEXP.md's Slice 9b entry, as a real regression suite instead

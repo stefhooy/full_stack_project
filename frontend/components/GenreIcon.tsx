@@ -1,7 +1,7 @@
-// Hand-authored line-art glyphs, one per genre in lib/genres.ts — no icon
+// Hand-authored line-art glyphs, one per genre in lib/genres.ts, no icon
 // library. Redrawn for Slice 16 (direct feedback: "change the icons... I
 // don't like them") with a thin engraved-medallion ring built into every
-// glyph — a restrained nod to a Roman coin/seal, the one small "Latin
+// glyph, a restrained nod to a Roman coin/seal, the one small "Latin
 // touch" applied here rather than reviving the deleted full Roman
 // identity. Each is a plain 24x24 stroke drawing in currentColor so it
 // inherits whatever color the caller sets (usually a --genre-N token), and
@@ -127,7 +127,7 @@ function Racing() {
   );
 }
 
-// Fallback for any genre this component hasn't been hand-drawn for yet — a
+// Fallback for any genre this component hasn't been hand-drawn for yet, a
 // generic controller glyph rather than silently reusing Action's, so an
 // unrecognized genre from the live /genres endpoint (see GenreShowcase.tsx)
 // still reads as "a genre, unspecified" instead of implying it's Action.

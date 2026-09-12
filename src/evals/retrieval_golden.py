@@ -3,7 +3,7 @@ the specific schema chunks retrieval *should* surface.
 
 Deliberately excludes chunks marked `always_include=True` in
 src/agent/rag/schema_corpus.py (table:games, column:name, column:genre,
-table:player_counts) from every expected set — those bypass ranking
+table:player_counts) from every expected set, those bypass ranking
 entirely and are returned regardless of the question, so testing for them
 would just prove SchemaIndex.retrieve() didn't change, not that the
 ranking algorithm did its job. This eval is specifically about the ~30

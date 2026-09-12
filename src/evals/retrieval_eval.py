@@ -2,14 +2,14 @@
 schema chunks a question needs, not just whether the final answer came out
 right.
 
-Unlike run_evals.py's golden-question harness, this never calls an LLM —
+Unlike run_evals.py's golden-question harness, this never calls an LLM -
 retrieve() only runs the local embedding model, so this eval is free and
 fast enough to run in CI on every push (see tests/test_retrieval_eval.py),
 unlike the rest of the eval harness (real Groq calls, cost/rate-limit
 gated, manual-only).
 
 Metric is recall@k: of the chunks a question is hand-labeled as needing
-(retrieval_golden.py — deliberately excluding always_include chunks, which
+(retrieval_golden.py, deliberately excluding always_include chunks, which
 are returned regardless of ranking and so prove nothing about it), what
 fraction actually came back in the top-k. Averaged across the golden set
 for one overall number.

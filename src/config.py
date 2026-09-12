@@ -2,7 +2,7 @@
 touching os.environ directly, so there is exactly one place that knows about
 env vars.
 
-The model provider is a single value (`model_provider`) — src/agent/llm_provider.py
+The model provider is a single value (`model_provider`), src/agent/llm_provider.py
 is the only file allowed to branch on it. Nothing else in the agent should know
 or care whether it's talking to Groq, Ollama, or (later) Gemini.
 """
@@ -26,7 +26,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 # Some environments (e.g. Windows machines with AV software like Avast doing
 # TLS interception) re-sign HTTPS traffic with a locally-installed root CA
 # that the OS trusts but Python's bundled `certifi` CA list does not, causing
-# SSLCertVerificationError on every outbound request — hit this first with
+# SSLCertVerificationError on every outbound request, hit this first with
 # SteamSpy (requests) and again with fastembed's model download (httpx via
 # huggingface_hub). truststore makes the stdlib ssl module use the OS trust
 # store directly, which fixes it for every HTTP client in the process at
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     groq_request_timeout_seconds: float = 45.0
     """Explicit ceiling on a single Groq HTTP call. Without this, ChatGroq
     falls back to the underlying SDK's own default (effectively unbounded
-    for this app's purposes) — which is exactly what turned one slow
+    for this app's purposes), which is exactly what turned one slow
     cold-start request into a multi-minute hang/502 cycle instead of a
     clean, fast failure the one time this was actually hit in production
     (see DOCEXP.md's Slice 32 entry). A real request completes in single-
@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     # --- ingestion ---
     steamspy_user_agent: str = "ai-game-analyst-ingest/0.1"
     ingest_game_count: int = 1000
-    """1000 is the free ceiling with the current ingestion code — SteamSpy's
+    """1000 is the free ceiling with the current ingestion code, SteamSpy's
     bulk `all` listing returns ~1000 games per page, and ingest.py only
     fetches page 0. Going higher needs a code change to loop over more
     pages, not just a config bump."""
@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     debug: bool = False
     """When True, /ask error responses include the real exception message.
     False (the default, and what production should run with) returns a
-    generic "high demand" message instead — see src/api/main.py."""
+    generic "high demand" message instead, see src/api/main.py."""
 
     semantic_cache_enabled: bool = True
     semantic_cache_similarity_threshold: float = 0.93
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     local embedding model, a clear paraphrase of a cached question ("most
     owners" vs "highest number of owners") scored 0.957 similarity, while a
     related-but-different question ("most players" vs "most owners") scored
-    0.834. 0.93 sits between them — catches genuine rephrasings without
+    0.834. 0.93 sits between them, catches genuine rephrasings without
     conflating two different questions into the same cached answer."""
     semantic_cache_max_entries: int = 200
 
@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     process on roughly the same cadence anyway."""
 
     cors_allowed_origins: str = "http://localhost:3000"
-    """Comma-separated list of origins allowed to call the API — the
+    """Comma-separated list of origins allowed to call the API, the
     Next.js frontend's dev/deployed URL(s)."""
 
     @property

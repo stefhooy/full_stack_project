@@ -1,6 +1,6 @@
 """The agent's second tool: run_stats. Bound only for `analysis`-routed
 questions (see src/agent/graph.py's agent_node), so `lookup` questions
-still see just run_sql — a concrete example of the router actually gating
+still see just run_sql, a concrete example of the router actually gating
 tool availability, not just labeling questions.
 
 Same split as sql_tool.py: `execute_run_stats` is the real implementation,
@@ -8,18 +8,18 @@ called directly by the graph's execute_tools node; `run_stats` (the
 @tool-decorated wrapper) exists only to hand the LLM a schema.
 
 Three modes, chosen to cover what plain SQL aggregates genuinely can't do
-well (DuckDB already has AVG/STDDEV/CORR/etc. built in — this tool isn't
+well (DuckDB already has AVG/STDDEV/CORR/etc. built in, this tool isn't
 duplicating those):
   - "describe":            summary stats for one numeric column.
   - "compare_two_groups":  a real Welch's t-test (via scipy) between two
-                            groups, with a p-value — not just "which
+                            groups, with a p-value, not just "which
                             average looked bigger", which is what the SQL
-                            agent was doing (unreliably — see DOCEXP.md)
+                            agent was doing (unreliably, see DOCEXP.md)
                             before this tool existed.
   - "outliers":             z-score based anomaly detection.
 
 Every mode runs its query through the same guarded, read-only connection
-as run_sql — this tool is not a way to bypass the SELECT-only/allowlist
+as run_sql, this tool is not a way to bypass the SELECT-only/allowlist
 guard, it's SQL-in, statistics-out.
 """
 
@@ -54,7 +54,7 @@ MAX_PLAUSIBLE_OUTLIER_COUNT = 15
 
 def execute_run_stats(query: str, mode: str, z_threshold: float = 2.5) -> dict:
     # Tool-call args arrive from the LLM's function-calling output, not from
-    # trusted Python code — some providers (observed with Ollama) serialize
+    # trusted Python code, some providers (observed with Ollama) serialize
     # a float arg as a JSON string ("2.5") even though the schema declares
     # it numeric. Coerce here rather than trust the type that arrives.
     z_threshold = float(z_threshold)

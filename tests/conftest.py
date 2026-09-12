@@ -3,7 +3,7 @@
 The guiding rule for this whole test suite: prefer a real, throwaway
 DuckDB file over mocking this project's own DB layer. A guarded
 connection, a real CREATE TABLE, and real rows catch things a mock of
-"what we assume the DB does" never could — the same reasoning the project
+"what we assume the DB does" never could, the same reasoning the project
 already applies everywhere else (verify against the real thing, not an
 assumption of it).
 """
@@ -21,7 +21,7 @@ from src.db.schema import CREATE_GAMES_TABLE_SQL, CREATE_PLAYER_COUNTS_TABLE_SQL
 @pytest.fixture()
 def games_db(tmp_path):
     """A real DuckDB file, schema created for real, seeded with a small,
-    hand-picked set of rows spanning several genres — enough to exercise
+    hand-picked set of rows spanning several genres, enough to exercise
     genre counting/filtering without needing the real ~1000-game catalog."""
     db_path = tmp_path / "test_games.duckdb"
     conn = duckdb.connect(str(db_path))

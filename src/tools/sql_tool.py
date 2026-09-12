@@ -2,7 +2,7 @@
 
 `execute_run_sql` is the real implementation, called directly (not via
 LangChain's tool-invocation machinery) by the graph's execute_tools node in
-src/agent/graph.py — that keeps the self-correction/error-handling logic
+src/agent/graph.py, that keeps the self-correction/error-handling logic
 visible in the graph rather than hidden inside the tool wrapper.
 
 `run_sql` (the @tool-decorated wrapper) exists only to hand the LLM a

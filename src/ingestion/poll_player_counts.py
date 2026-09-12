@@ -1,19 +1,19 @@
 """Collection step: poll Steam's live player-count endpoint for every game
 in the catalog, write one timestamped JSON snapshot to disk.
 
-Deliberately does NOT touch the DuckDB player_counts table directly — see
+Deliberately does NOT touch the DuckDB player_counts table directly, see
 build_player_counts_table.py for why. This script's only job is capturing
 a moment in time before it's gone; committing the resulting snapshot file
 to git is what makes it durable across GitHub Actions' ephemeral runners
 (see the Slice 7 DOCEXP entry for the full reasoning).
 
 Gets its appid list from SteamSpy's own cheap bulk listing directly
-(SteamSpyClient.get_all_page — one request, no per-game rate limit),
+(SteamSpyClient.get_all_page, one request, no per-game rate limit),
 not from a pre-built `games` table. Slice 29 removed that dependency
 after `poll_player_counts.yml`'s "rebuild the catalog first" step (the
 *full* ingest.py, including both APIs' per-game enrichment loops) turned
 out to cost ~40 real minutes every 6 hours just to learn appids this
-script never used any other field of — see DOCEXP.md's Slice 29 entry.
+script never used any other field of, see DOCEXP.md's Slice 29 entry.
 
 Usage:
     python -m src.ingestion.poll_player_counts
@@ -34,7 +34,7 @@ RAW_CACHE_DIR = PROJECT_ROOT / "data" / "raw"
 
 
 def _fetch_target_appids(count: int) -> list[int]:
-    """Just the appids of the top-owned `count` games — the cheap first
+    """Just the appids of the top-owned `count` games, the cheap first
     step of ingest.py's three-step process, without the two per-game
     enrichment loops that follow it there (this script has no use for
     genre, release date, Metacritic, or any of the rest)."""

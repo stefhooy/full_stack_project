@@ -7,7 +7,7 @@ Three-step process:
   2. For each of those appids, pull SteamSpy's `appdetails` (owners, reviews,
      genre, playtime) at ~1 request/second.
   3. For the same appid, also pull Steam's own storefront `appdetails`
-     (release date, Metacritic score, platforms, categories — see
+     (release date, Metacritic score, platforms, categories, see
      src/ingestion/steam_store_client.py for why this is a second, separate
      API rather than something SteamSpy already provides) at ~1 request per
      1.5 seconds.
@@ -15,7 +15,7 @@ Every response from both APIs is cached to disk as we go.
 
 Idempotent by construction: responses are cached to data/raw/, and rows are
 UPSERTed on appid, so re-running this script after it's already populated
-the DB just replays cache hits and re-upserts the same rows — no
+the DB just replays cache hits and re-upserts the same rows, no
 duplicates, and it's fast because nothing hits the network again.
 
 Usage:
@@ -42,7 +42,7 @@ RAW_CACHE_DIR = PROJECT_ROOT / "data" / "raw"
 # controller-model and accessibility variants (DualShock/DualSense
 # support, Remote Play on Phone/Tablet/TV, Captions available, ...) that
 # don't make interesting analytical questions. This is the subset that
-# does — kept short and curated on purpose, not exhaustive; see
+# does, kept short and curated on purpose, not exhaustive; see
 # DOCEXP.md's Slice 11 entry for the real category dump this was chosen
 # from (Portal 2's actual ~30-tag response).
 CATEGORY_ALLOWLIST = [
@@ -160,9 +160,9 @@ def _parse_cents(value: Any) -> float | None:
 def _row_from_appdetails(
     details: dict[str, Any], store_data: dict[str, Any] | None = None
 ) -> tuple | None:
-    """`details` is SteamSpy's appdetails response (owners/reviews/genre —
+    """`details` is SteamSpy's appdetails response (owners/reviews/genre -
     always required). `store_data` is Steam's own storefront appdetails
-    response (release date/Metacritic/platforms/categories) — optional,
+    response (release date/Metacritic/platforms/categories), optional,
     since a game can be missing from one source and not the other; every
     field sourced from it is None when it's unavailable, same as any other
     optional field here."""
@@ -217,7 +217,7 @@ def run_ingestion(count: int) -> int:
     print(f"[ingest] fetching top-owned games listing (target count: {count})...")
     listing = client.get_all_page(page=0)
     # SteamSpy returns page 0 already ordered by owners descending, so the
-    # first `count` entries are the most-owned games — no re-sort needed.
+    # first `count` entries are the most-owned games, no re-sort needed.
     all_games = list(listing.values())
     target_appids = [g["appid"] for g in all_games[:count]]
     print(f"[ingest] got {len(target_appids)} appids from bulk listing.")

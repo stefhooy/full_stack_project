@@ -1,6 +1,6 @@
 // Genre identity used by components/GenreShowcase.tsx. Counts and which
 // genres even appear are fetched live from GET /genres (src/db/genre_stats.py
-// on the backend) at render time — not a snapshot baked into this file.
+// on the backend) at render time, not a snapshot baked into this file.
 // That backend endpoint does the real work: splitting SteamSpy's
 // comma-joined `genre` field, counting tokens across the live catalog,
 // excluding the two non-genre tags it also carries ("Early Access" is a
@@ -11,8 +11,8 @@
 // What stays client-side, deliberately, is only what can't be derived from
 // the DB: which hand-drawn icon a label gets, and a nicer curated example
 // question for the genres common enough to be worth writing one for. Both
-// degrade gracefully for a genre outside this curated set (which can happen
-// — the catalog's real top-8 can shift as it grows) via GenreIcon's Generic
+// degrade gracefully for a genre outside this curated set (which can happen,
+// the catalog's real top-8 can shift as it grows) via GenreIcon's Generic
 // fallback glyph and a templated question below.
 import { API_BASE_URL, fetchWithRetry } from "@/lib/api";
 
@@ -81,7 +81,7 @@ export interface GenreGame {
   peak_ccu: number | null;
 }
 
-// Backs the genre showcase's "click a card, see the games" panel — a plain
+// Backs the genre showcase's "click a card, see the games" panel, a plain
 // catalog lookup (GET /games, src/db/genre_stats.py), not a question asked
 // of the agent. No LLM round trip, so it's fast enough to fire on every
 // card click without a loading state feeling heavy.

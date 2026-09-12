@@ -2,9 +2,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 // The agent's answer is plain LLM prose with inline markdown (bold, bullet
-// lists, and — for multi-metric results — real GFM tables, per the system
+// lists, and, for multi-metric results, real GFM tables, per the system
 // prompt's formatting rule added after a table-shaped answer came out as
-// raw "* **label:** value * **label:** value" text; see DOCEXP.md) —
+// raw "* **label:** value * **label:** value" text; see DOCEXP.md) -
 // react-markdown handles it properly instead of showing that raw syntax,
 // which is what a bare <p> did. `remark-gfm` adds table/strikethrough
 // support on top of base CommonMark (bold/lists alone don't need it).

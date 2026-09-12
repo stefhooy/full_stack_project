@@ -6,21 +6,21 @@ retrieval, then a tool-calling loop and a visible self-correction path.
                      -> [needs_clarification] -> ask_clarification -> END
 
 - "router": classifies the question (lookup / analysis / forecast /
-  needs_clarification) before any DB work happens — see src/agent/router.py
+  needs_clarification) before any DB work happens, see src/agent/router.py
   for why each category exists and what it routes to today.
 - "retrieve_schema": embeds the question, retrieves the most relevant
   schema chunks (see src/agent/rag/), and builds the system prompt from
-  only those — this is what "RAG over the DB schema" means in practice.
+  only those, this is what "RAG over the DB schema" means in practice.
   A visible, traced node rather than something that happens implicitly
   before the graph runs, so it shows up in LangSmith like every other step.
 - "agent": the LLM calls a tool or writes a final answer. Which tools are
-  even bound depends on the route — `lookup` only gets run_sql; `analysis`
+  even bound depends on the route, `lookup` only gets run_sql; `analysis`
   also gets run_stats (see src/tools/stats_tool.py), so it can run a real
   significance test or z-score outlier check instead of eyeballing an
   average comparison; `forecast` gets run_forecast (see
   src/tools/forecast_tool.py), a real linear-trend projection over
   player_counts history. Once `attempts` reaches SQL_MAX_RETRIES, this node
-  stops binding tools at all, so the model *cannot* call one again — it is
+  stops binding tools at all, so the model *cannot* call one again, it is
   structurally forced to answer in plain text. That's what guarantees the
   loop terminates, rather than relying on the model to politely stop when
   asked.
@@ -29,16 +29,16 @@ retrieval, then a tool-calling loop and a visible self-correction path.
   next turn (this is the self-correction step), and records the last
   *successful* SQL/stats/forecast result so the API layer can return them.
 - "build_chart_spec": deterministically infers a chart spec from the last
-  successful query's shape — not an LLM call, see src/tools/viz_tool.py for
+  successful query's shape, not an LLM call, see src/tools/viz_tool.py for
   why this is code, not a prompt.
 - "ask_clarification": terminal node for questions too ambiguous for the SQL
-  pipeline to attempt at all — a clarifying question back, instead of the
+  pipeline to attempt at all, a clarifying question back, instead of the
   agent guessing its way to a confident wrong answer.
 
 `forecast` used to be its own terminal "not supported yet" node (no
 forecasting tool or time-series data existed). Both now exist (Slice 7's
 player_counts, this slice's run_forecast), so forecast questions flow
-through the same loop as lookup/analysis — the tool itself, not a route-
+through the same loop as lookup/analysis, the tool itself, not a route-
 level block, is what decides honestly whether there's enough history to
 answer. See forecast_tool.py's docstring.
 
@@ -226,7 +226,7 @@ def retrieve_schema_node(state: AgentState) -> dict:
 def _tools_for_route(route: str | None) -> list:
     # lookup: just run_sql. analysis: also gets run_stats, so it can run a
     # real significance test or outlier check instead of hand-computing a
-    # comparison via SQL — the concrete difference the router was built to
+    # comparison via SQL, the concrete difference the router was built to
     # enable back in Slice 3. forecast: also gets run_forecast, a real
     # linear-trend projection over player_counts history (Slice 9b).
     if route == "analysis":
@@ -350,7 +350,7 @@ def execute_tools_node(state: AgentState) -> dict:
             if attempts >= settings.sql_max_retries:
                 error_text += (
                     f"\n\nRetry limit ({settings.sql_max_retries}) reached. "
-                    "You will not be able to call a tool again — give your final "
+                    "You will not be able to call a tool again, give your final "
                     "answer now, explaining that the request could not be completed."
                 )
             tool_messages.append(ToolMessage(content=error_text, tool_call_id=call["id"]))
@@ -399,7 +399,7 @@ def build_graph():
 
 _compiled_graph = build_graph()
 
-# Human-readable progress labels for streaming — see stream_agent() below.
+# Human-readable progress labels for streaming, see stream_agent() below.
 # Purely cosmetic (frontend display), never affects control flow.
 NODE_PROGRESS_MESSAGES = {
     "router": "Classifying your question...",
@@ -605,7 +605,7 @@ async def stream_agent(question: str):
     spinner for however long the full graph takes.
 
     stream_mode="updates" yields {node_name: state_update} after each node
-    finishes — every node function here is a plain sync function (agent_node,
+    finishes, every node function here is a plain sync function (agent_node,
     execute_tools_node, etc.), and LangGraph runs them in a worker thread
     under astream() without needing them rewritten as `async def`.
     """

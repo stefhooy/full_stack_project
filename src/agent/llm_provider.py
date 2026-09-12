@@ -2,7 +2,7 @@
 
 get_llm() returns a LangChain chat model with tools already bindable via
 .bind_tools(...). Everything downstream (src/agent/graph.py) just calls
-get_llm() and treats the result as "a chat model" — it never branches on
+get_llm() and treats the result as "a chat model", it never branches on
 provider. That's the seam: adding Gemini for real later means filling in one
 branch here, nothing else in the agent changes.
 """
@@ -46,7 +46,7 @@ def get_llm(temperature: float = 0.0) -> BaseChatModel:
 
     if provider == "gemini":
         # Seam reserved for Slice 8 (Gemini as a fallback provider). Not
-        # implemented yet — deliberately not adding the langchain-google-genai
+        # implemented yet, deliberately not adding the langchain-google-genai
         # dependency until this slice actually needs it.
         raise NotImplementedError(
             "MODEL_PROVIDER=gemini is reserved for a later slice. "

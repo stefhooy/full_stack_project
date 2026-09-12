@@ -3,7 +3,7 @@ external store needed.
 
 That's a real constraint, not a shortcut we forgot to fix: the Slice 6
 deployment decision (see DOCEXP.md) is a single, normal long-running
-Python process on a free host, not horizontally-scaled serverless — so
+Python process on a free host, not horizontally-scaled serverless, so
 in-memory state is coherent for the whole deployment as long as it stays
 that way. Scaling to multiple backend instances would need a shared store
 (Redis) for this to keep working correctly; noted as an open question
@@ -34,7 +34,7 @@ class InMemoryRateLimiter:
         if len(hits) >= self.max_requests:
             raise HTTPException(
                 status_code=429,
-                detail="Too many requests — please slow down and try again shortly.",
+                detail="Too many requests, please slow down and try again shortly.",
             )
         hits.append(now)
 
@@ -46,7 +46,7 @@ _limiter = InMemoryRateLimiter(
 
 
 def enforce_rate_limit(request: Request) -> None:
-    """FastAPI dependency — raises 429 if this client IP is over the limit.
+    """FastAPI dependency, raises 429 if this client IP is over the limit.
     Uses request.client.host directly; a deployment behind a reverse proxy
     would need to trust X-Forwarded-For instead, which is a proxy-specific
     trust decision left to the deployment slice, not hardcoded here."""

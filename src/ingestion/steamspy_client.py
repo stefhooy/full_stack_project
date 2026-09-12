@@ -7,7 +7,7 @@ Two endpoints are used:
                             SteamSpy asks for ~1 request/second on this one.
 
 Every raw response is cached to disk (data/raw/) keyed by request, so a
-re-run of ingestion doesn't re-hit the network for games it already has —
+re-run of ingestion doesn't re-hit the network for games it already has -
 that's what makes ingest.py idempotent and safe to re-run.
 """
 
@@ -21,7 +21,7 @@ from typing import Any
 import requests
 
 # Side-effect-only import: src/config.py calls truststore.inject_into_ssl()
-# at module load time — see the comment there for why it's needed.
+# at module load time, see the comment there for why it's needed.
 import src.config  # noqa: F401
 
 STEAMSPY_BASE_URL = "https://steamspy.com/api.php"
@@ -59,7 +59,7 @@ class SteamSpyClient:
         self._cache_path(key).write_text(json.dumps(data), encoding="utf-8")
 
     def get_all_page(self, page: int) -> dict[str, Any]:
-        """Bulk listing page. Cached — re-running ingestion won't re-fetch
+        """Bulk listing page. Cached, re-running ingestion won't re-fetch
         a page it already has on disk."""
         cache_key = f"all_page_{page}"
         cached = self._read_cache(cache_key)
@@ -71,7 +71,7 @@ class SteamSpyClient:
 
     def get_appdetails(self, appid: int) -> dict[str, Any]:
         """Per-game detail (genre/languages/tags). Cached per appid, and
-        rate-limited to ~1 req/sec against the network — a cache hit skips
+        rate-limited to ~1 req/sec against the network, a cache hit skips
         the wait entirely, which is what makes re-running ingestion fast."""
         cache_key = f"appdetails_{appid}"
         cached = self._read_cache(cache_key)

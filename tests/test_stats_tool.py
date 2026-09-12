@@ -1,6 +1,6 @@
 """Tests for src/tools/stats_tool.py's three pure computation functions.
 These already got real, ad hoc verification during Slice 4 development
-(see DOCEXP.md — a real type-coercion bug and a real group-mislabeling
+(see DOCEXP.md, a real type-coercion bug and a real group-mislabeling
 bug were both found that way) but never a checked-in suite; this captures
 that as a real regression test instead of relying on memory of "I checked
 this once."

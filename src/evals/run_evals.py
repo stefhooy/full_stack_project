@@ -6,7 +6,7 @@ Usage:
     python -m src.evals.run_evals --no-judge  # skip the judge (faster, no extra LLM calls)
 
 Exit code is 0 only if every question's route AND deterministic check
-passed — that's the part meant to gate CI later (Slice 6+). The judge score
+passed, that's the part meant to gate CI later (Slice 6+). The judge score
 is printed for visibility but does NOT affect the exit code: LLM judges
 have their own noise, and treating a qualitative 1-5 score as a hard
 pass/fail gate would make the regression check flaky in a way a
@@ -21,7 +21,7 @@ import time
 
 # LLM output can contain arbitrary Unicode (smart quotes, non-breaking
 # hyphens, etc.) that Windows' default console encoding (cp1252) can't
-# represent — crashes the report mid-print otherwise. UTF-8 with
+# represent, crashes the report mid-print otherwise. UTF-8 with
 # replacement is the right fix here (this is a report to a terminal, not
 # a place where losing an unencodable character silently matters).
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":

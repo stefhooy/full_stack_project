@@ -8,14 +8,14 @@ implementation, called directly by the graph's execute_tools node;
 schema.
 
 The honesty constraint this tool is built around: `player_counts` (Slice 7)
-is a genuinely young time series — as of this tool's introduction it holds
+is a genuinely young time series, as of this tool's introduction it holds
 exactly ONE snapshot timestamp for the whole catalog, because the GitHub
 Actions poller that accumulates more has only just started running. A
 "forecast" fit to one point, or to a couple of points a few hours apart and
-then projected a year out, is not a real forecast — it's a number shaped
+then projected a year out, is not a real forecast, it's a number shaped
 like one. So this tool always checks how much history actually exists
 before fitting anything, and returns a structured "not enough history yet"
-result instead of fabricating a projection when there isn't enough — no
+result instead of fabricating a projection when there isn't enough, no
 route-level block, no separate "not supported" terminal node needed
 (compare to the Slice 3-8 `forecast_not_supported` node this replaces): the
 tool itself degrades honestly, and self-upgrades to a real linear-trend
@@ -81,7 +81,7 @@ def _forecast(columns: list[str], rows: Sequence[Sequence[Any]], horizon_days: i
             ),
             "message": (
                 f"Only {n_snapshots} snapshot{'' if n_snapshots == 1 else 's'} of "
-                "player-count history exist for this game so far — at least 2 are "
+                "player-count history exist for this game so far, at least 2 are "
                 "needed to fit any trend. Live player counts are polled automatically "
                 "on a schedule, so this will start working on its own once a second "
                 "snapshot has been collected; it cannot be answered honestly right now."
@@ -100,7 +100,7 @@ def _forecast(columns: list[str], rows: Sequence[Sequence[Any]], horizon_days: i
     projected = max(0.0, fit.slope * x_target + fit.intercept)
 
     # Extrapolating further ahead than the span actually observed is exactly
-    # where a linear fit stops being trustworthy — flag it rather than
+    # where a linear fit stops being trustworthy, flag it rather than
     # present a confident-looking number. Same idea with too few points: a
     # line through 2-4 points captures noise as easily as trend.
     low_confidence_reasons = []
@@ -147,10 +147,10 @@ def run_forecast(query: str, horizon_days: int) -> dict:
 
     If fewer than 2 real snapshots exist yet for this game, the result will
     say so plainly (insufficient_history=true) instead of a fabricated
-    number — report that honestly rather than making up a projection.
+    number, report that honestly rather than making up a projection.
     When a projection IS returned, it also reports how much history it's
     based on (n_snapshots, observed_span_days) and whether it should be
-    treated as low-confidence — always mention that in your answer rather
+    treated as low-confidence, always mention that in your answer rather
     than stating the projected number with unwarranted certainty.
     """
     return execute_run_forecast(query, horizon_days)

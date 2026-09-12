@@ -6,7 +6,7 @@ Four categories:
   - lookup:               A direct factual question, answerable with a query.
   - analysis:              A comparative/aggregate question needing multiple
                            facts combined. Routed to the same SQL pipeline as
-                           lookup for now — Slice 4 adds real statistical
+                           lookup for now, Slice 4 adds real statistical
                            tools (cohorts, significance, anomalies) that this
                            category will route to instead. The classification
                            already exists and is tested; giving it its own
@@ -15,7 +15,7 @@ Four categories:
                            to the same retrieve_schema -> agent -> execute_tools
                            pipeline as lookup/analysis, with run_forecast
                            (src/tools/forecast_tool.py) bound instead of/
-                           alongside run_sql — a real linear-trend projection
+                           alongside run_sql, a real linear-trend projection
                            over player_counts history, or an honest "not
                            enough history yet" when too little exists for
                            the game in question (see that module's docstring).
@@ -26,7 +26,7 @@ Four categories:
 
 Uses the LLM's structured-output feature (a Pydantic schema) rather than a
 free-text prompt parsed by hand, specifically so the result is always one of
-exactly four valid values — free-text classification means guarding against
+exactly four valid values, free-text classification means guarding against
 the model inventing a fifth category or wrapping its answer in prose.
 """
 
@@ -51,14 +51,14 @@ compared to the rest of the catalog. Examples: "How does the average price of Ac
 games compare to free-to-play games?" and "Are there any games with an unusually large \
 number of negative reviews compared to the rest?"
 
-- forecast: A question about future or predicted values — trends going forward, \
+- forecast: A question about future or predicted values, trends going forward, \
 projections, "will X happen". Example: "How many players will this game have next month?" \
 This routes to a real linear-trend tool over live player-count history; it may still answer \
 honestly that there isn't enough history yet for a given game, but classify the question \
 based on what it's asking, not on whether data happens to exist for it.
 
 - needs_clarification: The question is too vague or ambiguous to answer meaningfully as \
-asked — it's missing a key detail (which game, what metric, what time period) or uses a \
+asked, it's missing a key detail (which game, what metric, what time period) or uses a \
 subjective term ("best", "good") without defining it. Example: "Is this game good?"
 
 If needs_clarification, write ONE short, specific question that would resolve the \

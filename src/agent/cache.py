@@ -5,12 +5,12 @@ re-running the full graph (router LLM call + retrieval + agent LLM call(s)
 
 Reuses the same embedding provider seam from Slice 2's RAG retrieval
 (src/agent/rag/embeddings.py) rather than introducing a second embedding
-mechanism — "semantic similarity between two short texts" is the same
+mechanism, "semantic similarity between two short texts" is the same
 problem whether it's a question against a schema chunk or a question
 against another question.
 
 Deliberately in-memory, not Redis/a real cache service: this is a single
-FastAPI process (see the deployment note in DOCEXP.md — the chosen host is
+FastAPI process (see the deployment note in DOCEXP.md, the chosen host is
 a normal long-running service, not horizontally-scaled serverless, so a
 process-local cache is coherent across requests within that process). A
 real multi-instance deployment would need a shared cache; noted as an open

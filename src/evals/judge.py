@@ -3,7 +3,7 @@ checks in checks.py.
 
 The deterministic checks catch specific, known failure shapes (wrong
 route, mislabeled group, fabricated data). The judge is for everything
-else those checks don't cover — is the answer actually clear, does it
+else those checks don't cover, is the answer actually clear, does it
 correctly caveat a data limitation, does it state the right conclusion in
 words even when the underlying numbers were checked separately. Given
 reference facts (computed the same way as the deterministic checks: live
@@ -28,7 +28,7 @@ JUDGE_SYSTEM_PROMPT = """You are grading an AI data analyst's answer to a questi
 video game market dataset. You are given the question, reference facts (ground truth, \
 computed directly from the database), and the AI's answer.
 
-Judge whether the AI's answer is FACTUALLY CONSISTENT with the reference facts — not whether \
+Judge whether the AI's answer is FACTUALLY CONSISTENT with the reference facts, not whether \
 you would have phrased it the same way. Minor wording differences, extra context, or a \
 different level of detail are fine. Wrong numbers, wrong conclusions, or claims not \
 supported by the reference facts are not.

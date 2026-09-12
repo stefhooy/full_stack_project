@@ -1,13 +1,13 @@
 """DB table schema.
 
 Two tables: `games` (the SteamSpy catalog, Slice 1) and `player_counts`
-(a real time series, Slice 7) — that's why this file is named schema.py
+(a real time series, Slice 7), that's why this file is named schema.py
 and not games_table.py, it was always meant to grow.
 
 The two tables have fundamentally different freshness semantics, which is
 why they're ingested differently (see src/ingestion/):
   - `games` reflects SteamSpy's *current* state. Re-fetching always
-    overwrites what we know — there's no historical value in an old
+    overwrites what we know, there's no historical value in an old
     snapshot, so it's rebuilt fresh (UPSERT) each ingestion run.
   - `player_counts` is genuinely historical: Steam's live API has no
     history endpoint, so each poll captures a moment that can never be
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS {GAMES_TABLE} (
     discount_pct      DOUBLE,
     peak_ccu          INTEGER,  -- peak concurrent players yesterday
     -- Slice 11: Steam's own storefront API (store.steampowered.com/api/appdetails),
-    -- not SteamSpy — see src/ingestion/steam_store_client.py. Fills gaps SteamSpy
+    -- not SteamSpy, see src/ingestion/steam_store_client.py. Fills gaps SteamSpy
     -- never had: release date, critic score, platform/feature breadth.
     release_date      DATE,     -- parsed from Steam's "DD Mon, YYYY"-ish string; null if
                                  -- unparseable or the game was "coming soon" at ingest time
@@ -67,7 +67,7 @@ ALLOWLISTED_TABLES = {GAMES_TABLE, PLAYER_COUNTS_TABLE}
 
 # The human-readable description of this table's columns/metrics that used
 # to live here as one hardcoded string moved to
-# src/agent/rag/schema_corpus.py as of Slice 2 — it's now a list of small,
+# src/agent/rag/schema_corpus.py as of Slice 2, it's now a list of small,
 # independently-embeddable chunks (RAG over the schema) instead of one blob
 # always injected whole into the prompt. See that file and
 # src/agent/rag/schema_index.py for how it's assembled per-question now.

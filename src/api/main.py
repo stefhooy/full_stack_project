@@ -2,9 +2,9 @@
 the agent's run_agent()/stream_agent() calls, plus three serving concerns
 that belong at this layer, not in the agent (a semantic cache, per-IP
 rate limiting, graceful error responses). The agent itself still doesn't
-import anything from FastAPI — see src/agent/graph.py — which is what
+import anything from FastAPI, see src/agent/graph.py, which is what
 keeps the deployment target (resolved in Slice 6: Vercel for the frontend,
-a separate Python host for this API — see DOCEXP.md) from ever leaking
+a separate Python host for this API, see DOCEXP.md) from ever leaking
 into agent code.
 """
 
@@ -135,7 +135,7 @@ def health() -> dict:
 
 @app.get("/genres")
 def genres() -> dict:
-    """Live genre-prevalence stats for the frontend's genre showcase —
+    """Live genre-prevalence stats for the frontend's genre showcase -
     computed from the DB on every request (src/db/genre_stats.py), not a
     count baked into frontend source, so it stays correct as the catalog
     grows/changes across ingestion re-runs."""
@@ -149,7 +149,7 @@ def genres() -> dict:
 
 @app.get("/games")
 def games(genre: str, limit: int = 12) -> dict:
-    """The actual games behind a genre showcase card — deterministic, no
+    """The actual games behind a genre showcase card, deterministic, no
     LLM involved (this is browsing the catalog, not asking a question of
     it). `limit` is capped the same way sql_max_rows caps everything else
     that returns rows."""
@@ -171,7 +171,7 @@ def catalog(
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict:
-    """The full-catalog browse page (frontend's /catalog route) — search,
+    """The full-catalog browse page (frontend's /catalog route), search,
     genre filter, sort, and pagination, no LLM involved (src/db/catalog.py).
     `page_size` is capped the same way every other row-returning endpoint
     caps its limit."""
@@ -287,7 +287,7 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
     completes, then one `final` event with the same payload /ask returns.
     Lets the frontend show what the agent is doing (routing, retrieving
     schema, running a query...) instead of a bare spinner for however long
-    the full graph takes — which, with retries, can be several seconds."""
+    the full graph takes, which, with retries, can be several seconds."""
     if not Path(settings.duckdb_abs_path).exists():
         raise HTTPException(
             status_code=503,
