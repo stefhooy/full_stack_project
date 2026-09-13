@@ -54,7 +54,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, TypedDict, cast
 
 try:
@@ -69,6 +69,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from src.agent.follow_ups import generate_follow_up_suggestions
 from src.agent.llm_provider import get_llm
 from src.agent.pricing import estimate_cost_usd
 from src.agent.prompts import ANALYSIS_TOOL_GUIDANCE, FORECAST_TOOL_GUIDANCE, build_system_prompt
@@ -139,6 +140,14 @@ class AgentState(TypedDict):
     retrieved_chunk_ids: list[str] | None
     route: str | None
     clarifying_question: str | None
+    awaiting_reply: bool
+    """True only when clarifying_question is a genuine, answerable
+    ambiguity from the router's own classification (Slice 63's one-hop
+    follow-up feature) -- never for the two hard-stop branches below
+    (a real Groq rate limit, or a repeated router failure), which use
+    the same needs_clarification route but aren't something a reply can
+    usefully complete. Defaults False; only router_node's genuine-
+    ambiguity branch sets it True."""
     chart_spec: dict | None
 
 
@@ -168,6 +177,7 @@ def router_node(state: AgentState) -> dict:
             return {
                 "route": "needs_clarification",
                 "clarifying_question": GROQ_RATE_LIMIT_MESSAGE,
+                "awaiting_reply": False,
             }
         except Exception:  # noqa: BLE001 -- same reasoning as agent_node's catch below
             return {
@@ -177,10 +187,12 @@ def router_node(state: AgentState) -> dict:
                     "question. Could you try rephrasing it or asking again "
                     "in a moment?"
                 ),
+                "awaiting_reply": False,
             }
     return {
         "route": decision.category,
         "clarifying_question": decision.clarifying_question or None,
+        "awaiting_reply": decision.category == "needs_clarification",
     }
 
 
@@ -439,6 +451,20 @@ class AgentResult:
     the numbers in README.md's "Measured results", now live on every real
     request instead of only visible when someone runs the eval suite by
     hand. See DOCEXP.md's Slice 26 entry."""
+    awaiting_reply: bool = False
+    """See AgentState's own field for the exact meaning -- surfaced here
+    so the API layer can decide whether a needs_clarification answer
+    should invite a one-hop reply (Slice 63) or not (a hard-stop message
+    like a real rate limit isn't something a reply usefully completes).
+    Defaulted (and placed after every field above that isn't defaulted,
+    a dataclass field-ordering requirement) so existing test fixtures
+    building an AgentResult by hand don't all need updating for a field
+    that's irrelevant to what they're testing."""
+    follow_up_suggestions: list[str] = field(default_factory=list)
+    """Deterministic, zero-LLM-cost suggested next questions (Slice 63),
+    see src/agent/follow_ups.py. Always [] for a needs_clarification
+    answer -- suggesting a *next* question doesn't make sense before the
+    current one is even resolved."""
 
 
 def _initial_state(question: str) -> AgentState:
@@ -457,6 +483,7 @@ def _initial_state(question: str) -> AgentState:
         "retrieved_chunk_ids": None,
         "route": None,
         "clarifying_question": None,
+        "awaiting_reply": False,
         "chart_spec": None,
     }
 
@@ -579,7 +606,7 @@ def _result_from_state(final_state: dict, usage_by_model: dict) -> AgentResult:
             stats_result, answer, final_state.get("last_successful_rows")
         )
     total_tokens = sum(u.get("total_tokens", 0) for u in usage_by_model.values())
-    return AgentResult(
+    result = AgentResult(
         answer=answer,
         sql=final_state.get("last_successful_sql"),
         columns=final_state.get("last_successful_columns"),
@@ -590,12 +617,16 @@ def _result_from_state(final_state: dict, usage_by_model: dict) -> AgentResult:
         forecast_result=final_state.get("last_forecast_result"),
         retrieved_chunk_ids=final_state.get("retrieved_chunk_ids"),
         route=final_state.get("route"),
+        awaiting_reply=final_state.get("awaiting_reply", False),
+        follow_up_suggestions=[],
         chart_spec=final_state.get("chart_spec"),
         attempts=final_state.get("attempts", 0),
         tool_errors=final_state.get("tool_errors", 0),
         total_tokens=total_tokens,
         estimated_cost_usd=estimate_cost_usd(usage_by_model),
     )
+    result.follow_up_suggestions = generate_follow_up_suggestions(result)
+    return result
 
 
 async def stream_agent(question: str):

@@ -64,6 +64,9 @@ def test_classify_question_failure_degrades_honestly_when_the_retry_also_fails(m
     assert update["route"] == "needs_clarification"
     assert update["clarifying_question"]
     assert "error" in update["clarifying_question"].lower()
+    # Not a genuine, answerable ambiguity -- Slice 63's one-hop reply flow
+    # must not invite a "continue" reply to a repeated internal failure.
+    assert update["awaiting_reply"] is False
 
 
 def test_a_real_rate_limit_degrades_to_the_honest_quota_message(monkeypatch):
@@ -79,6 +82,9 @@ def test_a_real_rate_limit_degrades_to_the_honest_quota_message(monkeypatch):
     update = router_node(_state())
     assert update["route"] == "needs_clarification"
     assert update["clarifying_question"] == GROQ_RATE_LIMIT_MESSAGE
+    # Same reasoning as the repeated-failure case above: a hard stop, not
+    # something a one-hop reply can usefully complete.
+    assert update["awaiting_reply"] is False
 
 
 def test_a_clean_classify_question_call_never_retries(monkeypatch):
@@ -93,6 +99,7 @@ def test_a_clean_classify_question_call_never_retries(monkeypatch):
     assert update["route"] == "lookup"
     assert update["clarifying_question"] is None
     assert calls["n"] == 1
+    assert update["awaiting_reply"] is False
 
 
 def test_a_real_needs_clarification_decision_still_passes_through_normally(monkeypatch):
@@ -103,3 +110,6 @@ def test_a_real_needs_clarification_decision_still_passes_through_normally(monke
     update = router_node(_state())
     assert update["route"] == "needs_clarification"
     assert update["clarifying_question"] == "Which game?"
+    # A genuine, answerable ambiguity from the router's own classifier --
+    # this is the one case Slice 63's one-hop reply flow is actually for.
+    assert update["awaiting_reply"] is True

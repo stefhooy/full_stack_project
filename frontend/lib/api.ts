@@ -51,7 +51,26 @@ export interface AskResult {
   chart_spec: ChartSpec | null;
   retrieved_schema_chunks: string[] | null;
   route: string | null;
+  // True only for a genuine, answerable clarifying question (Slice 63's
+  // one-hop follow-up) -- never for a hard-stop message like a real rate
+  // limit, which uses the same needs_clarification route but isn't
+  // something a reply usefully completes. See AgentState.awaiting_reply's
+  // own comment in src/agent/graph.py.
+  awaiting_reply: boolean;
+  // Up to 3 deterministic, zero-cost suggested next questions; null/empty
+  // for a needs_clarification answer. See src/agent/follow_ups.py.
+  follow_up_suggestions: string[] | null;
   cached: boolean;
+}
+
+// Set together only when this question is completing a clarifying
+// question Ludo just asked -- combined into one resolved question at the
+// API layer before the agent ever sees it (src/api/main.py's
+// _resolve_question). The frontend never carries a running conversation
+// beyond this one hop.
+export interface PriorClarification {
+  priorQuestion: string;
+  priorClarifyingQuestion: string;
 }
 
 export type StreamEvent =
@@ -125,12 +144,18 @@ export async function fetchWithRetry(input: string, init?: RequestInit): Promise
 export async function streamAsk(
   question: string,
   onEvent: (event: StreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  priorClarification?: PriorClarification
 ): Promise<void> {
+  const body: Record<string, string> = { question };
+  if (priorClarification) {
+    body.prior_question = priorClarification.priorQuestion;
+    body.prior_clarifying_question = priorClarification.priorClarifyingQuestion;
+  }
   const response = await fetch(`${API_BASE_URL}/ask/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(body),
     signal,
   });
 

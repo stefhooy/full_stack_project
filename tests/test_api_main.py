@@ -140,6 +140,70 @@ def test_ask_returns_the_real_agent_result_shape(client, monkeypatch, games_db):
     assert body["retrieved_schema_chunks"] == ["table:games"]
 
 
+def test_ask_surfaces_awaiting_reply_and_follow_up_suggestions(client, monkeypatch, games_db):
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    monkeypatch.setattr(
+        main,
+        "run_agent",
+        lambda question: _fake_result(follow_up_suggestions=["How about a different game?"]),
+    )
+    resp = client.post("/ask", json={"question": "Which game has the highest peak CCU?"})
+    body = resp.json()
+    assert body["awaiting_reply"] is False
+    assert body["follow_up_suggestions"] == ["How about a different game?"]
+
+
+def test_ask_combines_a_clarification_reply_with_its_original_question(
+    client, monkeypatch, games_db
+):
+    # Slice 63's one-hop follow-up: the frontend resends the original
+    # question and Ludo's own clarifying question alongside the reply;
+    # the agent should only ever see one combined, resolved string.
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    seen_questions = []
+
+    def _capture(question):
+        seen_questions.append(question)
+        return _fake_result()
+
+    monkeypatch.setattr(main, "run_agent", _capture)
+    resp = client.post(
+        "/ask",
+        json={
+            "question": "Counter-Strike",
+            "prior_question": "How many players will it have next month?",
+            "prior_clarifying_question": "Which game do you mean?",
+        },
+    )
+    assert resp.status_code == 200
+    assert len(seen_questions) == 1
+    resolved = seen_questions[0]
+    assert "How many players will it have next month?" in resolved
+    assert "Which game do you mean?" in resolved
+    assert "Counter-Strike" in resolved
+
+
+def test_ask_treats_a_partial_clarification_payload_as_a_fresh_question(
+    client, monkeypatch, games_db
+):
+    # Only one of the two prior_* fields set (a malformed/partial client
+    # request) -- treated as a brand-new question rather than guessed at.
+    monkeypatch.setattr(settings, "duckdb_path", games_db)
+    seen_questions = []
+
+    def _capture(question):
+        seen_questions.append(question)
+        return _fake_result()
+
+    monkeypatch.setattr(main, "run_agent", _capture)
+    resp = client.post(
+        "/ask",
+        json={"question": "Counter-Strike", "prior_question": "How many players?"},
+    )
+    assert resp.status_code == 200
+    assert seen_questions == ["Counter-Strike"]
+
+
 def test_ask_rejects_an_empty_question_before_touching_the_agent(client, monkeypatch, games_db):
     monkeypatch.setattr(settings, "duckdb_path", games_db)
     called = False

@@ -3149,6 +3149,55 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       entirely) and `/catalog`, confirming Unbounded renders on every
       intended headline and nowhere else
 
+## Slice 64 -- Making Ludo conversational, without pretending it has memory it doesn't
+- [x] Brainstormed the scope directly rather than assuming "conversational"
+      meant full multi-turn chat memory: asked which of two shapes was
+      wanted (one-hop follow-up completion vs. real growing chat
+      history), user picked one-hop -- suggested follow-up chips are
+      fresh, self-contained questions; the only real context-carrying is
+      completing Ludo's own clarifying question
+- [x] User pushed back on whether this makes Ludo "more like a chatbot" --
+      a real, worthwhile design question, not just approval-seeking.
+      Answered it directly: the core loop (real SQL, real stats, show
+      the work) is unchanged; what's added is closer to completing a
+      required form field than opening a conversation. Reframed the UI
+      accordingly (a plain single-field form, not chat bubbles) so it
+      never implies more memory than actually exists
+- [x] Clarification reply implemented with zero graph changes: a new
+      `_resolve_question()` helper in `src/api/main.py` combines the
+      original question, Ludo's clarifying question, and the reply into
+      one plain string before the agent ever sees it. `AgentState`/
+      `AgentResult` gained one new field, `awaiting_reply`, set `True`
+      only at the router's genuine-ambiguity decision site -- explicitly
+      `False` for the two hard-stop paths (a real Groq rate limit, a
+      repeated router failure) that reuse the same needs_clarification
+      route but aren't something a reply can usefully complete
+- [x] Follow-up suggestions generated deterministically, zero extra Groq
+      calls: a new `src/agent/follow_ups.py` module derives up to 3
+      suggestions from data the answer already computed (route, columns,
+      rows, stats/forecast result) -- a real cost/quality trade-off
+      (heuristic-but-free vs. LLM-tailored-but-costs-a-call-every-time)
+      made explicitly, not silently
+- [x] Verified the actual safety net for the scope's known edge case
+      (a real multi-turn-style follow-up outside the one-hop case) live,
+      not assumed: confirmed the router's existing "too vague to answer"
+      fallback is what a question like that degrades to
+- [x] Verified for real end to end against the local backend + a locally
+      built frontend, not just unit tests: a genuinely ambiguous question
+      ("How many players will it have next month?") produced
+      `awaiting_reply: true`; completing it with "Counter-Strike: Global
+      Offensive" produced a real forecast answer plus a follow-up chip;
+      a plain lookup question produced two real, game-name-specific
+      follow-up chips. Screenshotted the actual rendered UI at each step
+      (the clarification form, the resolved answer, the chips), not just
+      the API responses
+- [x] `ruff`/`mypy` clean on every touched `src/` file, 226/226 tests pass
+      (11 new: `tests/test_follow_ups.py`'s 8, 3 new `/ask` tests in
+      `tests/test_api_main.py`), `tsc`/`eslint`/`next build` all clean
+- [x] `ARCHITECTURE.md`'s "Known limitations" section grew a third entry
+      naming this boundary directly: Ludo completes its own clarifying
+      question but doesn't carry a running conversation past that
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~, decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

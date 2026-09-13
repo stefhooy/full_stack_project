@@ -411,9 +411,29 @@ once here rather than re-derived from scattered comments:
 
 ## Known limitations, and what actually addresses them
 
-Two real, current constraints, both honestly disclosed rather than
-hidden, and both handled the same way: bound the impact, don't pretend
+Three real, current constraints, all honestly disclosed rather than
+hidden, and all handled the same way: bound the impact, don't pretend
 the constraint away.
+
+**Ludo doesn't carry a running conversation.** Slice 63 added a
+one-hop follow-up: if the router asks a genuine clarifying question
+("Which game do you mean?"), the reply is combined with the original
+question into one resolved string at the API boundary (`_resolve_question()`
+in `src/api/main.py`) before the agent ever sees it -- the graph itself
+stays single-question-in, single-answer-out, no new session state.
+Suggested follow-up chips work the same way: 2-3 deterministic,
+zero-Groq-cost suggestions generated from the answer's own data
+(`src/agent/follow_ups.py`), each one a fresh standalone question, not
+a continuation. Deliberately scoped this narrowly rather than building
+full multi-turn chat memory: a real follow-up like "what about just the
+free ones?" asked after an *answer* (not a clarifying question) isn't
+remembered, and Ludo will only ever resolve it if the router's own
+"too vague to answer" fallback catches the missing subject and asks
+another clarifying question -- confirmed live, not assumed. The UI is
+built to match this honestly: the clarification reply renders as a
+plain single-field form ("Ludo needs one more detail"), not a chat
+thread, specifically so it never implies more memory than the app
+actually has.
 
 **Render's free tier spins the backend down after ~15 minutes of
 inactivity, and a real cold start is genuinely slow**, measured

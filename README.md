@@ -21,7 +21,7 @@ faith.
 ![Ludo answering a real question live, with the exact SQL it wrote and the schema it retrieved shown below the answer](docs/live-demo.png)
 
 Built as a series of thin, working vertical slices; this snapshot is
-through **Slice 63** (see [PLAN.md](PLAN.md) for the full roadmap,
+through **Slice 64** (see [PLAN.md](PLAN.md) for the full roadmap,
 [ARCHITECTURE.md](ARCHITECTURE.md) for a diagram-first tour of the current
 system, and [DOCEXP.md](DOCEXP.md) for the full engineering log).
 
@@ -112,6 +112,18 @@ out the backend but don't have their own badge icons.
   Every `/ask` response reports its own `total_tokens` and
   `estimated_cost_usd` (Groq's actual live on-demand pricing), logged per
   request and aggregated at `/health` as `usage`.
+- **A clarifying question that resolves, instead of a dead end.** When
+  the router genuinely can't tell what a question means, the reply
+  completes it in one hop - combined with the original question into
+  one plain string at the API boundary, no new graph state, no session
+  store. Suggested follow-up chips (up to 3 per answer) are generated
+  deterministically from the answer's own data, zero extra Groq calls,
+  not a second model call spent on a nice-to-have. Deliberately scoped
+  narrower than full chat memory, and the UI is built to never imply
+  otherwise: a plain single-field form for the reply, never a chat
+  thread. Full case study, including how the scope's one known edge
+  case was verified live rather than assumed, in
+  [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations-and-what-actually-addresses-them).
 - **Honest about limits, by design, and about what actually has one.**
   The forecast tool reports "insufficient history" instead of
   fabricating a number when a game's live player-count history is too
@@ -121,7 +133,9 @@ out the backend but don't have their own badge icons.
   Render's free-tier cold start is a real, measured **40.4 seconds** -
   disclosed as a number, not hidden, with a retry-with-backoff fix so a
   cold start recovers on its own instead of needing a manual refresh; once
-  warm, real data loads in **under 1.5 seconds**. Full details in
+  warm, real data loads in **under 1.5 seconds**. Ludo also doesn't carry
+  a running conversation past completing its own clarifying question -
+  disclosed, not discovered by a confused user. Full details in
   [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations-and-what-actually-addresses-them).
 - **The same guarded tools, exposed two real ways.** A web app for humans,
   and an MCP server (`src/mcp_server/`) exposing the identical

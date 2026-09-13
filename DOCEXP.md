@@ -8919,3 +8919,130 @@ Plex Mono untouched.
   across dozens of grid cards read as heavier/noisier than a single
   hero headline, but this was a judgment call, not a rule handed down
   by the user.
+
+## Slice 64, Making Ludo conversational, without letting the UI promise memory it doesn't have
+
+"Make Ludo a bit more conversational -- follow-ups if the user wants,
+and a follow-up whenever it needs clarification" -- a real product
+request with a genuine fork in it: "conversational" could mean a
+one-hop nicety, or it could mean full multi-turn chat memory, an order
+of magnitude bigger build with real, ongoing cost implications (growing
+prompt size every turn). Asked directly rather than guessing, with both
+shapes spelled out concretely; the user picked the narrower one-hop
+scope. That single answer decided almost everything that followed --
+worth naming, because the temptation with "make it more conversational"
+is always to reach for the bigger, more impressive-sounding build.
+
+### "Wouldn't that make it more like a chatbot?"
+
+A real pushback, not a stall, and worth answering on its own terms
+rather than just proceeding. The honest answer: what this design adds
+isn't chat memory, it's closer to completing a required form field --
+when the router can't tell what "it" refers to, the reply fills in the
+one missing piece, the same way a form flags a required input rather
+than opening a dialogue. The actual risk isn't the feature, it's the
+UI: rendering the clarification as chat bubbles would signal more
+continuity than the one-hop design actually carries, and someone would
+reasonably try a real follow-up ("what about last month") expecting
+Ludo to remember an *answer*, which it doesn't and was never asked to.
+Fixed by design, not by hoping nobody notices: the reply renders as a
+plain single-field form ("Ludo needs one more detail"), never a chat
+thread, and follow-up chips are labeled "Try asking" -- standalone
+questions, not a continuation.
+
+Also asked directly, before any code: would this affect Render's real
+512MB ceiling (Slice 49/50's actual incident)? Worth answering with the
+specific mechanism, not just "should be fine": that incident was a
+heavy, one-time embedding-model batch load, and this feature adds none
+of that -- no new model calls, no new DB query shape, no server-side
+session state at all (the one-hop context is resent by the client each
+time, never accumulated in the running process). The kind of addition
+that's cheapest to reason about from a memory standpoint: pure string
+composition and a deterministic function over data already computed.
+
+### The design, and what a senior AI engineer's version of it looks like
+
+The proposed shape, refined through that conversation:
+
+1. **Clarification becomes completable with zero graph changes.** A new
+   `_resolve_question()` helper in `src/api/main.py` (the file's own
+   docstring already says it exists purely to translate HTTP <-> the
+   agent, which is exactly the right place for this) combines the
+   original question, Ludo's clarifying question, and the reply into one
+   plain-language string *before* the agent ever sees it. `AgentState`
+   and `AgentResult` gained exactly one new field, `awaiting_reply`,
+   deliberately narrow: `True` only at the router's genuine-ambiguity
+   decision site, explicitly `False` at the two hard-stop branches (a
+   real Groq rate limit, a repeated router failure) that reuse the same
+   `needs_clarification` route but aren't something a reply can usefully
+   complete -- a rate-limit message inviting a "continue" reply would be
+   actively misleading, not just unhelpful.
+2. **Follow-up suggestions cost nothing.** A second Groq call per
+   question was the obvious way to get tailored suggestions, and
+   deliberately not what got built: `src/agent/follow_ups.py` derives up
+   to 3 suggestions from data the answer already computed (route,
+   columns, rows, stats/forecast result) -- e.g. a lookup naming a real
+   game suggests asking about its history; a `compare_two_groups`
+   analysis names the two real groups compared and offers a different
+   pair. Zero extra cost, zero new failure mode, computed once inside
+   `_result_from_state()` so it's part of what the semantic cache stores
+   and replays on a hit, same as the answer text itself.
+3. **The UI is a correctness surface, not just a skin.** No chat bubbles
+   anywhere. The clarification reply is a labeled single-field form; the
+   chips read "Try asking," not "Continue with."
+
+The senior-engineer framing, stated directly rather than left implicit:
+the cheap way to make something "feel" more conversational is to keep
+adding memory until it's a chatbot. The actual discipline is the
+opposite -- add the smallest stateful surface that solves the real
+problem (the clarification dead-end), solve it at the API boundary
+instead of deepening the graph's own statefulness, spend zero extra
+model calls on a nice-to-have a deterministic function already covers,
+and treat the interface itself as something that can be wrong: if it
+implies more memory than the system has, that's a bug in the design,
+not a documentation footnote.
+
+### Verified for real, including the one edge case the scope explicitly accepted
+
+Before calling this done, tested the actual gap the one-hop scope
+knowingly leaves open: what happens if someone tries a real multi-turn
+follow-up (implicitly depending on an earlier *answer*, not a
+clarifying question) that this design was never meant to carry? Not
+assumed safe -- checked live. The router's existing "too vague to
+answer meaningfully" classification is a real, pre-existing safety net
+that already covers this: an out-of-scope follow-up degrades to another
+honest clarifying question rather than a silently wrong guess.
+
+Then verified the actual feature end to end against a real local
+backend and a locally built frontend, not just unit tests: sent a
+genuinely ambiguous question ("How many players will it have next
+month?") and got back a real `awaiting_reply: true` with a genuine
+clarifying question; completed it with a game name and got back a real
+forecast answer (Counter-Strike: Global Offensive, ≈56,310 players) plus
+a follow-up chip; asked a plain lookup question and got back two real,
+game-name-specific follow-up chips. Drove all of it through an actual
+browser (Playwright), screenshotting each step, not just reading JSON --
+which is what caught a real, if mundane, setup bug along the way: the
+first attempt failed with "Couldn't reach the backend," not because
+anything in the new code was wrong, but because the local frontend was
+started on a port (3132) outside the backend's CORS allowlist
+(`http://localhost:3000` only). A reminder that "verify for real" means
+verifying the real request actually lands, not just that the code
+compiles.
+
+`ruff`/`mypy` clean on every touched `src/` file. 226/226 tests pass
+(11 new: 8 for `generate_follow_up_suggestions` covering every route/
+mode branch plus the empty-suggestions case, 3 for `/ask`'s new fields
+and the clarification-combining behavior, plus 2 existing router tests
+extended to assert `awaiting_reply`'s value at each of the three sites).
+`tsc`/`eslint`/`next build` all clean on the frontend.
+
+### Open questions (new)
+
+- Whether `follow_up_suggestions`' current heuristics are worth
+  extending to more `stats_result` shapes over time (right now
+  `describe` and `outliers` get one generic-but-relevant suggestion each,
+  `compare_two_groups` gets one built from the real group names) -- not
+  urgent, since an empty suggestion list is a fine, honest fallback, but
+  a chance to make the chips feel less templated as more real questions
+  get asked against it.

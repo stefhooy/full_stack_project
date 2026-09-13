@@ -3,8 +3,10 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import ClarificationReply from "@/components/ClarificationReply";
 import DinoGame from "@/components/DinoGame";
 import FilmStrip from "@/components/FilmStrip";
+import FollowUpChips from "@/components/FollowUpChips";
 import HeroPreview from "@/components/HeroPreview";
 import LiquidGlassAskButton from "@/components/LiquidGlassAskButton";
 import Markdown from "@/components/Markdown";
@@ -15,6 +17,7 @@ import {
   streamAsk,
   type AskResult,
   type ForecastResult,
+  type PriorClarification,
   type StatsResult,
   type StreamEvent,
 } from "@/lib/api";
@@ -227,6 +230,14 @@ export default function Home() {
   const [progress, setProgress] = useState<Extract<StreamEvent, { type: "progress" }>[]>([]);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Slice 63's one-hop follow-up: set only right after a genuine
+  // clarifying question (result.awaiting_reply), cleared the moment any
+  // new question starts (including the reply that completes it). This is
+  // the entire "memory" this app carries between two requests -- nothing
+  // else about the exchange persists past that one hop.
+  const [pendingClarification, setPendingClarification] = useState<PriorClarification | null>(
+    null
+  );
   // Opt-in only -- the dino runner never appears on its own. It sits next
   // to the real trace panel, not instead of it, so anyone who'd rather
   // watch what Ludo is actually doing still can.
@@ -254,17 +265,23 @@ export default function Home() {
     prewarmBackend();
   }, []);
 
-  async function ask(q: string) {
+  async function ask(q: string, priorClarification?: PriorClarification) {
     if (!q.trim() || loading) return;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setQuestion(q);
+    // A clarification reply goes through its own inline form, not the
+    // main ask bar -- leave that input's own contents alone so an
+    // unrelated reply never overwrites whatever the user was typing there.
+    if (!priorClarification) {
+      setQuestion(q);
+    }
     setLoading(true);
     setProgress([]);
     setResult(null);
     setError(null);
+    setPendingClarification(null);
     // Scroll after the DOM reflects loading=true, so the (now-visible)
     // trace panel is what scrolls into view, not empty space.
     requestAnimationFrame(() => {
@@ -279,11 +296,18 @@ export default function Home() {
             setProgress((prev) => [...prev, event]);
           } else if (event.type === "final") {
             setResult(event.result);
+            if (event.result.route === "needs_clarification" && event.result.awaiting_reply) {
+              setPendingClarification({
+                priorQuestion: q,
+                priorClarifyingQuestion: event.result.answer,
+              });
+            }
           } else {
             setError(event.message);
           }
         },
-        controller.signal
+        controller.signal,
+        priorClarification
       );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -479,6 +503,21 @@ export default function Home() {
                       )}
                     </div>
                   </details>
+                )}
+
+                {pendingClarification && (
+                  <ClarificationReply
+                    disabled={loading}
+                    onSubmit={(reply) => ask(reply, pendingClarification)}
+                  />
+                )}
+
+                {!!result.follow_up_suggestions?.length && (
+                  <FollowUpChips
+                    suggestions={result.follow_up_suggestions}
+                    onPick={ask}
+                    disabled={loading}
+                  />
                 )}
               </motion.div>
             )}

@@ -187,6 +187,25 @@ def catalog(
     return {"games": games, "total": total, "page": max(page, 1), "page_size": capped_page_size}
 
 
+def _resolve_question(request: AskRequest) -> str:
+    """Slice 63's one-hop follow-up: when the frontend is completing a
+    clarifying question Ludo just asked, combine the original question,
+    the clarifying question, and this reply into one plain-language
+    question -- the only thing the graph itself ever sees. Keeps the
+    agent's own state single-question-in/single-answer-out; the "memory"
+    of the exchange lives only in what the client resends, not in any
+    new graph or server-side state. A question with only one of the two
+    prior_* fields set (a malformed/partial client request) is treated
+    as a fresh question rather than guessed at."""
+    if request.prior_question and request.prior_clarifying_question:
+        return (
+            f"{request.prior_question} "
+            f'(Ludo asked: "{request.prior_clarifying_question}" -- '
+            f'the answer is: "{request.question}")'
+        )
+    return request.question
+
+
 def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
     return AskResponse(
         answer=result.answer,
@@ -198,6 +217,8 @@ def _to_response(result: AgentResult, *, cached: bool) -> AskResponse:
         chart_spec=result.chart_spec,
         retrieved_schema_chunks=result.retrieved_chunk_ids,
         route=result.route,
+        awaiting_reply=result.awaiting_reply,
+        follow_up_suggestions=result.follow_up_suggestions or None,
         cached=cached,
         attempts=result.attempts,
         tool_errors=result.tool_errors,
@@ -259,7 +280,7 @@ def ask(request: AskRequest) -> AskResponse:
             detail="Database not found. Run `python -m src.ingestion.ingest` first.",
         )
     try:
-        result, cached = _run_with_cache(request.question)
+        result, cached = _run_with_cache(_resolve_question(request))
     except DailyBudgetExceeded:
         raise HTTPException(status_code=503, detail=DAILY_BUDGET_MESSAGE) from None
     except RateLimitError as exc:
@@ -295,9 +316,10 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
         )
 
     async def event_stream():
+        resolved_question = _resolve_question(request)
         try:
             if settings.semantic_cache_enabled:
-                hit = _cache.get(request.question)
+                hit = _cache.get(resolved_question)
                 if hit is not None:
                     cached_result, _ = hit
                     payload = _to_response(cached_result, cached=True)
@@ -312,7 +334,7 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
                 return
 
             final_result: AgentResult | None = None
-            async for event in stream_agent(request.question):
+            async for event in stream_agent(resolved_question):
                 if event["type"] == "progress":
                     yield _sse(event)
                 else:
@@ -321,7 +343,7 @@ async def ask_stream(request: AskRequest) -> StreamingResponse:
             if final_result is not None:
                 _record_real_run(final_result)
                 if settings.semantic_cache_enabled:
-                    _cache.put(request.question, final_result)
+                    _cache.put(resolved_question, final_result)
                 payload = _to_response(final_result, cached=False)
                 yield _sse({"type": "final", "result": payload.model_dump()})
         except RateLimitError as exc:
