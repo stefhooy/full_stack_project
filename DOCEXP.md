@@ -9046,3 +9046,107 @@ extended to assert `awaiting_reply`'s value at each of the three sites).
   urgent, since an empty suggestion list is a fine, honest fallback, but
   a chance to make the chips feel less templated as more real questions
   get asked against it.
+
+## Slice 65, A real production 500 within hours of shipping Slice 64, and why it wasn't actually Slice 64's bug
+
+Reported live, with the exact repro already in hand: clicked a real
+follow-up chip ("How has WEBFISHING's player count changed over time?")
+and got back the generic "We're experiencing high demand right now"
+message. Worth noting what the user did before reporting it, because it
+mattered: checked GroqCloud's own dashboard and confirmed the real token
+budget hadn't been exhausted, which correctly ruled out the one most
+tempting wrong diagnosis (a Groq rate limit) before I ever looked at it.
+That single piece of evidence pointed straight at "some other real
+server error," not a quota message dressed up as something else.
+
+### Root-caused before proposing anything
+
+Reproduced it directly rather than reasoning about it in the abstract:
+started the local backend, sent the identical question, got the same
+503, then read the real traceback the server had already logged (`logger.exception`
+runs regardless of `settings.debug`; only the *response* to the client
+hides the detail in production). The actual error:
+
+```
+TypeError: Object of type datetime is not JSON serializable
+```
+
+thrown from `execute_tools_node`'s `json.dumps(result)` in
+`src/agent/graph.py`, while trying to package a real SQL query's result
+into a `ToolMessage` for the model. The query had selected
+`player_counts.polled_at`, a `TIMESTAMP` column -- DuckDB hands that
+back as a real Python `datetime.datetime` object, and nothing between
+the database and `json.dumps()` ever converted it.
+
+The real root cause, once traced back one more level: `execute_run_sql`
+(`src/tools/sql_tool.py`) has a docstring that has *always* said "return
+a JSON-serializable result" -- a promise the function never actually
+kept. It just wrapped DuckDB's raw row tuples into lists, with no
+conversion step at all. This was a live, dormant bug the whole time; it
+just happened to need a question that both (a) joins to
+`player_counts` and (b) displays the timestamp column directly, and
+Slice 63/64's own follow-up-suggestion heuristic ("How has X's player
+count changed over time?") is exactly the kind of question that does
+both, for the first time, against a real game.
+
+### Confirmed it predates Slice 64, and scoped the fix precisely
+
+Worth being honest about, in both directions: this was found within
+hours of shipping the conversational feature, which could look like a
+regression it caused. It wasn't -- the same crash would have happened
+for *any* question, asked any way, that selected `release_date`,
+`ingested_at`, or `polled_at` for display. Slice 64 didn't introduce the
+bug; a new, real, previously-never-asked question surfaced a bug that
+had been sitting there since `execute_run_sql` was first written.
+
+Before fixing anything, checked whether the fix could break something
+else: `forecast_tool.py` and `stats_tool.py` both call
+`run_guarded_query` *directly*, not through `execute_run_sql`, and both
+already convert their own datetime values explicitly (`.isoformat()`,
+matching what this fix now also uses) inside their own result-building
+code. So the fix is scoped to exactly the one function whose contract
+was broken, with zero risk to the two tools that already handled this
+correctly on their own.
+
+### Fixed at the source, once, not per call site
+
+The tempting quick fix would have been `json.dumps(result, default=str)`
+at the one crash site in `graph.py`. Deliberately not what got built:
+that patches the symptom at the one call site that happened to crash
+first, while leaving the same broken promise in place for every other
+consumer of `execute_run_sql`'s output -- the final `AskResponse.rows`
+shown in the answer table, and `/ask/stream`'s SSE payload, would carry
+the exact same live risk the moment a *different* question hit the same
+gap without going through a tool-call error path first.
+
+Instead, `execute_run_sql` itself now runs every row value through a
+small `_json_safe()` helper (`isinstance(value, datetime.date)` catches
+both `date` and `datetime`, since the latter subclasses the former) and
+converts to `.isoformat()`, the same convention `forecast_tool.py`
+already uses. One fix, at the one place the docstring's promise
+actually needed to be kept, and every downstream consumer inherits it
+for free.
+
+### Verified for real, both directions
+
+Regression-tested properly, not just written and trusted: 5 new tests
+in `tests/test_sql_tool.py` against a real DuckDB fixture (not mocked).
+Confirmed genuinely red first -- reverted the fix via `git stash`, ran
+the suite, watched 3 of the 5 fail with the exact real `TypeError`, not
+assumed to fail -- then restored the fix and confirmed all 5 pass.
+Then re-ran the *original* failing request end to end against a locally
+restarted backend: the identical question that crashed in production
+now returns a real 200, a working query, and clean ISO date strings in
+both the answer table and the chart data.
+
+`ruff`/`mypy` clean, 231/231 tests pass (5 new).
+
+### Open questions (new)
+
+- The model's own answer to this exact question, once the crash was
+  fixed, still wasn't great: two self-correction rounds and a slightly
+  confused final summary about not being able to compute "the overall
+  change" in one row. Not a crash, and out of scope for this fix, but a
+  real signal that "player count over time" questions might deserve
+  their own prompt guidance the way `analysis`'s outlier mode already
+  got -- worth a look, not urgent.

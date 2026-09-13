@@ -11,10 +11,32 @@ schema via .bind_tools([run_sql]); the graph never calls run_sql.invoke().
 
 from __future__ import annotations
 
+import datetime
+
 from langchain_core.tools import tool
 
 from src.config import settings
 from src.db.connection import get_read_only_connection, run_guarded_query
+
+
+def _json_safe(value: object) -> object:
+    """DuckDB hands back real Python date/datetime objects for DATE/
+    TIMESTAMP columns (games.release_date, games.ingested_at,
+    player_counts.polled_at) -- not JSON-serializable on their own, even
+    though this function's own docstring already promised a JSON-
+    serializable result. Found via a real, reproduced production bug: a
+    genuine "how has X's player count changed over time" question (one
+    of Slice 63/64's own follow-up suggestions, for a real game,
+    WEBFISHING) crashed with `TypeError: Object of type datetime is not
+    JSON serializable` inside execute_tools_node's json.dumps(), not a
+    hypothetical edge case. `datetime.datetime` is itself a subclass of
+    `datetime.date`, so one isinstance check covers both DATE and
+    TIMESTAMP columns. Converts to the same isoformat() string this
+    project already uses for datetimes elsewhere (forecast_tool.py's own
+    output), not a generic str()."""
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    return value
 
 
 def execute_run_sql(query: str) -> dict:
@@ -26,7 +48,7 @@ def execute_run_sql(query: str) -> dict:
         conn.close()
     return {
         "columns": columns,
-        "rows": [list(r) for r in rows],
+        "rows": [[_json_safe(v) for v in r] for r in rows],
         "row_count": len(rows),
     }
 

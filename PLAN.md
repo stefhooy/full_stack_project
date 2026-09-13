@@ -3198,6 +3198,52 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       naming this boundary directly: Ludo completes its own clarifying
       question but doesn't carry a running conversation past that
 
+## Slice 65 -- A real production 500, reported by the user within hours of Slice 64 shipping, root-caused and fixed
+- [x] User reported the exact symptom live: clicked a real follow-up chip
+      ("How has WEBFISHING's player count changed over time?") and got
+      back the generic "We're experiencing high demand right now"
+      message -- and had already checked GroqCloud's own dashboard to
+      rule out a real token-quota exhaustion before reporting it, which
+      correctly pointed away from a Groq rate limit and toward some
+      other real server error
+- [x] Reproduced for real before proposing anything: started the local
+      backend, sent the exact same question, got the same 503, read the
+      real traceback from the server log (not guessed at). Root cause:
+      `execute_run_sql` (`src/tools/sql_tool.py`) has a docstring
+      promising "a JSON-serializable result" that it never actually
+      enforced -- DuckDB returns real Python `date`/`datetime` objects
+      for `DATE`/`TIMESTAMP` columns (`games.release_date`,
+      `games.ingested_at`, `player_counts.polled_at`), and
+      `execute_tools_node`'s `json.dumps(result)` crashed the instant a
+      real question selected one of those for display, which "how has
+      X's player count changed over time" naturally does
+- [x] Confirmed this predates Slice 64 entirely -- not a bug introduced
+      by the conversational feature, just a latent gap that a new,
+      real follow-up question happened to be the first thing to reach.
+      Checked every other caller of the same query path
+      (`forecast_tool.py`/`stats_tool.py` call `run_guarded_query`
+      directly, not through `execute_run_sql`, and already convert their
+      own datetimes explicitly) before fixing, so the fix is scoped to
+      exactly the one function whose contract was broken
+- [x] Fixed at the source, not by patching each downstream
+      `json.dumps()` call site: `execute_run_sql` now runs every row
+      value through a small `_json_safe()` helper, converting any
+      `date`/`datetime` to the same `isoformat()` string this project
+      already uses elsewhere for datetimes, before it ever leaves the
+      function -- so every consumer (the tool-call JSON, the final
+      `AskResponse.rows`, the SSE stream, the frontend table) gets a
+      plain string automatically, with no further changes needed
+      anywhere else
+- [x] 5 new regression tests (`tests/test_sql_tool.py`) against a real
+      DuckDB fixture, not mocked -- confirmed genuinely red first (the
+      fix reverted via `git stash`, 3 of the 5 failing with the exact
+      real `TypeError`), then green again with the fix restored
+- [x] Verified for real end to end: restarted the local backend with the
+      fix, re-sent the identical question that crashed in production,
+      got back a real 200 with a working query and clean ISO date
+      strings in the response
+- [x] `ruff`/`mypy` clean, 231/231 tests pass (5 new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~, decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
