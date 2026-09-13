@@ -3093,6 +3093,62 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       confirms exactly the 3 intentional exclusions remain (15
       occurrences), nothing else
 
+## Slice 62 -- A fresher `docs/live-demo.png`, captured live
+- [x] Replaced the README's live-demo screenshot: the old one showed a
+      simple 2-row lookup answer; the new one is a live Playwright
+      capture (against the deployed Vercel + Render stack, not a mockup)
+      of a richer analysis question, the 5-game ranked answer, the raw
+      results table, and "Show the work" properly expanded showing the
+      real SQL and the retrieved schema chunk list
+- [x] Two real capture bugs found and fixed along the way: an early
+      attempt screenshotted mid-loading state instead of the completed
+      answer, and a later attempt clicked the wrong of two matching
+      "Show the work" toggles (the page also has a static, pre-baked
+      `HeroPreview` example above the live result). Fixed by uniquely
+      targeting the live result panel via its `.panel` class filtered to
+      the one containing "Show the work" text, then taking an
+      element-level screenshot of just that panel
+- [x] README's existing alt text still described the new image
+      accurately; left unchanged rather than edited for the sake of it
+
+## Slice 63 -- Typeface swap: Rajdhani out, Unbounded + Work Sans in, chosen via a live comparison tool
+- [x] Built an interactive, in-browser artifact (not a static mockup)
+      that reproduces the real landing page's actual content (nav,
+      hero, example questions, the real 5-game answer panel, the
+      feature row) with a live font switcher, so pairings could be
+      judged in the app's own layout and copy instead of imagined from
+      names alone
+- [x] Grew the comparison across four rounds of direct feedback rather
+      than guessing once: 11 pairings, then "add more" (explicitly
+      steering away from anything gaming/HUD-adjacent) grew it to 21,
+      then another "add more" grew it to 31 spanning quiet corporate
+      families, civic/signage faces, warm editorial serifs, and bold
+      poster faces, then a paid-font screenshot ("Valden") prompted a
+      fourth batch of free rounded-geometric approximations (Quicksand,
+      Comfortaa, Fredoka, Varela Round, Outfit) -- 36 pairings total.
+      Landed on Unbounded + Work Sans
+- [x] Wired the winner into the real app: `next/font/google` now loads
+      `Unbounded` (`--font-display`) and `Work_Sans` (`--font-body`)
+      alongside the unchanged `IBM_Plex_Mono` (`--font-data-mono`).
+      Unbounded is applied narrowly, via a `font-display` Tailwind
+      utility (auto-generated from the existing `--font-display` theme
+      token, the same mechanism `font-mono` already used), to true
+      headline/section-title elements only: the hero h1, `MeetLudo`'s
+      "What can you ask Ludo?" h2 and its three feature h3s, and the
+      catalog page's h1. Work Sans became the new base body face
+      (`body`'s `font-family` and the theme's `--font-sans`, so the
+      existing `font-sans` utility classes needed no changes)
+- [x] Deliberately left unchanged: the nav wordmark, badges, table
+      contents, and any small utilitarian label -- these already used
+      `font-mono` (IBM Plex Mono) or were left as plain body text, not
+      part of what the font-comparison exercise was evaluating
+- [x] Verified for real: `tsc`, `eslint`, and `next build` all clean;
+      then actually ran the built app locally and screenshotted both `/`
+      (after scrolling to trigger the `MeetLudo` section's
+      `whileInView` animation, which a naive full-page screenshot missed
+      entirely) and `/catalog`, confirming Unbounded renders on every
+      intended headline and nowhere else
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~, decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in

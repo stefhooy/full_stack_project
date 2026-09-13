@@ -8778,3 +8778,144 @@ occurrences remain, all three intentional exclusions, nothing else.
   overlap a golden question's expected chunk; a similar shift in an
   untested chunk would currently go unnoticed until a real question
   exposed it.
+
+## Slice 62, A fresher `docs/live-demo.png`, captured live rather than reused
+
+The README's hero screenshot was still the original one: a simple
+two-row lookup answer with no chart, no stats, nothing that showed off
+the parts of the system actually worth showing off. Asked directly for
+"a more recent update" of it.
+
+Captured it live with Playwright against the real deployed stack
+(Vercel frontend, Render backend), not a mockup or a re-crop of an old
+image: asked the deployed app the same "5 highest rated games with
+more than 1,000 positive reviews" question the hero's own example list
+already uses, waited for the real completed answer, expanded "Show the
+work," and screenshotted just that result panel.
+
+Two real capture bugs surfaced and got fixed before landing on the
+final image, not papered over:
+
+1. **Captured too early.** The first attempt screenshotted mid-loading
+   state -- the "Ludo is thinking…" panel with the optional dino-game
+   button, not the completed answer. Fixed by waiting for that text to
+   appear and then detach before taking the shot.
+2. **Wrong toggle.** The page has two elements matching "Show the
+   work": the real live result, and a separate static `HeroPreview`
+   panel elsewhere on the page (a real, pre-baked example, not a
+   mockup, but not what this screenshot was after). Clicking `.last()`
+   by naive count wasn't reliable turn to turn. Fixed by scoping to the
+   one `.panel` element that actually contains "Show the work" text --
+   the static preview has no such toggle at all, so the filter is
+   unambiguous -- then taking an element-level screenshot of just that
+   panel instead of a full-page shot needing a manual crop.
+
+The README's existing alt text ("Ludo answering a real question live,
+with the exact SQL it wrote and the schema it retrieved shown below the
+answer") still described the new image accurately; left as-is rather
+than rewritten for its own sake.
+
+## Slice 63, Rajdhani retired: choosing a replacement typeface by building a tool to compare them, not by eyeballing font names
+
+"Can we change the font, make it not AI-looking, still professional" --
+a real, subjective design request with no single correct answer sitting
+in the repo or the conversation to derive it from. Rather than propose
+one pairing from a name alone and hope, built an interactive artifact
+(a full HTML/CSS/JS page, not a static image) that reproduces the real
+landing page's actual content and layout -- nav, hero copy, the real
+example questions, a genuine 5-game answer panel, the feature row --
+with a live switcher so any candidate pairing could be judged sitting
+in the app's own words and spacing, the only way a font choice is ever
+actually judged.
+
+### Four rounds, not one guess
+
+The set grew through direct, iterative feedback rather than a single
+up-front proposal:
+
+1. **11 pairings** first: the baseline (Rajdhani) plus a spread across
+   editorial serif, technical grotesk, condensed poster, and mono-only
+   registers.
+2. **"Add more, I don't like them"** -- asked one clarifying question
+   rather than guessing blind a second time (what specifically was
+   off), got back "wider net" plus "still too gaming/HUD-y." That
+   feedback explicitly ruled out anything with sci-fi/techno lineage,
+   not just Rajdhani itself, for every subsequent round. Grew to 21:
+   quiet single-foundry families (IBM Plex Sans, Red Hat, Chivo,
+   Overpass, each pairing display+body+mono from one foundry so every
+   role already agrees with itself), understated grotesks, and a few
+   bolder-but-calm picks.
+3. **"Add more fonts" again**, no further specifics -- grew to 31: warm
+   editorial serifs, an academic/technical face (STIX Two Text), fresh
+   single-face grotesks, and two bold poster/signage faces (Bungee,
+   Anton), still avoiding the gaming register.
+4. **A paid-font screenshot** ("Valden," a rounded-geometric display
+   face with circular bowls and soft terminals) with "do you have
+   access to anything similar?" -- answered honestly (no, that exact
+   paid font isn't available) and added free Google Fonts
+   approximations of the same *look* instead of refusing outright:
+   Quicksand, Comfortaa, Fredoka, Varela Round, Outfit.
+
+36 pairings total, every one of them changing literally everything on
+the mock page (nav, badges, table, hints), not just the headline --
+the first version only swapped the display/body pair and left the data
+face pinned, which undersold what an option actually felt like as a
+whole identity.
+
+### The winner, and what "everywhere" actually meant
+
+Unbounded + Work Sans won. "Update the website with this font
+everywhere" needed one real interpretation decision: the test artifact
+paired Unbounded/Work Sans with a third face (JetBrains Mono) for the
+data role, but the real app already has an established, deliberately
+protected mono thread (IBM Plex Mono, "the one thread of typographic
+continuity kept through every visual rebuild this project has gone
+through," per `layout.tsx`'s own comment). The user named two fonts,
+not three, and nothing said to touch the data face -- so the mono role
+stayed IBM Plex Mono, and only the display/body roles changed. A
+worthwhile distinction to keep making explicit rather than silently
+deciding: "everywhere" meant every headline and every paragraph, not
+every pixel indiscriminately.
+
+Wiring it in surfaced one structural change the original Rajdhani setup
+never needed: Rajdhani was a deliberate *single* face for the whole
+non-mono UI ("one sans face, no second display font," Slice 15's
+discipline) -- there was no existing headline/body split to slot a
+two-role pairing into. Added a second `next/font/google` face
+(`Work_Sans`, `--font-body`) alongside the renamed display face
+(`Unbounded`, still `--font-display`), pointed the base `body` rule and
+the theme's `--font-sans` token at the new body face, and applied the
+already-existing (previously unused) `font-display` Tailwind utility --
+generated automatically from the `--font-display` theme token the same
+way `font-mono` already was -- to exactly four true headline elements:
+the hero h1, `MeetLudo`'s section h2 and its three feature h3s, and the
+catalog page's h1. Everything else (nav wordmark, badges, buttons,
+running body copy) inherits the new Work Sans body face by default,
+matching the scope the comparison artifact itself tested.
+
+### Verified for real, including a screenshot gap the animation system created
+
+`tsc --noEmit`, `eslint`, and `next build` all clean. Then actually ran
+the production build locally (`npm run start`) and screenshotted the
+real running app rather than trusting the build output alone -- which
+caught a real, if unrelated, screenshot-methodology gap: a first
+full-page shot of `/` appeared to have `MeetLudo`'s entire section
+missing, a large blank gap between the ask box and the genre grid.
+Not a font bug -- `MeetLudo` uses Framer Motion's `whileInView`, gated
+on a real scroll-triggered intersection observer that a single
+`fullPage` screenshot never fires. Fixed the *test*, not the app:
+scripted an incremental scroll through the whole page before
+screenshotting, which triggered every `whileInView` section for real
+and confirmed Unbounded renders on precisely the four intended
+headlines and nowhere else, with Work Sans everywhere non-mono and IBM
+Plex Mono untouched.
+
+### Open questions (new)
+
+- Whether `font-display`'s current narrow scope (four elements) should
+  extend to any other large text later (e.g. `GameCartridge`'s
+  per-card game-name `h2` in the catalog grid) -- deliberately left in
+  the body face for now since Unbounded's blocky geometry repeated
+  across dozens of grid cards read as heavier/noisier than a single
+  hero headline, but this was a judgment call, not a rule handed down
+  by the user.

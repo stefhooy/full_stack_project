@@ -90,7 +90,7 @@ export default function MeetLudo({
         className="max-w-5xl mx-auto px-6"
       >
         <motion.div variants={item} className="text-center max-w-2xl mx-auto mb-14">
-          <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight mb-3 text-balance">
+          <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mb-3 text-balance">
             What can you ask Ludo?
           </h2>
           <p className="text-[var(--muted)] text-base leading-relaxed">
@@ -109,7 +109,7 @@ export default function MeetLudo({
               <div className="text-[var(--accent)] mb-3">
                 <Icon />
               </div>
-              <h3 className="font-medium text-sm mb-1.5">{title}</h3>
+              <h3 className="font-display font-medium text-sm mb-1.5">{title}</h3>
               <p className="text-sm text-[var(--muted)] leading-relaxed">{text}</p>
             </div>
           ))}

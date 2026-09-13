@@ -1,24 +1,36 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Rajdhani } from "next/font/google";
+import { IBM_Plex_Mono, Unbounded, Work_Sans } from "next/font/google";
 import MotionProvider from "@/components/MotionProvider";
 import Nav from "@/components/Nav";
 import "./globals.css";
 
-// Two faces:
-//   - Rajdhani (Slice 17, replacing Geist directly on request for
-//     "professional but also gamer like"): a squarish, technical sans
-//     with real esports/gaming-HUD lineage, but clean enough weights
-//     (400/500/600) to stay legible as body copy, not just a headline
-//     flourish. Carries the whole UI range, same "one sans face, no
-//     second display font" discipline Slice 15 settled on.
+// Three faces (Slice 63, replacing Rajdhani's single-face discipline on
+// direct request after a live font-comparison pass -- "too gaming/HUD-y"
+// was the explicit feedback that ruled Rajdhani, and every other
+// techno/sci-fi-leaning option, out):
+//   - Unbounded: headline/section-title face only (hero h1, "What can
+//     you ask Ludo?", the three MeetLudo feature titles, the catalog
+//     page's h1). A blocky geometric display face with real weight and
+//     presence, no gaming lineage -- applied narrowly via the
+//     `font-display` utility, not the base body face.
+//   - Work Sans: the base UI/body face for everything else (paragraphs,
+//     labels, buttons, nav). Plain and quiet on purpose so the Unbounded
+//     headlines keep their contrast.
 //   - IBM Plex Mono: data/code readouts (SQL, stats, trace labels, the
-//     catalog table). Same face ARCHITECTURE.md's agent-trace artifact
-//     already uses, the one thread of typographic continuity kept
-//     through every visual rebuild this project has gone through.
-const rajdhani = Rajdhani({
+//     catalog table). Unchanged -- same face ARCHITECTURE.md's
+//     agent-trace artifact already uses, the one thread of typographic
+//     continuity kept through every visual rebuild this project has
+//     gone through.
+const unbounded = Unbounded({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["300", "500", "600"],
+});
+
+const workSans = Work_Sans({
+  variable: "--font-body",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 const plexMono = IBM_Plex_Mono({
@@ -35,7 +47,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${rajdhani.variable} ${plexMono.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${unbounded.variable} ${workSans.variable} ${plexMono.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col">
         {/* Defines the "liquid glass" distortion filter referenced by the
             .glass utility in globals.css (feTurbulence's

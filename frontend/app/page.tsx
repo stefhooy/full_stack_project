@@ -317,7 +317,7 @@ export default function Home() {
             initial="hidden"
             animate="show"
             variants={heroItem}
-            className="text-6xl sm:text-7xl font-light tracking-tight leading-[0.98] mb-4 text-balance"
+            className="font-display text-6xl sm:text-7xl font-light tracking-tight leading-[0.98] mb-4 text-balance"
           >
             Ask <span style={{ color: "var(--accent)" }}>Ludo</span> a question.
           </motion.h1>

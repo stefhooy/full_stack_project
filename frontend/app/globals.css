@@ -33,7 +33,7 @@
   --color-accent-contrast: var(--accent-contrast);
   --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
-  --font-sans: var(--font-display);
+  --font-sans: var(--font-body);
   --font-display: var(--font-display);
   --font-mono: var(--font-data-mono);
 }
@@ -62,7 +62,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-display), Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), Arial, Helvetica, sans-serif;
 }
 
 /* A flat, hairline-bordered surface for genuinely functional UI (the ask

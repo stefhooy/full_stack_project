@@ -26,10 +26,12 @@ See DOCEXP.md for the full history
 illustrated-then-photographic Roman statue, Slice 15's monochrome-plus-
 live-data-scatter restart, Slice 16's film-strip-plus-bronze-accent
 rebuild). Current identity: a dark, green-tinted background, a neon
-green `--accent`, Rajdhani (a technical, gaming-adjacent sans) as the
-one type face, and two small, specific Latin/Roman touches (the film
-strip's frame, the genre icons' medallion ring) rather than reviving the
-deleted full Roman identity.
+green `--accent`, Unbounded (headlines/section titles only) + Work Sans
+(everything else non-mono) as of Slice 63 -- replacing Rajdhani after a
+live font-comparison artifact and direct feedback that Rajdhani read as
+"too gaming/HUD-y" -- and two small, specific Latin/Roman touches (the
+film strip's frame, the genre icons' medallion ring) rather than
+reviving the deleted full Roman identity.
 
 - `app/page.tsx`, the whole UI: hero (headline + `HeroPreview`, a real
   verified answer shown in a floating panel), ask console, example
@@ -180,13 +182,17 @@ deleted full Roman identity.
   support an SVG filter reference inside `backdrop-filter`. Zero
   dependencies, chosen for everything that isn't the two flourishes
   above specifically.
-- Type: Rajdhani (Slice 17, replacing Geist directly on request for
-  "professional but also gamer like", a technical, esports/gaming-HUD-
-  adjacent sans with clean enough weights to still work as body copy)
-  at every scale from the hero headline down to a button label, plus IBM
-  Plex Mono for data/code (same face ARCHITECTURE.md's trace artifact
-  uses). One sans family carrying the whole range, no second display
-  face.
+- Type (Slice 63, replacing Rajdhani's one-sans-face discipline):
+  Unbounded, a blocky geometric display face, applied narrowly via a
+  `font-display` utility to headline/section-title elements only (the
+  hero h1, "What can you ask Ludo?", the three `MeetLudo` feature
+  titles, the catalog page's h1); Work Sans as the base UI/body face for
+  everything else (paragraphs, labels, buttons, nav); IBM Plex Mono for
+  data/code, unchanged (same face ARCHITECTURE.md's trace artifact
+  uses). The swap followed a live, in-browser font-comparison artifact
+  built to test 36+ pairings against the real page content -- direct
+  feedback ("too gaming/HUD-y," then "add more fonts," several rounds)
+  settled on this pairing, not a single up-front pick.
 
 ## A hard site-wide rule: no em dashes, no en dashes
 

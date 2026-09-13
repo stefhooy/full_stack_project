@@ -94,7 +94,7 @@ export default function CatalogClient() {
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="mb-6"
         >
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2 text-balance">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight mb-2 text-balance">
             The full catalog
           </h1>
           <p className="text-[var(--muted)] text-sm">
