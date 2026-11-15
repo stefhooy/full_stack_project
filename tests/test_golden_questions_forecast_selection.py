@@ -79,3 +79,40 @@ def test_reference_facts_report_the_real_snapshot_count(games_db):
     _insert_player_counts(games_db, appid=4, n_snapshots=5)
     questions = _forecast_real_projection_questions(games_db)
     assert "5 real historical live-player snapshots" in questions[0].reference_facts
+
+
+# Slice 66: the sibling query one level up -- is there any game in the
+# catalog the poller has NEVER tracked at all -- had the exact same
+# "assumed to always exist" bug the tests above already cover for the
+# tracked-game side, just discovered later, via a real CI failure rather
+# than in advance: 'forecast_insufficient_history_is_honest' hard-
+# asserted a row existed, and crashed the entire suite on a real day
+# where every game in CI's small catalog had already been seen by the
+# poller at least once.
+
+
+def _insufficient_history_questions(games_db):
+    return [
+        q for q in build_golden_questions() if q.id == "forecast_insufficient_history_is_honest"
+    ]
+
+
+def test_an_untracked_game_produces_the_insufficient_history_question(games_db):
+    # games_db's default fixture leaves player_counts empty -- every game
+    # is "untracked," so the highest-peak_ccu one (Free Arena, 9000)
+    # should be picked.
+    questions = _insufficient_history_questions(games_db)
+    assert len(questions) == 1
+    assert "Free Arena" in questions[0].question
+
+
+def test_every_game_tracked_produces_no_insufficient_history_question(games_db):
+    # The real CI failure's exact shape: insert at least one player_counts
+    # row for every single game, leaving nothing "untracked" to ask about.
+    for appid in (1, 2, 3, 4):
+        _insert_player_counts(games_db, appid=appid, n_snapshots=1)
+    assert _insufficient_history_questions(games_db) == []
+    # The rest of the golden set must still build cleanly -- the real bug
+    # was this one condition crashing the entire function, not just
+    # producing a wrong answer for this one question.
+    assert len(build_golden_questions()) > 0

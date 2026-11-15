@@ -420,13 +420,22 @@ def build_golden_questions() -> list[GoldenQuestion]:
         # tracked yet -- queried live, not hardcoded, so this stays correct
         # as the poller's own tracked set grows over time (see DOCEXP.md's
         # Slice 43 entry for why a fixed game name here would eventually
-        # go stale).
-        untracked_game = _query_one(
-            conn,
+        # go stale). Not a hard assert (Slice 66, a real CI failure, not
+        # hypothetical): CI's small ~100-game catalog is the top 100 by
+        # *owners*, a stable, popular list, and player_counts is built
+        # from months of real, strictly-accumulating poller snapshots --
+        # by now that overlap has reached 100% on several real days
+        # (every top-100-by-owners game has appeared in at least one
+        # snapshot), the same "live query eventually outgrows a baked-in
+        # assumption" failure mode Slice 43 already fixed once for a
+        # hardcoded game name, just one level deeper: the *existence* of
+        # an untracked game was itself never guaranteed to stay true.
+        untracked_game_row = conn.execute(
             "SELECT g.name FROM games g "
             "WHERE g.appid NOT IN (SELECT DISTINCT appid FROM player_counts) "
-            "ORDER BY g.peak_ccu DESC LIMIT 1",
-        )
+            "ORDER BY g.peak_ccu DESC LIMIT 1"
+        ).fetchone()
+        untracked_game = untracked_game_row[0] if untracked_game_row is not None else None
     finally:
         conn.close()
 
@@ -542,18 +551,6 @@ def build_golden_questions() -> list[GoldenQuestion]:
             reference_facts=discount_outlier_reference_facts,
         ),
         GoldenQuestion(
-            id="forecast_insufficient_history_is_honest",
-            question=f"How many players will {untracked_game} have next month?",
-            expected_route="forecast",
-            check=all_of(route_is("forecast"), forecast_reports_insufficient_history()),
-            reference_facts=(
-                f"{untracked_game!r} has zero real historical live-player snapshots (it "
-                "isn't in the set of games the live-player poller currently tracks). The "
-                "only honest answer is that there isn't enough history to forecast from -- "
-                "any specific projected number would be fabricated."
-            ),
-        ),
-        GoldenQuestion(
             id="needs_clarification_best_game",
             question="What's the best game?",
             expected_route="needs_clarification",
@@ -597,6 +594,27 @@ def build_golden_questions() -> list[GoldenQuestion]:
         questions.append(metacritic_question)
     if achievements_question is not None:
         questions.append(achievements_question)
+    # Slice 66: conditional for the same reason as the two above -- some
+    # real days, every game in CI's small catalog has already been seen
+    # by the poller at least once, and there's no honest "untracked game"
+    # question to ask. Skipping it that day is correct; asserting one
+    # must always exist crashes the entire suite over a condition that's
+    # about the real data, not a bug.
+    if untracked_game is not None:
+        questions.append(
+            GoldenQuestion(
+                id="forecast_insufficient_history_is_honest",
+                question=f"How many players will {untracked_game} have next month?",
+                expected_route="forecast",
+                check=all_of(route_is("forecast"), forecast_reports_insufficient_history()),
+                reference_facts=(
+                    f"{untracked_game!r} has zero real historical live-player snapshots (it "
+                    "isn't in the set of games the live-player poller currently tracks). The "
+                    "only honest answer is that there isn't enough history to forecast from "
+                    "-- any specific projected number would be fabricated."
+                ),
+            )
+        )
 
     # Two forecast-with-real-data questions, built from whichever tracked
     # games actually qualified above -- 0, 1, or 2 of them, never assumed

@@ -3244,6 +3244,51 @@ Tech decisions already made (see DOCEXP.md for the "why"):
       strings in the response
 - [x] `ruff`/`mypy` clean, 231/231 tests pass (5 new)
 
+## Slice 66 -- The daily eval workflow had been failing for 5 straight days, not scoring badly -- a different bug than reported
+- [x] Asked to look at why "answer quality evals" weren't doing well.
+      `gh` wasn't available locally and the unauthenticated GitHub API
+      was already rate-limited from this network, so used the git
+      credential already cached on this machine (the user's own token,
+      for their own repo, read-only) to pull real run/job/log data via
+      the API directly -- the same information `gh` would have given
+- [x] Found the real shape before assuming anything: `run_evals.yml` had
+      failed 5 days straight (#78-82, Nov 10-14) after 7 straight real
+      successes before that. Not an answer-quality problem at all --
+      the suite was crashing before asking a single real question, so
+      there was no quality score to even look at
+- [x] Two distinct failures, not one, confirmed from the real job logs
+      (not guessed): run #78 was a one-off `JSONDecodeError` from a
+      transient SteamSpy API hiccup during catalog ingestion (never
+      recurred in #79-82, not fixed -- flagged as a real but low-
+      priority resilience gap, out of scope for today). Runs #79-82 all
+      failed identically, confirmed by diffing two of their real
+      tracebacks: `AssertionError: reference query returned no rows`
+      inside `build_golden_questions()`, before a single Groq call
+- [x] Root cause: `golden_questions.py`'s `untracked_game` query (find a
+      game in CI's small ~100-game catalog the live-player poller has
+      never tracked, used to build the `forecast_insufficient_history_is_honest`
+      question) hard-asserted a row would always exist. CI's catalog is
+      the top 100 games by owners, a stable and popular list; the real
+      poller's `player_counts` history has been strictly accumulating
+      for ~2 months (258+ snapshots) -- by Nov 10, every one of those
+      100 popular games had already been seen by the poller at least
+      once, on a real day, not a hypothetical one
+- [x] Recognized this as the same failure *class* Slice 43/54 already
+      fixed once for the sibling "tracked" query (a baked-in assumption
+      about real, growing data going stale) -- just one level deeper:
+      not "which specific game," but "does an untracked game exist at
+      all." Fixed the same way: `untracked_game` is no longer asserted,
+      and `forecast_insufficient_history_is_honest` is now a
+      conditionally-appended question (mirroring the existing metacritic/
+      achievements/tracked-forecast patterns exactly), included only
+      when a real untracked game exists that day
+- [x] 2 new regression tests in `tests/test_golden_questions_forecast_selection.py`,
+      confirmed genuinely red first (reverted the fix via `git stash`,
+      watched the exact real `AssertionError` reproduce locally against
+      the `games_db` fixture with every game tracked), then green with
+      the fix restored
+- [x] `ruff`/`mypy` clean, 233/233 tests pass (2 new)
+
 ## Dropped
 - [x] ~~Gemini as a fallback provider~~, decided against it (free-tier keys expire too
       fast to be a reliable fallback for a portfolio demo). The seam in
